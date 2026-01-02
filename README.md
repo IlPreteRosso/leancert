@@ -176,9 +176,9 @@ This enables workflows where Python handles search strategy while Lean provides 
 The following have complete proofs with no `sorry`:
 
 - Interval arithmetic (FTIA) for `+`, `-`, `*`, `/`, `^`
-- Transcendental bounds: `exp`, `sin`, `cos`, `log`, `sinh`, `cosh`, `tanh`, `atan`, `arsinh`
+- Transcendental bounds: `exp`, `sin`, `cos`, `sinh`, `cosh`, `tanh`, `atan`, `arsinh`
 - Taylor series remainder bounds for `exp`, `sin`, `cos`
-- Forward-mode automatic differentiation
+- Forward-mode AD for core functions (exp, sin, cos, etc.)
 - Global optimization (`globalMinimize_lo_correct`, `globalMaximize_hi_correct`)
 - Root finding: bisection (existence) and Newton (uniqueness)
 - Integration bounds (`integrateInterval_correct`)
@@ -191,8 +191,9 @@ These work computationally but have proof gaps:
 |-----------|-------|
 | `atanh` interval | Fallback path uses `sorry`; Taylor model path is verified |
 | `atanh` Taylor remainder | `atanh_series_remainder_bound` incomplete |
-| `log` Taylor model | `tmLog_correct` incomplete; basic interval verified |
+| `log` Taylor model | `tmLog_correct` incomplete; computable bounds work |
 | `sinc`, `erf` derivatives | Missing differentiability proofs in AD |
+| `interval_integrate` tactic | Proof automation incomplete |
 
 To find all `sorry` occurrences:
 
