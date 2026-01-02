@@ -406,11 +406,11 @@ def parseUniqueRootGoal (goalType : Lean.Expr) : MetaM (Option (Name × Lean.Exp
 
     Proves `∃! x ∈ I, f(x) = 0` by:
     1. Checking Newton contraction (derivative bounded away from 0)
-    2. Applying verify_unique_root_core theorem
+    2. Applying verify_unique_root_computable theorem
 
-    The new signature requires both checkNewtonContractsCore (computable) and
-    checkNewtonContracts (noncomputable) proofs. We use native_decide for the
-    computable check and decide for the noncomputable one.
+    Uses the fully computable `verify_unique_root_computable` theorem which only
+    requires `checkNewtonContractsCore`. This allows `native_decide` to work
+    without noncomputable Real functions.
 -/
 unsafe def intervalUniqueRootCore (taylorDepth : Nat) : TacticM Unit := do
   let goal ← getMainGoal
@@ -432,32 +432,23 @@ unsafe def intervalUniqueRootCore (taylorDepth : Nat) : TacticM Unit := do
   -- Generate ContinuousOn proof
   let contProof ← LeanBound.Meta.mkContinuousOnProof ast interval
 
-  -- Build EvalConfig (for core check)
+  -- Build EvalConfig (for the computable core check)
   let evalCfgExpr ← mkAppM ``EvalConfig.mk #[toExpr taylorDepth]
 
-  -- Build NewtonConfig (default)
-  let newtonCfgExpr ← mkAppM ``Certificate.RootFinding.NewtonConfig.mk #[toExpr (5 : Nat), toExpr (1 : Nat)]
+  -- Apply verify_unique_root_computable (fully computable version)
+  -- Args: e, hsupp, hvar0, I, cfg, hCont
+  let proof ← mkAppM ``Certificate.RootFinding.verify_unique_root_computable
+    #[ast, supportProof, var0Proof, interval, evalCfgExpr, contProof]
 
-  -- Apply verify_unique_root_core with both configs
-  -- Args: e, hsupp, hvar0, I, evalCfg, newtonCfg, hCont
-  let proof ← mkAppM ``Certificate.RootFinding.verify_unique_root_core
-    #[ast, supportProof, var0Proof, interval, evalCfgExpr, newtonCfgExpr, contProof]
-
-  -- Apply the proof (leaves two certificate check goals)
+  -- Apply the proof (leaves one certificate check goal)
   let newGoals ← goal.apply proof
   setGoals newGoals
 
-  -- Solve certificate checks
-  -- Goal 1: checkNewtonContractsCore e I evalCfg = true (computable - use native_decide)
-  -- Goal 2: checkNewtonContracts e I newtonCfg = true (noncomputable - use decide)
+  -- Solve certificate check: checkNewtonContractsCore e I cfg = true
+  -- This is computable, so native_decide works
   for g in newGoals do
     setGoals [g]
-    -- Try native_decide first (works for computable), then decide
-    try
-      evalTactic (← `(tactic| native_decide))
-    catch _ =>
-      -- Fallback to decide for noncomputable checks
-      evalTactic (← `(tactic| decide))
+    evalTactic (← `(tactic| native_decide))
 
 /-- The interval_unique_root tactic.
 

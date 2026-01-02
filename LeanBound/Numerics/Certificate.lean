@@ -874,6 +874,498 @@ theorem verify_unique_root_core (e : Expr) (hsupp : ExprSupportedCore e)
   have hsupp' : ExprSupported e := hsupp.toSupported
   exact verify_unique_root_newton e hsupp' hvar0 I newtonCfg hCont h_cert_newton
 
+/-! ### Fully Computable Unique Root Verification
+
+The following theorems provide a **fully computable** path to proving unique root existence
+using only `checkNewtonContractsCore`. This allows `native_decide` to work without requiring
+noncomputable functions like `Real.exp` or `Real.log`. -/
+
+/-- Newton step preserves roots when using Core evaluation functions.
+    If x is a root in I and newtonStepCore produces N, then x ∈ N. -/
+theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupportedCore e) (hvar0 : UsesOnlyVar0 e)
+    (I N : IntervalRat) (cfg : EvalConfig)
+    (hStep : newtonStepCore e I cfg = some N)
+    (x : ℝ) (hx : x ∈ I) (hroot : Expr.eval (fun _ => x) e = 0) :
+    x ∈ N := by
+  -- Extract structure from newtonStepCore
+  obtain ⟨hdI_nonzero, hN_lo, hN_hi⟩ := newtonStepCore_extract e I N cfg hStep
+
+  -- Define components matching abstract theorem
+  let c := I.midpoint
+  let fc := evalIntervalCore1 e (IntervalRat.singleton c) cfg
+  let dI := derivIntervalCore e I cfg
+
+  -- Verify premises for abstract theorem
+  have hc_in_I : (c : ℝ) ∈ I := IntervalRat.midpoint_mem I
+
+  -- 1. f(c) ∈ fc via evalIntervalCore1_correct
+  have hfc_correct : evalFunc1 e c ∈ fc := by
+    simp only [evalFunc1]
+    exact evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg
+
+  -- 2. f'(ξ) ∈ dI for all ξ ∈ I via derivIntervalCore_correct
+  have hdI_correct : ∀ ξ ∈ I, deriv (evalFunc1 e) ξ ∈ dI := fun ξ hξ =>
+    derivIntervalCore_correct e hsupp I ξ hξ cfg
+
+  -- Apply abstract preservation lemma
+  have hroot' : evalFunc1 e x = 0 := hroot
+  have h_in_Newton := newton_operator_preserves_root e hsupp.toSupported hvar0
+    I c fc dI hc_in_I hfc_correct hdI_correct hdI_nonzero x hx hroot'
+
+  -- Now we need to show x ∈ N where N = I ∩ Newton
+  -- h_in_Newton shows x is in the Newton interval [c - Q.hi, c - Q.lo]
+  -- Combined with hx : x ∈ I, we get x ∈ I ∩ Newton = N
+  have hx_in_intersect := IntervalRat.mem_intersect hx h_in_Newton
+  obtain ⟨K, hK_eq, hx_in_K⟩ := hx_in_intersect
+
+  -- Show x ∈ N by using the intersection logic
+  -- Both hStep and hK_eq refer to the same intersect
+  unfold newtonStepCore at hStep
+  simp only [hdI_nonzero, dite_false] at hStep
+  -- Now hStep : IntervalRat.intersect I (I.newtonInterval fc dI) = some N
+  -- And hK_eq : IntervalRat.intersect I (I.newtonInterval fc dI) = some K
+  have hN_eq_K : N = K := by
+    rw [hStep] at hK_eq
+    simp only [Option.some.injEq] at hK_eq
+    exact hK_eq
+  rw [hN_eq_K]
+  exact hx_in_K
+
+/-- If Newton step succeeds, there's at most one root in I (via Rolle's theorem).
+    This uses the fact that if dI doesn't contain zero, the derivative is nonzero
+    everywhere on I, so f is strictly monotonic. -/
+theorem newton_step_core_at_most_one_root (e : Expr) (hsupp : ExprSupportedCore e) (_hvar0 : UsesOnlyVar0 e)
+    (I : IntervalRat) (cfg : EvalConfig)
+    (hStep : ∃ N, newtonStepCore e I cfg = some N)
+    (hCont : ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi))
+    (x y : ℝ) (hx : x ∈ I) (hy : y ∈ I)
+    (hx_root : Expr.eval (fun _ => x) e = 0) (hy_root : Expr.eval (fun _ => y) e = 0) :
+    x = y := by
+  obtain ⟨N, hN⟩ := hStep
+  -- If step succeeds, dI doesn't contain zero
+  set dI := derivIntervalCore e I cfg with hdI_def
+  by_cases hzero : dI.containsZero
+  · -- If dI contains zero, newtonStepCore returns none, but hN says it's some N
+    unfold newtonStepCore at hN
+    simp only [← hdI_def, dif_pos hzero] at hN
+    exact Option.noConfusion hN
+  · -- dI doesn't contain zero, so derivative is nonzero everywhere on I
+    simp only [IntervalRat.containsZero, not_and_or, not_le] at hzero
+
+    by_contra hne
+    -- If x ≠ y, Rolle's theorem gives ξ between them with f'(ξ) = 0
+    simp only [IntervalRat.mem_def] at hx hy
+    rcases lt_or_gt_of_ne hne with hlt | hlt
+    · -- x < y case
+      have hIcc_sub : Set.Icc x y ⊆ Set.Icc (I.lo : ℝ) I.hi := by
+        intro z ⟨hzlo, hzhi⟩
+        exact ⟨le_trans hx.1 hzlo, le_trans hzhi hy.2⟩
+      have hCont' : ContinuousOn (evalFunc1 e) (Set.Icc x y) := hCont.mono hIcc_sub
+      have hf_eq : evalFunc1 e x = evalFunc1 e y := by
+        simp only [evalFunc1]; rw [hx_root, hy_root]
+      obtain ⟨ξ, hξ_mem, hξ_deriv⟩ := @exists_deriv_eq_zero (evalFunc1 e) x y hlt hCont' hf_eq
+      -- ξ ∈ (x, y) ⊆ I
+      have hξ_in_I : ξ ∈ I := by
+        simp only [IntervalRat.mem_def]
+        exact ⟨le_trans hx.1 (le_of_lt hξ_mem.1), le_trans (le_of_lt hξ_mem.2) hy.2⟩
+      -- f'(ξ) ∈ dI but f'(ξ) = 0
+      have hderiv_in := derivIntervalCore_correct e hsupp I ξ hξ_in_I cfg
+      rw [hξ_deriv] at hderiv_in
+      simp only [IntervalRat.mem_def] at hderiv_in
+      rcases hzero with hlo_pos | hhi_neg
+      · have hcast : (0 : ℝ) < dI.lo := by exact_mod_cast hlo_pos
+        linarith [hderiv_in.1]
+      · have hcast : (dI.hi : ℝ) < 0 := by exact_mod_cast hhi_neg
+        linarith [hderiv_in.2]
+    · -- y < x case (symmetric)
+      have hIcc_sub : Set.Icc y x ⊆ Set.Icc (I.lo : ℝ) I.hi := by
+        intro z ⟨hzlo, hzhi⟩
+        exact ⟨le_trans hy.1 hzlo, le_trans hzhi hx.2⟩
+      have hCont' : ContinuousOn (evalFunc1 e) (Set.Icc y x) := hCont.mono hIcc_sub
+      have hf_eq : evalFunc1 e y = evalFunc1 e x := by
+        simp only [evalFunc1]; rw [hy_root, hx_root]
+      obtain ⟨ξ, hξ_mem, hξ_deriv⟩ := @exists_deriv_eq_zero (evalFunc1 e) y x hlt hCont' hf_eq
+      have hξ_in_I : ξ ∈ I := by
+        simp only [IntervalRat.mem_def]
+        exact ⟨le_trans hy.1 (le_of_lt hξ_mem.1), le_trans (le_of_lt hξ_mem.2) hx.2⟩
+      have hderiv_in := derivIntervalCore_correct e hsupp I ξ hξ_in_I cfg
+      rw [hξ_deriv] at hderiv_in
+      simp only [IntervalRat.mem_def] at hderiv_in
+      rcases hzero with hlo_pos | hhi_neg
+      · have hcast : (0 : ℝ) < dI.lo := by exact_mod_cast hlo_pos
+        linarith [hderiv_in.1]
+      · have hcast : (dI.hi : ℝ) < 0 := by exact_mod_cast hhi_neg
+        linarith [hderiv_in.2]
+
+/-- MVT bound using Core functions: If f' ≥ dI.lo > 0 (increasing) and f(I.lo) > 0,
+    then f(c) > dI.lo * hw where c = midpoint and hw = half-width. -/
+lemma mvt_fc_lower_bound_pos_increasing_core
+    (e : Expr) (hsupp : ExprSupportedCore e)
+    (I : IntervalRat) (cfg : EvalConfig)
+    (_hI_nonsingleton : I.lo < I.hi)
+    (hdI_lo_pos : 0 < (derivIntervalCore e I cfg).lo)
+    (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi))
+    (hf_Ilo_pos : 0 < evalFunc1 e I.lo) :
+    let c : ℚ := I.midpoint
+    let hw : ℚ := (I.hi - I.lo) / 2
+    let dI := derivIntervalCore e I cfg
+    evalFunc1 e c > (dI.lo : ℝ) * hw := by
+  intro c hw dI
+  have hderiv_lo : ∀ ξ ∈ I, (dI.lo : ℝ) ≤ deriv (evalFunc1 e) ξ := fun ξ hξ =>
+    (derivIntervalCore_correct e hsupp I ξ hξ cfg).1
+  have hc_in_I : (c : ℝ) ∈ I := IntervalRat.midpoint_mem I
+  have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+    simp only [IntervalRat.mem_def]
+    exact ⟨le_refl _, by exact_mod_cast I.le⟩
+  have hIlo_le_c : (I.lo : ℝ) ≤ c := by
+    have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    linarith
+  have hmvt := mvt_lower_bound_core e hsupp I cfg hCont I.lo c hIlo_in_I hc_in_I hIlo_le_c
+  have hc_minus_Ilo : (c : ℝ) - I.lo = hw := by
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    have hhw_def : (hw : ℝ) = ((I.hi : ℝ) - I.lo) / 2 := by
+      show (((I.hi - I.lo) / 2 : ℚ) : ℝ) = ((I.hi : ℝ) - I.lo) / 2; push_cast; ring
+    linarith
+  rw [hc_minus_Ilo] at hmvt
+  calc evalFunc1 e c ≥ evalFunc1 e I.lo + dI.lo * hw := by linarith
+    _ > 0 + dI.lo * hw := by linarith
+    _ = dI.lo * hw := by ring
+
+/-- MVT bound using Core functions: If f' ≥ dI.lo > 0 (increasing) and f(I.hi) < 0,
+    then f(c) < -dI.lo * hw where c = midpoint and hw = half-width. -/
+lemma mvt_fc_upper_bound_pos_increasing_core
+    (e : Expr) (hsupp : ExprSupportedCore e)
+    (I : IntervalRat) (cfg : EvalConfig)
+    (_hI_nonsingleton : I.lo < I.hi)
+    (hdI_lo_pos : 0 < (derivIntervalCore e I cfg).lo)
+    (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi))
+    (hf_Ihi_neg : evalFunc1 e I.hi < 0) :
+    let c : ℚ := I.midpoint
+    let hw : ℚ := (I.hi - I.lo) / 2
+    let dI := derivIntervalCore e I cfg
+    evalFunc1 e c < -((dI.lo : ℝ) * hw) := by
+  intro c hw dI
+  have hderiv_lo : ∀ ξ ∈ I, (dI.lo : ℝ) ≤ deriv (evalFunc1 e) ξ := fun ξ hξ =>
+    (derivIntervalCore_correct e hsupp I ξ hξ cfg).1
+  have hc_in_I : (c : ℝ) ∈ I := IntervalRat.midpoint_mem I
+  have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+    simp only [IntervalRat.mem_def]
+    exact ⟨by exact_mod_cast I.le, le_refl _⟩
+  have hc_le_Ihi : (c : ℝ) ≤ I.hi := by
+    have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    linarith
+  have hmvt := mvt_lower_bound_core e hsupp I cfg hCont c I.hi hc_in_I hIhi_in_I hc_le_Ihi
+  have hIhi_minus_c : (I.hi : ℝ) - c = hw := by
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    have hhw_def : (hw : ℝ) = ((I.hi : ℝ) - I.lo) / 2 := by
+      show (((I.hi - I.lo) / 2 : ℚ) : ℝ) = ((I.hi : ℝ) - I.lo) / 2; push_cast; ring
+    linarith
+  rw [hIhi_minus_c] at hmvt
+  calc evalFunc1 e c ≤ evalFunc1 e I.hi - dI.lo * hw := by linarith
+    _ < 0 - dI.lo * hw := by linarith
+    _ = -(dI.lo * hw) := by ring
+
+/-- MVT bound using Core functions: If f' ≤ dI.hi < 0 (decreasing) and f(I.lo) < 0,
+    then f(c) < 0 and more specifically, fc.lo / dI.hi ≥ hw. -/
+lemma mvt_fc_upper_bound_neg_decreasing_core
+    (e : Expr) (hsupp : ExprSupportedCore e)
+    (I : IntervalRat) (cfg : EvalConfig)
+    (_hI_nonsingleton : I.lo < I.hi)
+    (hdI_hi_neg : (derivIntervalCore e I cfg).hi < 0)
+    (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi))
+    (hf_Ilo_neg : evalFunc1 e I.lo < 0) :
+    let c : ℚ := I.midpoint
+    let hw : ℚ := (I.hi - I.lo) / 2
+    let dI := derivIntervalCore e I cfg
+    evalFunc1 e c < (dI.hi : ℝ) * hw := by
+  intro c hw dI
+  have hderiv_hi : ∀ ξ ∈ I, deriv (evalFunc1 e) ξ ≤ (dI.hi : ℝ) := fun ξ hξ =>
+    (derivIntervalCore_correct e hsupp I ξ hξ cfg).2
+  have hc_in_I : (c : ℝ) ∈ I := IntervalRat.midpoint_mem I
+  have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+    simp only [IntervalRat.mem_def]
+    exact ⟨le_refl _, by exact_mod_cast I.le⟩
+  have hIlo_le_c : (I.lo : ℝ) ≤ c := by
+    have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    linarith
+  have hmvt := mvt_upper_bound_core e hsupp I cfg hCont I.lo c hIlo_in_I hc_in_I hIlo_le_c
+  have hc_minus_Ilo : (c : ℝ) - I.lo = hw := by
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    have hhw_def : (hw : ℝ) = ((I.hi : ℝ) - I.lo) / 2 := by
+      show (((I.hi - I.lo) / 2 : ℚ) : ℝ) = ((I.hi : ℝ) - I.lo) / 2; push_cast; ring
+    linarith
+  rw [hc_minus_Ilo] at hmvt
+  calc evalFunc1 e c ≤ evalFunc1 e I.lo + dI.hi * hw := by linarith
+    _ < 0 + dI.hi * hw := by linarith
+    _ = dI.hi * hw := by ring
+
+/-- MVT bound using Core functions: If f' ≤ dI.hi < 0 (decreasing) and f(I.hi) > 0,
+    then f(c) > 0 and more specifically, fc.hi / dI.hi ≤ -hw. -/
+lemma mvt_fc_lower_bound_neg_decreasing_core
+    (e : Expr) (hsupp : ExprSupportedCore e)
+    (I : IntervalRat) (cfg : EvalConfig)
+    (_hI_nonsingleton : I.lo < I.hi)
+    (hdI_hi_neg : (derivIntervalCore e I cfg).hi < 0)
+    (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi))
+    (hf_Ihi_pos : 0 < evalFunc1 e I.hi) :
+    let c : ℚ := I.midpoint
+    let hw : ℚ := (I.hi - I.lo) / 2
+    let dI := derivIntervalCore e I cfg
+    evalFunc1 e c > -((dI.hi : ℝ) * hw) := by
+  intro c hw dI
+  have hderiv_hi : ∀ ξ ∈ I, deriv (evalFunc1 e) ξ ≤ (dI.hi : ℝ) := fun ξ hξ =>
+    (derivIntervalCore_correct e hsupp I ξ hξ cfg).2
+  have hc_in_I : (c : ℝ) ∈ I := IntervalRat.midpoint_mem I
+  have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+    simp only [IntervalRat.mem_def]
+    exact ⟨by exact_mod_cast I.le, le_refl _⟩
+  have hc_le_Ihi : (c : ℝ) ≤ I.hi := by
+    have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    linarith
+  have hmvt := mvt_upper_bound_core e hsupp I cfg hCont c I.hi hc_in_I hIhi_in_I hc_le_Ihi
+  have hIhi_minus_c : (I.hi : ℝ) - c = hw := by
+    have hc_def : (c : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      show ((I.lo + I.hi) / 2 : ℚ) = ((I.lo : ℝ) + I.hi) / 2; push_cast; ring
+    have hhw_def : (hw : ℝ) = ((I.hi : ℝ) - I.lo) / 2 := by
+      show (((I.hi - I.lo) / 2 : ℚ) : ℝ) = ((I.hi : ℝ) - I.lo) / 2; push_cast; ring
+    linarith
+  rw [hIhi_minus_c] at hmvt
+  calc evalFunc1 e c ≥ evalFunc1 e I.hi - dI.hi * hw := by linarith
+    _ > 0 - dI.hi * hw := by linarith
+    _ = -(dI.hi * hw) := by ring
+
+/-- **Golden Theorem for Computable Unique Root (Fully Computable)**
+
+    If `checkNewtonContractsCore e I cfg = true`, then there exists a unique root in I.
+
+    This theorem uses ONLY computable functions (no Real.exp, Real.log, etc.),
+    making it suitable for `native_decide` verification. -/
+theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
+    (hvar0 : UsesOnlyVar0 e) (I : IntervalRat) (cfg : EvalConfig)
+    (hCont : ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi))
+    (h_cert : checkNewtonContractsCore e I cfg = true) :
+    ∃! x, x ∈ I ∧ Expr.eval (fun _ => x) e = 0 := by
+  simp only [checkNewtonContractsCore] at h_cert
+  split at h_cert
+  · exact absurd h_cert Bool.false_ne_true
+  · rename_i N hN
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h_cert
+    have hContract : N.lo > I.lo ∧ N.hi < I.hi := ⟨h_cert.1, h_cert.2⟩
+
+    -- Extract structure
+    obtain ⟨hdI_nonzero, hN_lo, hN_hi⟩ := newtonStepCore_extract e I N cfg hN
+    let c := I.midpoint
+    let fc := evalIntervalCore1 e (IntervalRat.singleton c) cfg
+    let dI := derivIntervalCore e I cfg
+    let hw : ℚ := (I.hi - I.lo) / 2
+
+    -- From contraction bounds, extract Q bounds
+    -- N.lo = max I.lo (c - Q.hi), N.hi = min I.hi (c - Q.lo)
+    -- Contraction means: N.lo > I.lo and N.hi < I.hi
+    -- So N.lo = c - Q.hi (not I.lo) and N.hi = c - Q.lo (not I.hi)
+    have hbounds := contraction_newton_bounds hContract hN_lo hN_hi
+
+    -- Q.hi < c - I.lo = hw and Q.lo > c - I.hi = -hw
+    have hQ_hi_lt : (c : ℚ) - N.lo < hw := by
+      rw [hbounds.1]
+      have hc_minus_Ilo : c - I.lo = hw := by
+        show I.midpoint - I.lo = (I.hi - I.lo) / 2
+        simp only [IntervalRat.midpoint]; ring
+      linarith [hContract.1]
+    have hQ_lo_gt : (c : ℚ) - N.hi > -hw := by
+      rw [hbounds.2]
+      have hc_minus_Ihi : c - I.hi = -hw := by
+        show I.midpoint - I.hi = -((I.hi - I.lo) / 2)
+        simp only [IntervalRat.midpoint]; ring
+      linarith [hContract.2]
+
+    -- Use sign analysis to prove existence
+    simp only [IntervalRat.containsZero, not_and_or, not_le] at hdI_nonzero
+
+    -- Contraction + MVT logic mirrors newton_contraction_has_root
+    -- Key: if f doesn't change sign, MVT bounds on the quotient contradict contraction
+    have hI_nonsingleton : I.lo < I.hi := by
+      have h1 : (I.lo : ℝ) < N.lo := by exact_mod_cast hContract.1
+      have h2 : (N.hi : ℝ) < I.hi := by exact_mod_cast hContract.2
+      have h3 : (N.lo : ℝ) ≤ N.hi := by exact_mod_cast N.le
+      have h4 : I.lo < I.hi := by
+        have : (I.lo : ℝ) < I.hi := by linarith
+        exact_mod_cast this
+      exact h4
+
+    set f := fun x : ℝ => Expr.eval (fun _ => x) e with hf_def
+
+    -- Case split on derivative sign
+    rcases hdI_nonzero with hdI_pos | hdI_neg
+    · -- Case: dI.lo > 0 (strictly increasing)
+      by_cases hlo : f I.lo ≥ 0
+      · by_cases hhi : f I.hi ≤ 0
+        · -- f(lo) ≥ 0 and f(hi) ≤ 0 with f increasing is a contradiction
+          -- Because f' ≥ dI.lo > 0 implies f(hi) - f(lo) > 0, so f(hi) > f(lo)
+          -- Combined with f(lo) ≥ 0 ≥ f(hi), this is impossible
+          exfalso
+          have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+            simp only [IntervalRat.mem_def]
+            exact ⟨le_refl _, by exact_mod_cast I.le⟩
+          have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+            simp only [IntervalRat.mem_def]
+            exact ⟨by exact_mod_cast I.le, le_refl _⟩
+          have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+          -- MVT: f(hi) - f(lo) ≥ dI.lo * (hi - lo) > 0
+          have hmvt := mvt_lower_bound_core e hsupp I cfg hCont I.lo I.hi hIlo_in_I hIhi_in_I hle
+          have hdI_lo_pos_real : (0 : ℝ) < dI.lo := by exact_mod_cast hdI_pos
+          have hwidth_pos : (I.hi : ℝ) - I.lo > 0 := by
+            have h : (I.lo : ℝ) < I.hi := by exact_mod_cast hI_nonsingleton
+            linarith
+          have hdiff_pos : (dI.lo : ℝ) * ((I.hi : ℝ) - I.lo) > 0 := mul_pos hdI_lo_pos_real hwidth_pos
+          -- hmvt : evalFunc1 e ↑I.hi - evalFunc1 e ↑I.lo ≥ ↑dI.lo * (↑I.hi - ↑I.lo)
+          -- hdiff_pos : (dI.lo : ℝ) * ((I.hi : ℝ) - I.lo) > 0
+          -- So evalFunc1 e I.hi > evalFunc1 e I.lo
+          -- hlo : 0 ≤ f I.lo = evalFunc1 e I.lo
+          -- hhi : f I.hi ≤ 0 = evalFunc1 e I.hi ≤ 0
+          -- This gives: 0 ≤ evalFunc1 e I.lo < evalFunc1 e I.hi ≤ 0, contradiction
+          have hstrictly_increasing : evalFunc1 e I.hi > evalFunc1 e I.lo := by linarith
+          linarith
+        · -- f(lo) ≥ 0 and f(hi) > 0 with f increasing → f > 0 on I
+          push_neg at hhi
+          by_cases hlo_eq : f I.lo = 0
+          · use I.lo
+            have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+              simp only [IntervalRat.mem_def]
+              exact ⟨le_refl _, by exact_mod_cast I.le⟩
+            constructor
+            · exact ⟨hIlo_in_I, hlo_eq⟩
+            · intro y ⟨hy_in_I, hy_root⟩
+              exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y I.lo hy_in_I hIlo_in_I hy_root hlo_eq
+          · -- f(lo) > 0, get contradiction via MVT
+            have hlo_pos : 0 < f I.lo := lt_of_le_of_ne hlo (Ne.symm hlo_eq)
+            exfalso
+            -- MVT: fc.hi / dI.lo ≥ hw (half-width)
+            have hMVT := mvt_fc_lower_bound_pos_increasing_core e hsupp I cfg hI_nonsingleton hdI_pos hCont hlo_pos
+            -- Apply generic contraction contradiction
+            exact generic_contraction_absurd_hi I c fc dI N rfl hdI_nonzero hdI_pos
+              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              hN_lo hContract.1 hMVT
+      · push_neg at hlo
+        by_cases hhi : f I.hi ≤ 0
+        · by_cases hhi_eq : f I.hi = 0
+          · use I.hi
+            have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+              simp only [IntervalRat.mem_def]
+              exact ⟨by exact_mod_cast I.le, le_refl _⟩
+            constructor
+            · exact ⟨hIhi_in_I, hhi_eq⟩
+            · intro y ⟨hy_in_I, hy_root⟩
+              exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y I.hi hy_in_I hIhi_in_I hy_root hhi_eq
+          · -- f(hi) < 0, get contradiction via MVT
+            have hhi_neg : f I.hi < 0 := lt_of_le_of_ne hhi hhi_eq
+            exfalso
+            have hMVT := mvt_fc_upper_bound_pos_increasing_core e hsupp I cfg hI_nonsingleton hdI_pos hCont hhi_neg
+            exact generic_contraction_absurd_lo I c fc dI N rfl hdI_nonzero hdI_pos
+              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              hN_hi hContract.2 hMVT
+        · -- f(lo) < 0 and f(hi) > 0: SIGN CHANGE! Apply IVT.
+          push_neg at hhi
+          have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+          have h0_in_range : (0 : ℝ) ∈ Set.Icc (f I.lo) (f I.hi) := ⟨le_of_lt hlo, le_of_lt hhi⟩
+          have hivt := intermediate_value_Icc hle hCont h0_in_range
+          obtain ⟨x, hx_mem, hx_root⟩ := hivt
+          use x
+          constructor
+          · have hx_in_I : x ∈ I := by simp only [IntervalRat.mem_def]; exact hx_mem
+            exact ⟨hx_in_I, hx_root⟩
+          · intro y ⟨hy_in_I, hy_root⟩
+            have hx_in_I : x ∈ I := by simp only [IntervalRat.mem_def]; exact hx_mem
+            exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y x hy_in_I hx_in_I hy_root hx_root
+    · -- Case: dI.hi < 0 (strictly decreasing) - symmetric logic
+      by_cases hlo : f I.lo ≤ 0
+      · by_cases hhi : f I.hi ≥ 0
+        · -- f(lo) ≤ 0 ≤ f(hi) with f decreasing is a contradiction
+          -- Because f' ≤ dI.hi < 0 implies f(hi) - f(lo) < 0, so f(hi) < f(lo)
+          -- Combined with f(lo) ≤ 0 ≤ f(hi), this is impossible
+          exfalso
+          have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+            simp only [IntervalRat.mem_def]
+            exact ⟨le_refl _, by exact_mod_cast I.le⟩
+          have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+            simp only [IntervalRat.mem_def]
+            exact ⟨by exact_mod_cast I.le, le_refl _⟩
+          have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+          -- MVT: f(hi) - f(lo) ≤ dI.hi * (hi - lo) < 0
+          have hmvt := mvt_upper_bound_core e hsupp I cfg hCont I.lo I.hi hIlo_in_I hIhi_in_I hle
+          have hdI_hi_neg_real : (dI.hi : ℝ) < 0 := by exact_mod_cast hdI_neg
+          have hwidth_pos : (I.hi : ℝ) - I.lo > 0 := by
+            have h : (I.lo : ℝ) < I.hi := by exact_mod_cast hI_nonsingleton
+            linarith
+          have hdiff_neg : (dI.hi : ℝ) * ((I.hi : ℝ) - I.lo) < 0 := mul_neg_of_neg_of_pos hdI_hi_neg_real hwidth_pos
+          -- hmvt : evalFunc1 e ↑I.hi - evalFunc1 e ↑I.lo ≤ ↑dI.hi * (↑I.hi - ↑I.lo)
+          -- hdiff_neg : (dI.hi : ℝ) * ((I.hi : ℝ) - I.lo) < 0
+          -- So evalFunc1 e I.hi < evalFunc1 e I.lo
+          -- hlo : f I.lo ≤ 0 = evalFunc1 e I.lo ≤ 0
+          -- hhi : f I.hi ≥ 0 = evalFunc1 e I.hi ≥ 0
+          -- This gives: 0 ≤ evalFunc1 e I.hi < evalFunc1 e I.lo ≤ 0, contradiction
+          have hstrictly_decreasing : evalFunc1 e I.hi < evalFunc1 e I.lo := by linarith
+          linarith
+        · push_neg at hhi
+          by_cases hlo_eq : f I.lo = 0
+          · use I.lo
+            have hIlo_in_I : (I.lo : ℝ) ∈ I := by
+              simp only [IntervalRat.mem_def]
+              exact ⟨le_refl _, by exact_mod_cast I.le⟩
+            constructor
+            · exact ⟨hIlo_in_I, hlo_eq⟩
+            · intro y ⟨hy_in_I, hy_root⟩
+              exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y I.lo hy_in_I hIlo_in_I hy_root hlo_eq
+          · -- f(lo) < 0 and f(hi) < 0 with f decreasing → contradiction via MVT
+            have hlo_neg : f I.lo < 0 := lt_of_le_of_ne hlo hlo_eq
+            exfalso
+            have hMVT := mvt_fc_upper_bound_neg_decreasing_core e hsupp I cfg hI_nonsingleton hdI_neg hCont hlo_neg
+            exact generic_contraction_absurd_hi_neg I c fc dI N rfl hdI_nonzero hdI_neg
+              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              hN_lo hContract.1 hMVT
+      · push_neg at hlo
+        by_cases hhi : f I.hi ≥ 0
+        · by_cases hhi_eq : f I.hi = 0
+          · use I.hi
+            have hIhi_in_I : (I.hi : ℝ) ∈ I := by
+              simp only [IntervalRat.mem_def]
+              exact ⟨by exact_mod_cast I.le, le_refl _⟩
+            constructor
+            · exact ⟨hIhi_in_I, hhi_eq⟩
+            · intro y ⟨hy_in_I, hy_root⟩
+              exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y I.hi hy_in_I hIhi_in_I hy_root hhi_eq
+          · -- f(hi) > 0 and f(lo) > 0 with f decreasing → contradiction via MVT
+            have hhi_pos : 0 < f I.hi := lt_of_le_of_ne hhi (Ne.symm hhi_eq)
+            exfalso
+            have hMVT := mvt_fc_lower_bound_neg_decreasing_core e hsupp I cfg hI_nonsingleton hdI_neg hCont hhi_pos
+            exact generic_contraction_absurd_lo_neg I c fc dI N rfl hdI_nonzero hdI_neg
+              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              hN_hi hContract.2 hMVT
+        · -- f(lo) > 0 and f(hi) < 0: SIGN CHANGE for decreasing function!
+          push_neg at hhi
+          have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+          have h0_in_range : (0 : ℝ) ∈ Set.Icc (f I.hi) (f I.lo) := ⟨le_of_lt hhi, le_of_lt hlo⟩
+          have hivt := intermediate_value_Icc' hle hCont h0_in_range
+          obtain ⟨x, hx_mem, hx_root⟩ := hivt
+          use x
+          constructor
+          · have hx_in_I : x ∈ I := by simp only [IntervalRat.mem_def]; exact hx_mem
+            exact ⟨hx_in_I, hx_root⟩
+          · intro y ⟨hy_in_I, hy_root⟩
+            have hx_in_I : x ∈ I := by simp only [IntervalRat.mem_def]; exact hx_mem
+            exact newton_step_core_at_most_one_root e hsupp hvar0 I cfg ⟨N, hN⟩ hCont y x hy_in_I hx_in_I hy_root hx_root
+
 /-! ### Sign Change Root Existence -/
 
 /-- **Golden Theorem for Sign Change Root Existence**

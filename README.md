@@ -208,7 +208,6 @@ These work computationally but have proof gaps:
 | `log` Taylor model | `tmLog_correct` incomplete; computable bounds work |
 | `sinc`, `erf` derivatives | Missing differentiability proofs in AD |
 | `interval_integrate` tactic | Proof automation incomplete |
-| `interval_unique_root` tactic | Decidability issue; `checkNewtonContracts` not computable |
 
 To find all `sorry` occurrences:
 
@@ -221,10 +220,9 @@ grep -r "sorry" --include="*.lean" LeanBound/ | grep -v "no sorry"
 Priority areas:
 
 1. Filling `sorry` gaps (especially `atanh` Taylor remainder, `tmLog_correct`)
-2. Fixing `interval_unique_root` decidability (make `checkNewtonContracts` computable)
-3. Additional functions (`asin`, `acos`, real powers)
-4. Subdivision strategies for optimization
-5. Documentation and examples
+2. Additional functions (`asin`, `acos`, real powers)
+3. Subdivision strategies for optimization
+4. Documentation and examples
 
 Open an issue before starting major work.
 
