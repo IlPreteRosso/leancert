@@ -21,7 +21,7 @@ Add to your `lakefile.toml`:
 ```toml
 [[require]]
 name = "leanbound"
-git = "https://github.com/yale/leanbound"
+git = "https://github.com/alerad/leanbound"
 rev = "main"
 ```
 
