@@ -32,19 +32,23 @@ Then run `lake update`.
 ### Tactics
 
 ```lean
-import LeanBound.Tactic.Interval
+import LeanBound.Tactic.IntervalAuto
+import LeanBound.Tactic.Discovery
 
--- Prove upper bounds (dispatches to interval_le, interval_ge, etc.)
-example : ∀ x ∈ Set.Icc 0 1, x^2 + Real.sin x ≤ 2 := by
-  interval_bound
+open LeanBound.Core
 
--- Prove root existence (√2)
-example : ∃ x ∈ Set.Icc 1 2, x^2 - 2 = 0 := by
+-- Define intervals
+def I01 : IntervalRat := ⟨0, 1, by norm_num⟩
+def I12 : IntervalRat := ⟨1, 2, by norm_num⟩
+
+-- Prove upper bounds on transcendentals
+example : ∀ x ∈ I01, Real.exp x ≤ (3 : ℚ) := by interval_bound 15
+example : ∀ x ∈ I01, Real.sin x ≤ (1 : ℚ) := by interval_bound
+
+-- Prove root existence (√2) via sign change
+example : ∃ x ∈ I12, Expr.eval (fun _ => x)
+    (Expr.add (Expr.mul (Expr.var 0) (Expr.var 0)) (Expr.neg (Expr.const 2))) = 0 := by
   interval_roots
-
--- Prove root uniqueness via Newton contraction
-example : ∃! x ∈ Set.Icc 1 2, x^2 - 2 = 0 := by
-  interval_unique_root
 ```
 
 ### Direct API
@@ -52,9 +56,16 @@ example : ∃! x ∈ Set.Icc 1 2, x^2 - 2 = 0 := by
 ```lean
 import LeanBound.Numerics.Certificate
 
+open LeanBound.Core LeanBound.Numerics LeanBound.Numerics.Certificate
+
+def I01 : IntervalRat := ⟨0, 1, by norm_num⟩
+def exprExp : Expr := Expr.exp (Expr.var 0)
+def exprExp_core : ExprSupportedCore exprExp :=
+  ExprSupportedCore.exp (ExprSupportedCore.var 0)
+
 -- Using the certificate API directly
-theorem exp_bounded : ∀ x ∈ Icc 0 1, Real.exp x ≤ 3 :=
-  verify_upper_bound exprExp exprExp_core I01 3 (by native_decide)
+theorem exp_bounded : ∀ x ∈ I01, Expr.eval (fun _ => x) exprExp ≤ (3 : ℚ) :=
+  verify_upper_bound exprExp exprExp_core I01 3 { taylorDepth := 10 } (by native_decide)
 ```
 
 ### Discovery Commands
@@ -194,6 +205,7 @@ These work computationally but have proof gaps:
 | `log` Taylor model | `tmLog_correct` incomplete; computable bounds work |
 | `sinc`, `erf` derivatives | Missing differentiability proofs in AD |
 | `interval_integrate` tactic | Proof automation incomplete |
+| `interval_unique_root` tactic | Decidability issue; `checkNewtonContracts` not computable |
 
 To find all `sorry` occurrences:
 
@@ -206,9 +218,10 @@ grep -r "sorry" --include="*.lean" LeanBound/ | grep -v "no sorry"
 Priority areas:
 
 1. Filling `sorry` gaps (especially `atanh` Taylor remainder, `tmLog_correct`)
-2. Additional functions (`asin`, `acos`, real powers)
-3. Subdivision strategies for optimization
-4. Documentation and examples
+2. Fixing `interval_unique_root` decidability (make `checkNewtonContracts` computable)
+3. Additional functions (`asin`, `acos`, real powers)
+4. Subdivision strategies for optimization
+5. Documentation and examples
 
 Open an issue before starting major work.
 
