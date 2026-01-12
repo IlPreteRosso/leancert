@@ -85,6 +85,11 @@ theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.E
   | exp _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_exp.comp_continuousOn ih
+  | sqrt _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    -- sqrt is continuous on [0, ∞) and returns 0 for negative inputs
+    -- For ContinuousOn on any set, we use Real.continuous_sqrt
+    exact Real.continuous_sqrt.comp_continuousOn ih
 
 /-- Specialized version for Icc intervals (common case for interval_roots) -/
 theorem exprSupportedCore_continuousOn_Icc (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)

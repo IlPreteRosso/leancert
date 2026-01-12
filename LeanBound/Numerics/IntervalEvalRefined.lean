@@ -200,7 +200,7 @@ noncomputable def evalIntervalRefined (e : Expr) (ρ : IntervalEnv) : IntervalRa
   | Expr.sinh e => sinhInterval (evalIntervalRefined e ρ)
   | Expr.cosh e => coshInterval (evalIntervalRefined e ρ)
   | Expr.tanh e => tanhInterval (evalIntervalRefined e ρ)
-  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
+  | Expr.sqrt e => (evalIntervalRefined e ρ).sqrtInterval
 
 /-- Single-variable refined interval evaluation -/
 noncomputable def evalIntervalRefined1 (e : Expr) (I : IntervalRat) : IntervalRat :=
@@ -235,6 +235,9 @@ theorem evalIntervalRefined_correct (e : Expr) (hsupp : ExprSupported e)
   | exp h ih =>
     simp only [evalIntervalRefined, Expr.eval_exp]
     exact mem_expIntervalRefined ih
+  | sqrt h ih =>
+    simp only [evalIntervalRefined, Expr.eval_sqrt]
+    exact IntervalRat.mem_sqrtInterval' ih
 
 /-- Single-variable refined evaluation is correct -/
 theorem evalIntervalRefined1_correct (e : Expr) (hsupp : ExprSupported e)
@@ -284,7 +287,7 @@ noncomputable def evalDualRefined (e : Expr) (ρ : DualEnv) : DualInterval :=
   | Expr.sinh e => DualInterval.sinh (evalDualRefined e ρ)
   | Expr.cosh e => DualInterval.cosh (evalDualRefined e ρ)
   | Expr.tanh e => DualInterval.tanh (evalDualRefined e ρ)
-  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
+  | Expr.sqrt e => DualInterval.sqrt (evalDualRefined e ρ)
 
 /-- Single-variable refined dual evaluation -/
 noncomputable def evalDualRefined1 (e : Expr) (I : IntervalRat) : DualInterval :=
@@ -351,6 +354,9 @@ theorem evalDualRefined_val_correct (e : Expr) (hsupp : ExprSupported e)
   | exp h ih =>
     simp only [evalDualRefined, Expr.eval_exp]
     exact DualInterval.expRefined_val_mem ih
+  | sqrt h ih =>
+    simp only [evalDualRefined, Expr.eval_sqrt, DualInterval.sqrt]
+    exact IntervalRat.mem_sqrtInterval' ih
 
 /-- Single-variable refined dual evaluation is correct for values -/
 theorem evalDualRefined1_val_correct (e : Expr) (hsupp : ExprSupported e)

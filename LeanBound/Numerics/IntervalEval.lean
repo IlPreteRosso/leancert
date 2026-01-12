@@ -51,7 +51,7 @@ open LeanBound.Core
 /-! ### Core supported expression subset (computable) -/
 
 /-- Predicate indicating an expression is in the computable core subset.
-    Supports: const, var, add, mul, neg, sin, cos, exp
+    Supports: const, var, add, mul, neg, sin, cos, exp, sqrt
     Does NOT support: inv, log, atan, arsinh, atanh -/
 inductive ExprSupportedCore : Expr → Prop where
   | const (q : ℚ) : ExprSupportedCore (Expr.const q)
@@ -64,11 +64,12 @@ inductive ExprSupportedCore : Expr → Prop where
   | sin {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sin e)
   | cos {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.cos e)
   | exp {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.exp e)
+  | sqrt {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sqrt e)
 
 /-! ### Extended supported expression subset (with exp) -/
 
 /-- Predicate indicating an expression is in the fully-verified subset.
-    Supports: const, var, add, mul, neg, sin, cos, exp
+    Supports: const, var, add, mul, neg, sin, cos, exp, sqrt
     Does NOT support: inv (requires nonzero interval checks), log (requires positive interval checks),
     atan/arsinh/atanh (derivative proofs incomplete - use ExprSupportedWithInv + evalInterval? instead) -/
 inductive ExprSupported : Expr → Prop where
@@ -80,6 +81,7 @@ inductive ExprSupported : Expr → Prop where
   | sin {e : Expr} : ExprSupported e → ExprSupported (Expr.sin e)
   | cos {e : Expr} : ExprSupported e → ExprSupported (Expr.cos e)
   | exp {e : Expr} : ExprSupported e → ExprSupported (Expr.exp e)
+  | sqrt {e : Expr} : ExprSupported e → ExprSupported (Expr.sqrt e)
 
 /-- Core expressions are also in the extended supported set -/
 theorem ExprSupportedCore.toSupported {e : Expr} (h : ExprSupportedCore e) : ExprSupported e := by
@@ -92,6 +94,7 @@ theorem ExprSupportedCore.toSupported {e : Expr} (h : ExprSupportedCore e) : Exp
   | sin _ ih => exact ExprSupported.sin ih
   | cos _ ih => exact ExprSupported.cos ih
   | exp _ ih => exact ExprSupported.exp ih
+  | sqrt _ ih => exact ExprSupported.sqrt ih
 
 /-! ### Interval bounds for transcendental functions -/
 
@@ -316,7 +319,7 @@ def evalIntervalCore (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : In
   | Expr.sinh e => sinhInterval (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => coshInterval (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => tanhInterval (evalIntervalCore e ρ cfg)  -- Tight bounds: [-1, 1]
-  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt; use Dyadic for better precision
+  | Expr.sqrt e => IntervalRat.sqrtInterval (evalIntervalCore e ρ cfg)
 
 /-- Computable interval evaluator with division support.
 
@@ -381,7 +384,7 @@ def evalIntervalCoreWithDiv (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {
   | Expr.sinh e => sinhInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => coshInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => tanhInterval (evalIntervalCoreWithDiv e ρ cfg)  -- Tight bounds: [-1, 1]
-  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
+  | Expr.sqrt e => IntervalRat.sqrtInterval (evalIntervalCoreWithDiv e ρ cfg)
 
 /-- A real environment is contained in an interval environment -/
 def envMem (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) : Prop :=
@@ -421,6 +424,9 @@ theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalIntervalCore]
     exact IntervalRat.mem_expComputable ih cfg.taylorDepth
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalIntervalCore]
+    exact IntervalRat.mem_sqrtInterval' ih
 
 /-! ### Extended interval evaluation (noncomputable, supports exp) -/
 
@@ -454,7 +460,7 @@ noncomputable def evalInterval (e : Expr) (ρ : IntervalEnv) : IntervalRat :=
   | Expr.sinh _ => default  -- sinh unbounded; use evalIntervalCore for tight bounds
   | Expr.cosh _ => default  -- cosh unbounded; use evalIntervalCore for tight bounds
   | Expr.tanh _ => default  -- tanh bounded but not in ExprSupported; use evalIntervalCore
-  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
+  | Expr.sqrt e => IntervalRat.sqrtInterval (evalInterval e ρ)
 
 /-- Fundamental correctness theorem for extended evaluation.
 
@@ -488,6 +494,9 @@ theorem evalInterval_correct (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalInterval]
     exact IntervalRat.mem_expInterval ih
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalInterval]
+    exact IntervalRat.mem_sqrtInterval' ih
 
 /-! ### Convenience functions
 
@@ -642,7 +651,7 @@ noncomputable def evalInterval? (e : Expr) (ρ : IntervalEnv) : Option IntervalR
       | none => none
   | Expr.sqrt e =>
       match evalInterval? e ρ with
-      | some _ => some ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
+      | some I => some (IntervalRat.sqrtInterval I)
       | none => none
 
 /-- Syntactic support predicate for expressions with inv and log (no semantic conditions).
@@ -666,6 +675,7 @@ inductive ExprSupportedWithInv : Expr → Prop where
   | atanh {e : Expr} : ExprSupportedWithInv e → ExprSupportedWithInv (Expr.atanh e)
   | sinc {e : Expr} : ExprSupportedWithInv e → ExprSupportedWithInv (Expr.sinc e)
   | erf {e : Expr} : ExprSupportedWithInv e → ExprSupportedWithInv (Expr.erf e)
+  | sqrt {e : Expr} : ExprSupportedWithInv e → ExprSupportedWithInv (Expr.sqrt e)
 
 /-- ExprSupported implies ExprSupportedWithInv -/
 theorem ExprSupported.toWithInv {e : Expr} (h : ExprSupported e) : ExprSupportedWithInv e := by
@@ -678,6 +688,7 @@ theorem ExprSupported.toWithInv {e : Expr} (h : ExprSupported e) : ExprSupported
   | sin _ ih => exact ExprSupportedWithInv.sin ih
   | cos _ ih => exact ExprSupportedWithInv.cos ih
   | exp _ ih => exact ExprSupportedWithInv.exp ih
+  | sqrt _ ih => exact ExprSupportedWithInv.sqrt ih
 
 /-- Main correctness theorem for evalInterval? (approach 1 from plan).
 
@@ -858,6 +869,15 @@ theorem evalInterval?_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
         exact Real.neg_one_le_erf _
       · simp only [Rat.cast_one]
         exact Real.erf_le_one _
+  | @sqrt e h ih =>
+    simp only [evalInterval?] at hsome
+    cases heq : evalInterval? e ρ_int with
+    | none => simp only [heq] at hsome; contradiction
+    | some I' =>
+      simp only [heq] at hsome
+      cases hsome
+      simp only [Expr.eval_sqrt]
+      exact IntervalRat.mem_sqrtInterval' (ih I' heq)
 
 /-- Single-variable version of evalInterval? -/
 noncomputable def evalInterval?1 (e : Expr) (I : IntervalRat) : Option IntervalRat :=

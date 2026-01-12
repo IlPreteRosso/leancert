@@ -277,24 +277,24 @@ def scale2 (I : IntervalDyadic) (n : Int) : IntervalDyadic :=
 
 /-! ### Square Root -/
 
-/-- Square root of an interval for non-negative inputs.
+/-- Square root of an interval.
     Returns a conservative bound [0, max(hi, 1)].
-    This is sound because sqrt(x) ≥ 0 and sqrt(x) ≤ max(x, 1) for all x ≥ 0.
-    For negative inputs, returns default interval [0, 0]. -/
+    This is sound because:
+    - sqrt(x) = 0 for x < 0 (by definition in Mathlib)
+    - sqrt(x) ≥ 0 for all x
+    - sqrt(x) ≤ max(x, 1) for x ≥ 0
+    Therefore for any x ∈ [lo, hi], sqrt(x) ∈ [0, max(hi, 1)]. -/
 def sqrt (I : IntervalDyadic) (_prec : Int := -53) : IntervalDyadic :=
-  if I.lo.mantissa < 0 then default
-  else
-    -- Conservative bound: [0, max(hi, 1)]
-    -- sqrt(x) ≥ 0 for x ≥ 0
-    -- sqrt(x) ≤ x for x ≥ 1
-    -- sqrt(x) ≤ 1 for 0 ≤ x ≤ 1
-    -- Therefore sqrt(x) ≤ max(x, 1)
-    let one := Dyadic.ofInt 1
-    let hi_bound := Dyadic.max I.hi one
-    ⟨Dyadic.zero, hi_bound, by
-      have hz : Dyadic.zero.toRat = 0 := Dyadic.toRat_zero
-      rw [Dyadic.max_toRat, Dyadic.toRat_ofInt, hz]
-      exact le_max_of_le_right (by norm_num : (0 : ℚ) ≤ 1)⟩
+  -- Conservative bound: [0, max(hi, 1)]
+  -- sqrt(x) ≥ 0 for all x (including negative where sqrt returns 0)
+  -- sqrt(x) ≤ max(x, 1) for x ≥ 0
+  -- sqrt(x) = 0 ≤ max(hi, 1) for x < 0
+  let one := Dyadic.ofInt 1
+  let hi_bound := Dyadic.max I.hi one
+  ⟨Dyadic.zero, hi_bound, by
+    have hz : Dyadic.zero.toRat = 0 := Dyadic.toRat_zero
+    rw [Dyadic.max_toRat, Dyadic.toRat_ofInt, hz]
+    exact le_max_of_le_right (by norm_num : (0 : ℚ) ≤ 1)⟩
 
 /-- sqrt(x) ≤ max(x, 1) for all x ≥ 0 -/
 private theorem sqrt_le_max_one {x : ℝ} (hx : 0 ≤ x) : Real.sqrt x ≤ max x 1 := by
@@ -320,11 +320,9 @@ private theorem sqrt_le_max_one {x : ℝ} (hx : 0 ≤ x) : Real.sqrt x ≤ max x
       _ ≤ max x 1 := le_max_left x 1
 
 /-- Soundness of interval sqrt: if x ∈ I, x ≥ 0, then Real.sqrt x ∈ sqrt I -/
-theorem mem_sqrt {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (hx_nn : 0 ≤ x)
-    (hI_nn : 0 ≤ I.lo.mantissa) (prec : Int) :
+theorem mem_sqrt {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (hx_nn : 0 ≤ x) (prec : Int) :
     Real.sqrt x ∈ sqrt I prec := by
-  simp only [sqrt, not_lt.mpr hI_nn, ↓reduceIte, mem_def]
-  simp only [Dyadic.max_toRat, Dyadic.toRat_ofInt]
+  simp only [sqrt, mem_def, Dyadic.max_toRat, Dyadic.toRat_ofInt]
   have hz : Dyadic.zero.toRat = 0 := Dyadic.toRat_zero
   constructor
   · -- Lower bound: 0 ≤ sqrt(x)
@@ -336,6 +334,23 @@ theorem mem_sqrt {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (hx_nn : 0 ≤ x)
         ≤ max x 1 := sqrt_le_max_one hx_nn
       _ ≤ max (I.hi.toRat : ℝ) 1 := max_le_max_right 1 hhi_ge
       _ = (↑(max I.hi.toRat 1) : ℝ) := by simp [Rat.cast_max]
+
+/-- General soundness of interval sqrt for any real input.
+    Handles both non-negative inputs and negative inputs (where Real.sqrt returns 0). -/
+theorem mem_sqrt' {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (prec : Int) :
+    Real.sqrt x ∈ sqrt I prec := by
+  rcases le_or_lt 0 x with hx_nn | hx_neg
+  · -- Non-negative case
+    exact mem_sqrt hx hx_nn prec
+  · -- Negative case: sqrt(x) = 0 for x < 0
+    have hsqrt_zero : Real.sqrt x = 0 := Real.sqrt_eq_zero'.mpr (le_of_lt hx_neg)
+    simp only [sqrt, mem_def, Dyadic.max_toRat, Dyadic.toRat_ofInt, hsqrt_zero]
+    have hz : Dyadic.zero.toRat = 0 := Dyadic.toRat_zero
+    simp only [hz, Rat.cast_zero, Rat.cast_max, Rat.cast_one]
+    constructor
+    · norm_num
+    · apply le_max_of_le_right
+      norm_num
 
 /-! ### Comparison and Containment -/
 

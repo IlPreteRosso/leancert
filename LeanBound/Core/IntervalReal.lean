@@ -1491,6 +1491,64 @@ theorem mem_cosComputable {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (n : ℕ) :
   have ⟨K, hK_eq, hK_mem⟩ := mem_intersect hraw_mem hglobal_mem
   simp only [hK_eq]; exact hK_mem
 
+/-! ### Square Root Interval -/
+
+/-- Square root interval with conservative bounds.
+    For a non-negative interval [lo, hi], sqrt is monotone so:
+    sqrt([lo, hi]) ⊆ [0, max(hi, 1)]
+
+    The lower bound is 0 (always sound for sqrt).
+    The upper bound uses max(hi, 1) which satisfies sqrt(x) ≤ max(x, 1) for x ≥ 0. -/
+def sqrtInterval (I : IntervalRat) : IntervalRat :=
+  ⟨0, max I.hi 1, by simp [le_max_iff]⟩
+
+/-- Helper: sqrt(x) ≤ max(x, 1) for x ≥ 0 -/
+private theorem sqrt_le_max_one {x : ℝ} (hx : 0 ≤ x) : Real.sqrt x ≤ max x 1 := by
+  rcases le_or_gt x 1 with hle | hgt
+  · -- x ≤ 1: sqrt(x) ≤ 1 ≤ max(x, 1)
+    calc Real.sqrt x ≤ Real.sqrt 1 := Real.sqrt_le_sqrt hle
+      _ = 1 := Real.sqrt_one
+      _ ≤ max x 1 := le_max_right x 1
+  · -- x > 1: sqrt(x) < x ≤ max(x, 1)
+    have hx_pos : 0 < x := lt_trans zero_lt_one hgt
+    have hsqrt_pos : 0 < Real.sqrt x := Real.sqrt_pos.mpr hx_pos
+    have hsqrt_gt_one : 1 < Real.sqrt x := by
+      rw [← Real.sqrt_one]
+      exact Real.sqrt_lt_sqrt (by norm_num) hgt
+    have hsqrt_lt : Real.sqrt x < x := by
+      have h1 : Real.sqrt x * Real.sqrt x = x := Real.mul_self_sqrt hx
+      have h2 : Real.sqrt x * 1 < Real.sqrt x * Real.sqrt x :=
+        mul_lt_mul_of_pos_left hsqrt_gt_one hsqrt_pos
+      simp only [mul_one] at h2
+      linarith
+    calc Real.sqrt x ≤ x := le_of_lt hsqrt_lt
+      _ ≤ max x 1 := le_max_left x 1
+
+/-- Soundness of sqrt interval: if x ∈ I and x ≥ 0, then sqrt(x) ∈ sqrtInterval I -/
+theorem mem_sqrtInterval {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hx_nn : 0 ≤ x) :
+    Real.sqrt x ∈ sqrtInterval I := by
+  simp only [mem_def, sqrtInterval, Rat.cast_zero, Rat.cast_max, Rat.cast_one]
+  constructor
+  · exact Real.sqrt_nonneg x
+  · calc Real.sqrt x ≤ max x 1 := sqrt_le_max_one hx_nn
+      _ ≤ max (I.hi : ℝ) 1 := max_le_max_right 1 hx.2
+
+/-- General soundness of sqrt interval: works for any x ∈ I (including negative).
+    When x < 0, Real.sqrt x = 0, which is always in [0, max(hi, 1)]. -/
+theorem mem_sqrtInterval' {x : ℝ} {I : IntervalRat} (hx : x ∈ I) :
+    Real.sqrt x ∈ sqrtInterval I := by
+  rcases le_or_gt 0 x with hnn | hneg
+  · -- x ≥ 0: use the standard soundness
+    exact mem_sqrtInterval hx hnn
+  · -- x < 0: sqrt(x) = 0, and 0 ∈ [0, max(hi, 1)]
+    simp only [mem_def, sqrtInterval, Rat.cast_zero, Rat.cast_max, Rat.cast_one]
+    have hsqrt_zero : Real.sqrt x = 0 := Real.sqrt_eq_zero'.mpr (le_of_lt hneg)
+    rw [hsqrt_zero]
+    constructor
+    · exact le_refl 0
+    · calc (0 : ℝ) ≤ 1 := by norm_num
+        _ ≤ max (I.hi : ℝ) 1 := le_max_right _ _
+
 end IntervalRat
 
 end LeanBound.Core

@@ -262,6 +262,9 @@ theorem evalIntervalDyadic_correct (e : Expr) (hsupp : ExprSupportedCore e)
     have hrat := IntervalDyadic.mem_toIntervalRat.mp ih
     have hexp := IntervalRat.mem_expComputable hrat cfg.taylorDepth
     exact IntervalDyadic.mem_ofIntervalRat hexp cfg.precision hprec
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalIntervalDyadic, sqrtIntervalDyadic]
+    exact IntervalDyadic.mem_sqrt' ih cfg.precision
 
 /-! ### Convenience Functions -/
 

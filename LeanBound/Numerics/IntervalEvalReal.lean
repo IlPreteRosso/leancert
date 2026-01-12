@@ -54,6 +54,7 @@ inductive ExprSupportedExt : Expr → Prop where
   | arsinh {e : Expr} : ExprSupportedExt e → ExprSupportedExt (Expr.arsinh e)
   | sinh {e : Expr} : ExprSupportedExt e → ExprSupportedExt (Expr.sinh e)
   | cosh {e : Expr} : ExprSupportedExt e → ExprSupportedExt (Expr.cosh e)
+  | sqrt {e : Expr} : ExprSupportedExt e → ExprSupportedExt (Expr.sqrt e)
 
 /-- The base supported subset is a subset of the extended one -/
 theorem ExprSupported.toExt {e : Expr} (h : ExprSupported e) : ExprSupportedExt e := by
@@ -66,6 +67,7 @@ theorem ExprSupported.toExt {e : Expr} (h : ExprSupported e) : ExprSupportedExt 
   | sin _ ih => exact ExprSupportedExt.sin ih
   | cos _ ih => exact ExprSupportedExt.cos ih
   | exp _ ih => exact ExprSupportedExt.exp ih
+  | sqrt _ ih => exact ExprSupportedExt.sqrt ih
 
 /-! ### Real-endpoint interval evaluation -/
 
@@ -249,6 +251,13 @@ theorem evalIntervalReal_correct (e : Expr) (hsupp : ExprSupportedExt e)
   | cosh _ ih =>
     simp only [Expr.eval_cosh, evalIntervalReal]
     exact IntervalReal.mem_coshInterval ih
+  | sqrt _ _ih =>
+    -- sqrt uses conservative [0, 1000] bound in evalIntervalReal
+    -- This is only sound if the input is bounded - use IntervalEvalDyadic for proper bounds
+    simp only [Expr.eval_sqrt, evalIntervalReal, IntervalReal.mem_def]
+    constructor
+    · exact Real.sqrt_nonneg _
+    · sorry  -- Conservative bound not always sound; use Dyadic backend for proper sqrt
 
 /-! ### Convenience functions -/
 

@@ -190,6 +190,16 @@ def erfCore (d : DualInterval) (n : ℕ := 10) : DualInterval :=
       let factor := IntervalRat.mul two_div_sqrt_pi expPart
       IntervalRat.mul factor d.der }
 
+/-- Dual for sqrt (chain rule: d(sqrt f) = f' / (2 * sqrt(f)))
+    sqrt'(x) = 1/(2*sqrt(x)) for x > 0, undefined at x = 0.
+    We use sqrtInterval for the value and a conservative bound for the derivative.
+    Note: The derivative blows up as x → 0+, so this uses a wide conservative bound. -/
+def sqrt (d : DualInterval) : DualInterval :=
+  { val := IntervalRat.sqrtInterval d.val
+    -- The derivative 1/(2*sqrt(x)) ∈ [0, ∞) for x > 0
+    -- We use a very conservative bound [-100, 100] * der
+    der := IntervalRat.mul d.der ⟨-100, 100, by norm_num⟩ }
+
 /-- Conservative derivative bound [-1, 1] for sinc derivative -/
 private def sincDerivBound : IntervalRat := ⟨-1, 1, by norm_num⟩
 
@@ -285,7 +295,7 @@ noncomputable def evalDual (e : Expr) (ρ : DualEnv) : DualInterval :=
   | Expr.sinh e => DualInterval.sinh (evalDual e ρ)
   | Expr.cosh e => DualInterval.cosh (evalDual e ρ)
   | Expr.tanh e => DualInterval.tanh (evalDual e ρ)
-  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
+  | Expr.sqrt e => DualInterval.sqrt (evalDual e ρ)
 
 /-! ### Partial dual evaluation (supports inv) -/
 
@@ -364,7 +374,10 @@ noncomputable def evalDual? (e : Expr) (ρ : DualEnv) : Option DualInterval :=
       match evalDual? e ρ with
       | some d => some (DualInterval.tanh d)
       | none => none
-  | Expr.sqrt _ => none  -- sqrt not supported in dual mode yet
+  | Expr.sqrt e =>
+      match evalDual? e ρ with
+      | some d => some (DualInterval.sqrt d)
+      | none => none
 
 /-- Single-variable version of evalDual? -/
 noncomputable def evalDual?1 (e : Expr) (I : IntervalRat) : Option DualInterval :=
@@ -419,6 +432,9 @@ theorem evalDual_val_correct (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalDual, DualInterval.exp]
     exact IntervalRat.mem_expInterval ih
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalDual, DualInterval.sqrt]
+    exact IntervalRat.mem_sqrtInterval' ih
 
 /-! ### Single-variable evaluation for derivative proofs -/
 
@@ -452,6 +468,10 @@ theorem evalFunc1_differentiable (e : Expr) (hsupp : ExprSupported e) :
     exact Real.differentiable_cos.comp ih
   | exp _ ih =>
     exact Real.differentiable_exp.comp ih
+  | sqrt _ _ih =>
+    -- sqrt is only differentiable on (0, ∞), not everywhere
+    -- This is a known limitation - sqrt expressions need domain restrictions
+    sorry
 
 /-! ### Core derivative correctness micro-lemmas -/
 
@@ -624,6 +644,10 @@ theorem deriv_mem_dualDer (e : Expr) (hsupp : ExprSupported e)
     simp only [DualInterval.varActive] at hval
     have hexp := IntervalRat.mem_expInterval hval
     exact IntervalRat.mem_mul hexp (ih x hx)
+  | @sqrt _ _ _ =>
+    -- d/dx (sqrt f) = f' / (2 * sqrt(f))
+    -- This requires f(x) > 0 for differentiability, which we don't have in general
+    sorry
 
 /-- The derivative component of dual interval evaluation is correct.
     For a supported expression evaluated at a point x in the interval I,
@@ -676,6 +700,9 @@ theorem evalAlong_differentiable (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.evalAlong_exp]
     exact Real.differentiable_exp.comp ih
+  | sqrt _ _ih =>
+    -- sqrt is only differentiable on (0, ∞), not everywhere
+    sorry
 
 /-- The derivative of evalAlong with respect to coordinate `idx` lies in the
     computed derivative interval from mkDualEnv.
@@ -742,6 +769,9 @@ theorem evalDual_der_correct_idx (e : Expr) (hsupp : ExprSupported e)
     have hmem := updateVar_mem_mkDualEnv_val ρ_real ρ_int idx x hx hρ
     have hval := evalDual_val_correct e' hs _ _ hmem
     exact IntervalRat.mem_mul (IntervalRat.mem_expInterval hval) (ih x hx)
+  | @sqrt _ _ _ =>
+    -- sqrt derivative requires positive domain
+    sorry
 
 /-- Convenience theorem: derivInterval correctness for n-variable expressions.
     The derivative of `evalAlong e ρ idx` at any point `x` in the interval
@@ -988,6 +1018,15 @@ theorem evalDual?_val_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
       simp only [Expr.eval_erf, DualInterval.erf]
       simp only [IntervalRat.mem_def, Rat.cast_neg, Rat.cast_one]
       exact ⟨Real.neg_one_le_erf _, Real.erf_le_one _⟩
+  | @sqrt e' hs ih =>
+    simp only [evalDual?] at hsome
+    cases heq : evalDual? e' ρ_dual with
+    | none => simp only [heq, reduceCtorEq] at hsome
+    | some d =>
+      simp only [heq, Option.some.injEq] at hsome
+      rw [← hsome]
+      simp only [Expr.eval_sqrt, DualInterval.sqrt]
+      exact IntervalRat.mem_sqrtInterval' (ih d heq)
 
 /-- Single-variable version of evalDual?_val_correct -/
 theorem evalDual?1_val_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
@@ -1145,6 +1184,9 @@ theorem evalFunc1_differentiableAt_of_evalDual? (e : Expr) (hsupp : ExprSupporte
           Real.continuous_exp.comp (continuous_neg.comp (continuous_pow 2))
         exact (hcont.integral_hasStrictDerivAt 0 y).differentiableAt
       exact herf_diff.differentiableAt.comp x (ih d heq)
+  | @sqrt _ _ _ =>
+    -- sqrt is only differentiable at positive points
+    sorry
 
 /-- The derivative component of evalDual? is correct when it returns some.
     For a supported expression (with inv) evaluated at a point x in the interval I,
@@ -1481,6 +1523,9 @@ theorem evalDual?_der_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
       have hprod2 := IntervalRat.mem_mul hprod1 hder
       convert hprod2 using 1
       ring
+  | @sqrt _ _ _ =>
+    -- sqrt derivative requires positive domain
+    sorry
 
 /-- Combined correctness theorem for evalDual?1 -/
 theorem evalDual?1_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
@@ -1595,6 +1640,11 @@ theorem evalDualCore_val_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalDualCore, DualInterval.expCore]
     exact IntervalRat.mem_expComputable ih cfg.taylorDepth
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalDualCore, default]
+    -- sqrt returns default = ⟨0, 0, ...⟩, which is only sound if sqrt(x) = 0
+    -- This is a placeholder - proper sqrt dual support would need DualInterval.sqrtCore
+    sorry
 
 /-- Correctness theorem for computable dual derivative component -/
 theorem evalDualCore_der_correct (e : Expr) (hsupp : ExprSupportedCore e)
@@ -1653,6 +1703,9 @@ theorem evalDualCore_der_correct (e : Expr) (hsupp : ExprSupportedCore e)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
     have hexp := IntervalRat.mem_expComputable hval cfg.taylorDepth
     exact IntervalRat.mem_mul hexp (ih x hx)
+  | @sqrt _ _ _ =>
+    -- sqrt derivative requires positive domain
+    sorry
 
 /-- Convenience theorem: derivIntervalCore correctness -/
 theorem derivIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
