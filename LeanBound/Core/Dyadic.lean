@@ -520,25 +520,250 @@ theorem toRat_shiftUp_ge (d : Dyadic) (newExp : Int) :
             rw [mul_comm ((2 : ℚ) ^ diff) (2 ^ d.exponent)]
       _ ≤ ↑(d.mantissa / (2 ^ diff : ℕ)) * (2 ^ d.exponent * (2 : ℚ) ^ diff) := le_refl _
 
+/-! ### Comparison Helper Lemmas -/
+
+/-- Helper: comparing integers reflects comparing rationals when scaled by positive factor -/
+private theorem int_lt_iff_rat_mul_lt (a b : ℤ) (c : ℚ) (hc : 0 < c) :
+    a < b ↔ (a : ℚ) * c < (b : ℚ) * c := by
+  constructor
+  · intro h; exact mul_lt_mul_of_pos_right (Int.cast_lt.mpr h) hc
+  · intro h; exact Int.cast_lt.mp ((mul_lt_mul_right hc).mp h)
+
+private theorem int_eq_iff_rat_mul_eq (a b : ℤ) (c : ℚ) (hc : c ≠ 0) :
+    a = b ↔ (a : ℚ) * c = (b : ℚ) * c := by
+  constructor
+  · intro h; rw [h]
+  · intro h
+    have hcancel := (mul_eq_mul_right_iff (c := c)).mp h
+    cases hcancel with
+    | inl heq => exact Int.cast_inj.mp heq
+    | inr hzero => exact absurd hzero hc
+
+private theorem int_gt_iff_rat_mul_gt (a b : ℤ) (c : ℚ) (hc : 0 < c) :
+    a > b ↔ (a : ℚ) * c > (b : ℚ) * c := int_lt_iff_rat_mul_lt b a c hc
+
+/-- Key lemma: shiftLeftInt relates to multiplication by 2^shift in ℚ -/
+private theorem shiftLeftInt_toRat (m : ℤ) (n : ℕ) :
+    (shiftLeftInt m n : ℚ) = (m : ℚ) * (2 : ℚ) ^ n := by
+  simp only [shiftLeftInt, pow2Nat_eq_pow, Int.cast_mul, Int.cast_natCast]
+  rw [Nat.cast_pow, Nat.cast_ofNat]
+
+/-- Ord.compare on Int correctly reflects <, =, > -/
+private theorem ord_compare_int_lt (a b : ℤ) : Ord.compare a b = .lt ↔ a < b := by
+  constructor
+  · intro h
+    by_contra hge
+    push_neg at hge
+    have hcases := lt_or_eq_of_le hge
+    cases hcases with
+    | inl hgt =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, not_lt.mpr (le_of_lt hgt), ne_of_gt hgt, ↓reduceIte] at h
+      exact absurd h (by decide)
+    | inr heq =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, heq, lt_irrefl, ↓reduceIte] at h
+      exact absurd h (by decide)
+  · intro h
+    simp only [Ord.compare, compare, compareOfLessAndEq, h, ↓reduceIte]
+
+private theorem ord_compare_int_eq (a b : ℤ) : Ord.compare a b = .eq ↔ a = b := by
+  constructor
+  · intro h
+    by_contra hne
+    have hcases := lt_or_gt_of_ne hne
+    cases hcases with
+    | inl hlt =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, hlt, ↓reduceIte] at h
+      exact absurd h (by decide)
+    | inr hgt =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, not_lt.mpr (le_of_lt hgt), ne_of_gt hgt, ↓reduceIte] at h
+      exact absurd h (by decide)
+  · intro h
+    simp only [Ord.compare, compare, compareOfLessAndEq, h, lt_irrefl, ↓reduceIte]
+
+private theorem ord_compare_int_gt (a b : ℤ) : Ord.compare a b = .gt ↔ a > b := by
+  constructor
+  · intro h
+    by_contra hle
+    push_neg at hle
+    have hcases := lt_or_eq_of_le hle
+    cases hcases with
+    | inl hlt =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, hlt, ↓reduceIte] at h
+      exact absurd h (by decide)
+    | inr heq =>
+      simp only [Ord.compare, compare, compareOfLessAndEq, heq, lt_irrefl, ↓reduceIte] at h
+      exact absurd h (by decide)
+  · intro h
+    simp only [Ord.compare, compare, compareOfLessAndEq, not_lt.mpr (le_of_lt h), ne_of_gt h, ↓reduceIte]
+
+/-- Ord.compare not gt means ≤ -/
+private theorem ord_compare_ne_gt_iff (a b : ℤ) : (Ord.compare a b != .gt) = true ↔ a ≤ b := by
+  rw [bne_iff_ne, ne_eq]
+  constructor
+  · intro h
+    by_contra hgt
+    push_neg at hgt
+    have := ord_compare_int_gt a b |>.mpr hgt
+    exact h this
+  · intro hle hgt
+    have := ord_compare_int_gt a b |>.mp hgt
+    exact not_lt.mpr hle this
+
+/-! ### Comparison Theorems -/
+
+/-- Helper: Convert aligned integer comparison to toRat comparison (case e₁ ≤ e₂) -/
+private theorem aligned_lt_iff_toRat_lt_case1 (d₁ d₂ : Dyadic) (h : d₁.exponent ≤ d₂.exponent) :
+    d₁.mantissa < shiftLeftInt d₂.mantissa (d₂.exponent - d₁.exponent).toNat ↔ d₁.toRat < d₂.toRat := by
+  set shift := (d₂.exponent - d₁.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₂.exponent - d₁.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  -- Key: 2^e₂ = 2^shift * 2^e₁
+  have hpow : (2 : ℚ) ^ d₂.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₁.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hpos : (0 : ℚ) < 2 ^ d₁.exponent := zpow_pos (by norm_num : (0 : ℚ) < 2) _
+  -- Rewrite RHS: m₂ * 2^e₂ = m₂ * (2^shift * 2^e₁) = (m₂ * 2^shift) * 2^e₁
+  have hrhs : (d₂.mantissa : ℚ) * 2 ^ d₂.exponent = d₂.mantissa * (2 : ℚ) ^ shift * 2 ^ d₁.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hrhs]
+  -- Now: m₁ < shiftLeftInt m₂ shift ↔ m₁ * 2^e₁ < (m₂ * 2^shift) * 2^e₁
+  rw [int_lt_iff_rat_mul_lt _ _ _ hpos, shiftLeftInt_toRat]
+
+private theorem aligned_eq_iff_toRat_eq_case1 (d₁ d₂ : Dyadic) (h : d₁.exponent ≤ d₂.exponent) :
+    d₁.mantissa = shiftLeftInt d₂.mantissa (d₂.exponent - d₁.exponent).toNat ↔ d₁.toRat = d₂.toRat := by
+  set shift := (d₂.exponent - d₁.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₂.exponent - d₁.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  have hpow : (2 : ℚ) ^ d₂.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₁.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hne : (2 : ℚ) ^ d₁.exponent ≠ 0 := zpow_ne_zero _ (two_ne_zero)
+  have hrhs : (d₂.mantissa : ℚ) * 2 ^ d₂.exponent = d₂.mantissa * (2 : ℚ) ^ shift * 2 ^ d₁.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hrhs, int_eq_iff_rat_mul_eq _ _ _ hne, shiftLeftInt_toRat]
+
+private theorem aligned_gt_iff_toRat_gt_case1 (d₁ d₂ : Dyadic) (h : d₁.exponent ≤ d₂.exponent) :
+    d₁.mantissa > shiftLeftInt d₂.mantissa (d₂.exponent - d₁.exponent).toNat ↔ d₁.toRat > d₂.toRat := by
+  set shift := (d₂.exponent - d₁.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₂.exponent - d₁.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  have hpow : (2 : ℚ) ^ d₂.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₁.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hpos : (0 : ℚ) < 2 ^ d₁.exponent := zpow_pos (by norm_num : (0 : ℚ) < 2) _
+  have hrhs : (d₂.mantissa : ℚ) * 2 ^ d₂.exponent = d₂.mantissa * (2 : ℚ) ^ shift * 2 ^ d₁.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hrhs, int_gt_iff_rat_mul_gt _ _ _ hpos, shiftLeftInt_toRat]
+
+/-- Helper: Convert aligned integer comparison to toRat comparison (case e₁ > e₂) -/
+private theorem aligned_lt_iff_toRat_lt_case2 (d₁ d₂ : Dyadic) (h : d₁.exponent > d₂.exponent) :
+    shiftLeftInt d₁.mantissa (d₁.exponent - d₂.exponent).toNat < d₂.mantissa ↔ d₁.toRat < d₂.toRat := by
+  set shift := (d₁.exponent - d₂.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₁.exponent - d₂.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  have hpow : (2 : ℚ) ^ d₁.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₂.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hpos : (0 : ℚ) < 2 ^ d₂.exponent := zpow_pos (by norm_num : (0 : ℚ) < 2) _
+  -- Rewrite LHS: m₁ * 2^e₁ = m₁ * (2^shift * 2^e₂) = (m₁ * 2^shift) * 2^e₂
+  have hlhs : (d₁.mantissa : ℚ) * 2 ^ d₁.exponent = d₁.mantissa * (2 : ℚ) ^ shift * 2 ^ d₂.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hlhs, int_lt_iff_rat_mul_lt _ _ _ hpos, shiftLeftInt_toRat]
+
+private theorem aligned_eq_iff_toRat_eq_case2 (d₁ d₂ : Dyadic) (h : d₁.exponent > d₂.exponent) :
+    shiftLeftInt d₁.mantissa (d₁.exponent - d₂.exponent).toNat = d₂.mantissa ↔ d₁.toRat = d₂.toRat := by
+  set shift := (d₁.exponent - d₂.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₁.exponent - d₂.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  have hpow : (2 : ℚ) ^ d₁.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₂.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hne : (2 : ℚ) ^ d₂.exponent ≠ 0 := zpow_ne_zero _ (two_ne_zero)
+  have hlhs : (d₁.mantissa : ℚ) * 2 ^ d₁.exponent = d₁.mantissa * (2 : ℚ) ^ shift * 2 ^ d₂.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hlhs, int_eq_iff_rat_mul_eq _ _ _ hne, shiftLeftInt_toRat]
+
+private theorem aligned_gt_iff_toRat_gt_case2 (d₁ d₂ : Dyadic) (h : d₁.exponent > d₂.exponent) :
+    shiftLeftInt d₁.mantissa (d₁.exponent - d₂.exponent).toNat > d₂.mantissa ↔ d₁.toRat > d₂.toRat := by
+  set shift := (d₁.exponent - d₂.exponent).toNat with hshift_def
+  have hshift : (shift : ℤ) = d₁.exponent - d₂.exponent := by
+    rw [hshift_def, Int.toNat_of_nonneg]; omega
+  rw [toRat_eq, toRat_eq]
+  have hpow : (2 : ℚ) ^ d₁.exponent = (2 : ℚ) ^ (shift : ℤ) * 2 ^ d₂.exponent := by
+    rw [← zpow_add₀ (two_ne_zero : (2 : ℚ) ≠ 0), hshift]; congr 1; omega
+  have hpos : (0 : ℚ) < 2 ^ d₂.exponent := zpow_pos (by norm_num : (0 : ℚ) < 2) _
+  have hlhs : (d₁.mantissa : ℚ) * 2 ^ d₁.exponent = d₁.mantissa * (2 : ℚ) ^ shift * 2 ^ d₂.exponent := by
+    rw [hpow, zpow_natCast, mul_assoc]
+  rw [hlhs, int_gt_iff_rat_mul_gt _ _ _ hpos, shiftLeftInt_toRat]
+
 /-- le is correct with respect to toRat ordering -/
 theorem le_iff_toRat_le (d₁ d₂ : Dyadic) :
     le d₁ d₂ = true ↔ d₁.toRat ≤ d₂.toRat := by
-  sorry -- Proof requires more comparison lemmas
+  unfold le compare
+  split_ifs with h
+  · -- Case: d₁.exponent ≤ d₂.exponent
+    set shift := (d₂.exponent - d₁.exponent).toNat
+    rw [ord_compare_ne_gt_iff]
+    constructor
+    · intro hle
+      by_cases hlt : d₁.mantissa < shiftLeftInt d₂.mantissa shift
+      · exact le_of_lt ((aligned_lt_iff_toRat_lt_case1 d₁ d₂ h).mp hlt)
+      · push_neg at hlt
+        have heq_or_gt := lt_or_eq_of_le hlt
+        cases heq_or_gt with
+        | inl hgt =>
+          exfalso; exact not_lt.mpr hle hgt
+        | inr heq =>
+          exact le_of_eq ((aligned_eq_iff_toRat_eq_case1 d₁ d₂ h).mp heq.symm)
+    · intro hle
+      by_contra hgt
+      push_neg at hgt
+      have hgt' := (aligned_gt_iff_toRat_gt_case1 d₁ d₂ h).mp hgt
+      exact not_lt.mpr hle hgt'
+  · -- Case: d₁.exponent > d₂.exponent
+    push_neg at h
+    set shift := (d₁.exponent - d₂.exponent).toNat
+    rw [ord_compare_ne_gt_iff]
+    constructor
+    · intro hle
+      by_cases hlt : shiftLeftInt d₁.mantissa shift < d₂.mantissa
+      · exact le_of_lt ((aligned_lt_iff_toRat_lt_case2 d₁ d₂ h).mp hlt)
+      · push_neg at hlt
+        have heq_or_gt := lt_or_eq_of_le hlt
+        cases heq_or_gt with
+        | inl hgt =>
+          exfalso; exact not_lt.mpr hle hgt
+        | inr heq =>
+          exact le_of_eq ((aligned_eq_iff_toRat_eq_case2 d₁ d₂ h).mp heq.symm)
+    · intro hle
+      by_contra hgt
+      push_neg at hgt
+      have hgt' := (aligned_gt_iff_toRat_gt_case2 d₁ d₂ h).mp hgt
+      exact not_lt.mpr hle hgt'
 
 /-- compare reflects toRat ordering: lt case -/
 theorem compare_lt_iff (d₁ d₂ : Dyadic) :
     compare d₁ d₂ = .lt ↔ d₁.toRat < d₂.toRat := by
-  sorry -- Proof requires more comparison lemmas
+  unfold compare
+  split_ifs with h
+  · rw [ord_compare_int_lt]; exact aligned_lt_iff_toRat_lt_case1 d₁ d₂ h
+  · push_neg at h; rw [ord_compare_int_lt]; exact aligned_lt_iff_toRat_lt_case2 d₁ d₂ h
 
 /-- compare reflects toRat ordering: gt case -/
 theorem compare_gt_iff (d₁ d₂ : Dyadic) :
     compare d₁ d₂ = .gt ↔ d₁.toRat > d₂.toRat := by
-  sorry -- Proof requires more comparison lemmas
+  unfold compare
+  split_ifs with h
+  · rw [ord_compare_int_gt]; exact aligned_gt_iff_toRat_gt_case1 d₁ d₂ h
+  · push_neg at h; rw [ord_compare_int_gt]; exact aligned_gt_iff_toRat_gt_case2 d₁ d₂ h
 
 /-- compare reflects toRat ordering: eq case -/
 theorem compare_eq_iff (d₁ d₂ : Dyadic) :
     compare d₁ d₂ = .eq ↔ d₁.toRat = d₂.toRat := by
-  sorry -- Proof requires more comparison lemmas
+  unfold compare
+  split_ifs with h
+  · rw [ord_compare_int_eq]; exact aligned_eq_iff_toRat_eq_case1 d₁ d₂ h
+  · push_neg at h; rw [ord_compare_int_eq]; exact aligned_eq_iff_toRat_eq_case2 d₁ d₂ h
 
 end Dyadic
 end LeanBound.Core
