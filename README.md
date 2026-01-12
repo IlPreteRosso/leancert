@@ -197,28 +197,27 @@ The following have complete proofs with no `sorry`:
 - Root finding: bisection (existence) and Newton (uniqueness)
 - Integration bounds (`integrateInterval_correct`)
 
-### Incomplete
+### Work in Progress (v1.1)
 
-These work computationally but have proof gaps:
+The Dyadic arithmetic backend is under development for improved kernel performance:
 
-| Component | Issue |
-|-----------|-------|
-| `atanh` interval | Fallback path uses `sorry`; Taylor model path is verified |
-| `atanh` Taylor remainder | `atanh_series_remainder_bound` incomplete |
-| `sinc`, `erf` derivatives | Missing differentiability proofs in AD |
-| `interval_integrate` tactic | Proof automation incomplete |
+| Component | Status |
+|-----------|--------|
+| `Core/Dyadic.lean` | Shift/comparison lemmas need proofs |
+| `Core/IntervalDyadic.lean` | Interval operation correctness |
+| `Numerics/IntervalEvalDyadic.lean` | Evaluator correctness |
 
 To find all `sorry` occurrences:
 
 ```bash
-grep -r "sorry" --include="*.lean" LeanBound/ | grep -v "no sorry"
+grep -rn "sorry" --include="*.lean" LeanBound/ | grep -v "no sorry"
 ```
 
 ## Contributing
 
 Priority areas:
 
-1. Filling `sorry` gaps (especially `atanh` Taylor remainder)
+1. Completing Dyadic v1.1 proofs (shift lemmas, interval correctness)
 2. Additional functions (`asin`, `acos`, real powers)
 3. Subdivision strategies for optimization
 4. Documentation and examples
