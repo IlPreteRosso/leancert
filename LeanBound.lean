@@ -222,6 +222,7 @@ def eval₀_rat (e : LeanBound.Core.Expr) (x : ℚ) : ℚ :=
   | .sinh _ => 0  -- Not computable over ℚ
   | .cosh _ => 0  -- Not computable over ℚ
   | .tanh _ => 0  -- Not computable over ℚ
+  | .sqrt _ => 0  -- Not computable over ℚ
 
 /-- The unit interval [0, 1] -/
 def unitInterval : IntervalRat := ⟨0, 1, by norm_num⟩

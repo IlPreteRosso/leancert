@@ -268,6 +268,8 @@ inductive Expr where
   | cosh (e : Expr)
   /-- Hyperbolic tangent: tanh(x) = sinh(x) / cosh(x) ∈ (-1, 1) -/
   | tanh (e : Expr)
+  /-- Square root (partial: undefined for x < 0) -/
+  | sqrt (e : Expr)
   deriving Repr, DecidableEq, Inhabited
 
 namespace Expr
@@ -283,12 +285,8 @@ def pow (e : Expr) : Nat → Expr
   | 0 => const 1
   | n + 1 => mul e (pow e n)
 
-/-- Square root as a derived operation: sqrt(x) = exp(log(x)/2)
-    Note: Only valid for positive x -/
-def sqrt (e : Expr) : Expr := exp (mul (log e) (const (1/2)))
-
 /-- Absolute value as a derived operation: |x| = sqrt(x²)
-    This gives correct results for all real x -/
+    This gives correct results for all real x (except at 0 for interval purposes) -/
 def abs (e : Expr) : Expr := sqrt (mul e e)
 
 /-- Evaluate an expression given a variable assignment ρ : Nat → ℝ -/
@@ -311,6 +309,7 @@ noncomputable def eval (ρ : Nat → ℝ) : Expr → ℝ
   | sinh e => Real.sinh (eval ρ e)
   | cosh e => Real.cosh (eval ρ e)
   | tanh e => Real.tanh (eval ρ e)
+  | sqrt e => Real.sqrt (eval ρ e)
 
 /-- Update variable assignment at a specific index -/
 def updateVar (ρ : Nat → ℝ) (idx : Nat) (x : ℝ) : Nat → ℝ :=
@@ -359,6 +358,7 @@ def freeVars : Expr → Finset Nat
   | sinh e => freeVars e
   | cosh e => freeVars e
   | tanh e => freeVars e
+  | sqrt e => freeVars e
 
 /-- An expression is closed if it has no free variables -/
 def isClosed (e : Expr) : Prop := freeVars e = ∅
@@ -422,6 +422,9 @@ theorem eval_cosh (ρ : Nat → ℝ) (e : Expr) : eval ρ (cosh e) = Real.cosh (
 theorem eval_tanh (ρ : Nat → ℝ) (e : Expr) : eval ρ (tanh e) = Real.tanh (eval ρ e) := rfl
 
 @[simp]
+theorem eval_sqrt (ρ : Nat → ℝ) (e : Expr) : eval ρ (sqrt e) = Real.sqrt (eval ρ e) := rfl
+
+@[simp]
 theorem eval_sub (ρ : Nat → ℝ) (e₁ e₂ : Expr) :
     eval ρ (sub e₁ e₂) = eval ρ e₁ - eval ρ e₂ := by simp [sub, sub_eq_add_neg]
 
@@ -436,47 +439,25 @@ theorem eval_pow (ρ : Nat → ℝ) (e : Expr) (n : ℕ) :
   | zero => simp [pow]
   | succ n ih => simp only [pow, eval_mul, ih, pow_succ']
 
-/-- Evaluation of sqrt for positive arguments -/
-theorem eval_sqrt (ρ : Nat → ℝ) (e : Expr) (hpos : 0 < eval ρ e) :
-    eval ρ (sqrt e) = Real.sqrt (eval ρ e) := by
-  simp only [sqrt, eval_exp, eval_mul, eval_log, eval_const]
-  -- sqrt(x) = x^(1/2) = exp(log(x) * (1/2))
-  rw [Real.sqrt_eq_rpow, Real.rpow_def_of_pos hpos]
-  ring_nf
-
-/-- Evaluation of abs for nonzero arguments: |x| = sqrt(x²)
-
-Note: Our derived definition `abs e = sqrt (mul e e)` where `sqrt e = exp(log(e) * 1/2)`
-only gives the correct result when `eval ρ e ≠ 0`. This is because `log(0) = 0` in Mathlib,
-so `sqrt(0) = exp(0) = 1 ≠ 0`. For interval arithmetic purposes, this is acceptable
-since we handle the zero case separately when computing interval bounds. -/
-theorem eval_abs (ρ : Nat → ℝ) (e : Expr) (hne : eval ρ e ≠ 0) :
+/-- Evaluation of abs for any argument: |x| = sqrt(x²) -/
+theorem eval_abs (ρ : Nat → ℝ) (e : Expr) :
     eval ρ (abs e) = |eval ρ e| := by
-  simp only [abs]
-  have hpos : 0 < eval ρ (mul e e) := by
-    simp only [eval_mul]
-    exact mul_self_pos.mpr hne
-  rw [eval_sqrt _ _ hpos]
-  simp only [eval_mul]
-  rw [← sq, Real.sqrt_sq_eq_abs]
+  simp only [abs, eval_sqrt, eval_mul, ← sq, Real.sqrt_sq_eq_abs]
 
 /-- For positive x, sqrt(x²) = x -/
 theorem eval_sqrt_sq_of_pos (ρ : Nat → ℝ) (e : Expr) (hpos : 0 < eval ρ e) :
     eval ρ (sqrt (mul e e)) = eval ρ e := by
-  have hpos_sq : 0 < eval ρ (mul e e) := by
-    simp only [eval_mul]
-    exact mul_pos hpos hpos
-  rw [eval_sqrt _ _ hpos_sq, eval_mul, ← sq, Real.sqrt_sq (le_of_lt hpos)]
+  simp only [eval_sqrt, eval_mul, ← sq, Real.sqrt_sq (le_of_lt hpos)]
 
 /-- Abs correctly computes absolute value for positive inputs -/
 theorem eval_abs_of_pos (ρ : Nat → ℝ) (e : Expr) (hpos : 0 < eval ρ e) :
     eval ρ (abs e) = eval ρ e := by
-  rw [eval_abs ρ e (ne_of_gt hpos), abs_of_pos hpos]
+  rw [eval_abs, abs_of_pos hpos]
 
 /-- Abs correctly computes absolute value for negative inputs -/
 theorem eval_abs_of_neg (ρ : Nat → ℝ) (e : Expr) (hneg : eval ρ e < 0) :
     eval ρ (abs e) = -(eval ρ e) := by
-  rw [eval_abs ρ e (ne_of_lt hneg), abs_of_neg hneg]
+  rw [eval_abs, abs_of_neg hneg]
 
 -- Lemmas about evalAlong
 
@@ -608,6 +589,7 @@ def usesOnlyVar0 : Expr → Bool
   | sinh e => e.usesOnlyVar0
   | cosh e => e.usesOnlyVar0
   | tanh e => e.usesOnlyVar0
+  | sqrt e => e.usesOnlyVar0
 
 /-- If two environments agree on variable 0, then a usesOnlyVar0 expression evaluates the same -/
 theorem eval_usesOnlyVar0_eq (e : Expr) (he : e.usesOnlyVar0 = true)
@@ -666,6 +648,9 @@ theorem eval_usesOnlyVar0_eq (e : Expr) (he : e.usesOnlyVar0 = true)
   | tanh e ih =>
     simp only [usesOnlyVar0] at he
     simp only [eval_tanh, ih he]
+  | sqrt e ih =>
+    simp only [usesOnlyVar0] at he
+    simp only [eval_sqrt, ih he]
 
 /-- For single-variable expressions, `fun n => if n = 0 then x else 0` and `fun _ => x`
     give the same evaluation result. -/

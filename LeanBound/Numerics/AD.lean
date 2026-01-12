@@ -285,6 +285,7 @@ noncomputable def evalDual (e : Expr) (ρ : DualEnv) : DualInterval :=
   | Expr.sinh e => DualInterval.sinh (evalDual e ρ)
   | Expr.cosh e => DualInterval.cosh (evalDual e ρ)
   | Expr.tanh e => DualInterval.tanh (evalDual e ρ)
+  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
 
 /-! ### Partial dual evaluation (supports inv) -/
 
@@ -363,6 +364,7 @@ noncomputable def evalDual? (e : Expr) (ρ : DualEnv) : Option DualInterval :=
       match evalDual? e ρ with
       | some d => some (DualInterval.tanh d)
       | none => none
+  | Expr.sqrt _ => none  -- sqrt not supported in dual mode yet
 
 /-- Single-variable version of evalDual? -/
 noncomputable def evalDual?1 (e : Expr) (I : IntervalRat) : Option DualInterval :=
@@ -1557,6 +1559,7 @@ def evalDualCore (e : Expr) (ρ : DualEnv) (cfg : EvalConfig := {}) : DualInterv
   | Expr.sinh e => DualInterval.sinhCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => DualInterval.coshCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => DualInterval.tanhCore (evalDualCore e ρ cfg) cfg.taylorDepth
+  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
 
 /-- Computable single-variable derivative interval -/
 def derivIntervalCore (e : Expr) (I : IntervalRat) (cfg : EvalConfig := {}) : IntervalRat :=

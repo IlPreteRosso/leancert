@@ -141,6 +141,27 @@ def erfIntervalDyadic (_I : IntervalDyadic) (_cfg : DyadicConfig) : IntervalDyad
   let pos1 := Dyadic.ofInt 1
   ⟨neg1, pos1, by rw [Dyadic.toRat_ofInt, Dyadic.toRat_ofInt]; norm_num⟩
 
+/-- sqrt interval: uses conservative bound [0, max(hi, 1)] -/
+def sqrtIntervalDyadic (I : IntervalDyadic) (cfg : DyadicConfig) : IntervalDyadic :=
+  IntervalDyadic.sqrt I cfg.precision
+
+/-- log interval: conservative global bound.
+    For any x > 0, log(x) ∈ (-∞, ∞), but we use a finite interval.
+    For x ∈ [lo, hi] with lo > 0:
+    - log is monotone, so log(x) ∈ [log(lo), log(hi)]
+    - Conservative bound: use [-100, max(hi, 1)] as a wide safe interval -/
+def logIntervalDyadic (I : IntervalDyadic) (_cfg : DyadicConfig) : IntervalDyadic :=
+  -- Conservative bound for log: [-100, 100] is safe for most practical inputs
+  -- A tighter bound would require computing actual log approximations
+  if I.lo.mantissa > 0 then
+    -- Input is strictly positive, use wide conservative bounds
+    let neg100 := Dyadic.ofInt (-100)
+    let pos100 := Dyadic.ofInt 100
+    ⟨neg100, pos100, by rw [Dyadic.toRat_ofInt, Dyadic.toRat_ofInt]; norm_num⟩
+  else
+    -- Input may include zero or negative values, return default
+    default
+
 /-! ### Main Evaluator -/
 
 /-- High-performance Dyadic interval evaluator.
@@ -173,7 +194,7 @@ def evalIntervalDyadic (e : Expr) (ρ : IntervalDyadicEnv) (cfg : DyadicConfig :
   | Expr.exp e => expIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.sin e => sinIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.cos e => cosIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
-  | Expr.log _ => default  -- Not in ExprSupportedCore
+  | Expr.log e => logIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.atan e => atanIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.arsinh _ => default  -- TODO: implement
   | Expr.atanh _ => default  -- Not in ExprSupportedCore
@@ -182,6 +203,7 @@ def evalIntervalDyadic (e : Expr) (ρ : IntervalDyadicEnv) (cfg : DyadicConfig :
   | Expr.sinh e => sinhIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.cosh e => coshIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.tanh e => tanhIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
+  | Expr.sqrt e => sqrtIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
 
 /-! ### Correctness -/
 

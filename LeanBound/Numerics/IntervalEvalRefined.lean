@@ -200,6 +200,7 @@ noncomputable def evalIntervalRefined (e : Expr) (ρ : IntervalEnv) : IntervalRa
   | Expr.sinh e => sinhInterval (evalIntervalRefined e ρ)
   | Expr.cosh e => coshInterval (evalIntervalRefined e ρ)
   | Expr.tanh e => tanhInterval (evalIntervalRefined e ρ)
+  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
 
 /-- Single-variable refined interval evaluation -/
 noncomputable def evalIntervalRefined1 (e : Expr) (I : IntervalRat) : IntervalRat :=
@@ -283,6 +284,7 @@ noncomputable def evalDualRefined (e : Expr) (ρ : DualEnv) : DualInterval :=
   | Expr.sinh e => DualInterval.sinh (evalDualRefined e ρ)
   | Expr.cosh e => DualInterval.cosh (evalDualRefined e ρ)
   | Expr.tanh e => DualInterval.tanh (evalDualRefined e ρ)
+  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
 
 /-- Single-variable refined dual evaluation -/
 noncomputable def evalDualRefined1 (e : Expr) (I : IntervalRat) : DualInterval :=

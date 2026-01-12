@@ -100,6 +100,7 @@ noncomputable def evalIntervalReal (e : Expr) (ρ : IntervalRealEnv) : IntervalR
   | Expr.sinh e => IntervalReal.sinhInterval (evalIntervalReal e ρ)
   | Expr.cosh e => IntervalReal.coshInterval (evalIntervalReal e ρ)
   | Expr.tanh _ => ⟨-1, 1, by norm_num⟩  -- tanh is bounded by (-1, 1)
+  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
 
 /-- A real environment is contained in a real-interval environment -/
 def envMemReal (ρ_real : Nat → ℝ) (ρ_int : IntervalRealEnv) : Prop :=

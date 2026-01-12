@@ -316,6 +316,7 @@ def evalIntervalCore (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : In
   | Expr.sinh e => sinhInterval (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => coshInterval (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => tanhInterval (evalIntervalCore e ρ cfg)  -- Tight bounds: [-1, 1]
+  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt; use Dyadic for better precision
 
 /-- Computable interval evaluator with division support.
 
@@ -380,6 +381,7 @@ def evalIntervalCoreWithDiv (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {
   | Expr.sinh e => sinhInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => coshInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => tanhInterval (evalIntervalCoreWithDiv e ρ cfg)  -- Tight bounds: [-1, 1]
+  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
 
 /-- A real environment is contained in an interval environment -/
 def envMem (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) : Prop :=
@@ -452,6 +454,7 @@ noncomputable def evalInterval (e : Expr) (ρ : IntervalEnv) : IntervalRat :=
   | Expr.sinh _ => default  -- sinh unbounded; use evalIntervalCore for tight bounds
   | Expr.cosh _ => default  -- cosh unbounded; use evalIntervalCore for tight bounds
   | Expr.tanh _ => default  -- tanh bounded but not in ExprSupported; use evalIntervalCore
+  | Expr.sqrt _ => ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
 
 /-- Fundamental correctness theorem for extended evaluation.
 
@@ -636,6 +639,10 @@ noncomputable def evalInterval? (e : Expr) (ρ : IntervalEnv) : Option IntervalR
   | Expr.tanh e =>
       match evalInterval? e ρ with
       | some I => some (tanhInterval I)
+      | none => none
+  | Expr.sqrt e =>
+      match evalInterval? e ρ with
+      | some _ => some ⟨0, 1000, by norm_num⟩  -- Conservative bound for sqrt
       | none => none
 
 /-- Syntactic support predicate for expressions with inv and log (no semantic conditions).

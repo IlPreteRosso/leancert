@@ -866,5 +866,168 @@ theorem toRat_scale2_le_scale2 (d₁ d₂ : Dyadic) (n : Int) (h : d₁.toRat �
   rw [toRat_scale2, toRat_scale2]
   exact mul_le_mul_of_nonneg_right h (zpow_nonneg (by norm_num : (0 : ℚ) ≤ 2) n)
 
+/-! ### Square Root Operations -/
+
+/-- Integer square root of a natural number.
+    Satisfies: `(intSqrtNat n)^2 ≤ n < (intSqrtNat n + 1)^2` -/
+def intSqrtNat (n : Nat) : Nat := Nat.sqrt n
+
+/-- Integer square root of a non-negative integer.
+    Returns 0 for negative inputs. -/
+def intSqrt (n : Int) : Int :=
+  if n < 0 then 0 else Int.ofNat (intSqrtNat n.toNat)
+
+/-- Key property of Nat.sqrt: `Nat.sqrt n ^ 2 ≤ n` -/
+private theorem nat_sqrt_sq_le (n : Nat) : (Nat.sqrt n) ^ 2 ≤ n := Nat.sqrt_le' n
+
+/-- Key property of Nat.sqrt: `n < (Nat.sqrt n + 1) ^ 2` -/
+private theorem nat_lt_succ_sqrt_sq (n : Nat) : n < (Nat.sqrt n + 1) ^ 2 := by
+  have h := Nat.lt_succ_sqrt n
+  simp only [Nat.succ_eq_add_one] at h
+  rw [sq]
+  exact h
+
+/-- intSqrt n ^ 2 ≤ n for n ≥ 0 -/
+theorem intSqrt_sq_le {n : Int} (hn : 0 ≤ n) : (intSqrt n) ^ 2 ≤ n := by
+  simp only [intSqrt, not_lt.mpr hn, ↓reduceIte, intSqrtNat]
+  have h := nat_sqrt_sq_le n.toNat
+  calc ((Nat.sqrt n.toNat : ℤ) ^ 2 : ℤ)
+      = ((Nat.sqrt n.toNat) ^ 2 : ℕ) := by norm_cast
+    _ ≤ (n.toNat : ℤ) := Int.ofNat_le.mpr h
+    _ = n := Int.toNat_of_nonneg hn
+
+/-- n < (intSqrt n + 1) ^ 2 for n ≥ 0 -/
+theorem int_lt_succ_sqrt_sq {n : Int} (hn : 0 ≤ n) : n < (intSqrt n + 1) ^ 2 := by
+  simp only [intSqrt, not_lt.mpr hn, ↓reduceIte, intSqrtNat]
+  have h := nat_lt_succ_sqrt_sq n.toNat
+  calc n = (n.toNat : ℤ) := (Int.toNat_of_nonneg hn).symm
+    _ < ((Nat.sqrt n.toNat + 1) ^ 2 : ℕ) := Int.ofNat_lt.mpr h
+    _ = ((Nat.sqrt n.toNat : ℤ) + 1) ^ 2 := by norm_cast
+
+/-- intSqrt is nonnegative for nonnegative inputs -/
+theorem intSqrt_nonneg {n : Int} (hn : 0 ≤ n) : 0 ≤ intSqrt n := by
+  simp only [intSqrt, not_lt.mpr hn, ↓reduceIte, intSqrtNat]
+  exact Int.natCast_nonneg _
+
+/-- Compute sqrt(d) with a target exponent `prec`.
+    Returns a Dyadic with exponent `prec` such that result ≤ sqrt(d).
+
+    For d = m * 2^e, we compute:
+    - shift = e - 2*prec (to align for sqrt)
+    - m' = m * 2^shift (or m / 2^(-shift) if shift < 0)
+    - result = floor(sqrt(m')) * 2^prec
+
+    This ensures: result.toRat ≤ sqrt(d.toRat) -/
+def sqrtDown (d : Dyadic) (prec : Int) : Dyadic :=
+  if d.mantissa < 0 then zero
+  else
+    let shift := d.exponent - 2 * prec
+    let m := if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int)
+    ⟨intSqrt m, prec⟩
+
+/-- Compute sqrt(d) rounded up with target exponent `prec`.
+    Returns a Dyadic with exponent `prec` such that result ≥ sqrt(d).
+
+    Uses the same computation as sqrtDown, but if the result is not
+    a perfect square, adds 1 to round up. -/
+def sqrtUp (d : Dyadic) (prec : Int) : Dyadic :=
+  if d.mantissa < 0 then zero
+  else
+    let shift := d.exponent - 2 * prec
+    let m := if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int)
+    let s := intSqrt m
+    -- If m is a perfect square of s, return s; otherwise s+1
+    if s * s = m then ⟨s, prec⟩ else ⟨s + 1, prec⟩
+
+/-! #### Sqrt Correctness Theorems -/
+
+/-- Helper: For non-negative m and shift ≥ 0, the scaled mantissa is non-negative -/
+private theorem sqrt_scaled_shift_nonneg {m : Int} {shift : Int}
+    (hm : 0 ≤ m) (_hshift : 0 ≤ shift) :
+    0 ≤ m * (pow2Nat shift.toNat : Int) := by
+  apply mul_nonneg hm
+  exact Int.natCast_nonneg _
+
+/-- sqrtDown is non-negative for non-negative inputs -/
+theorem sqrtDown_nonneg (d : Dyadic) (prec : Int) (hd : 0 ≤ d.mantissa) :
+    0 ≤ (sqrtDown d prec).mantissa := by
+  simp only [sqrtDown, not_lt.mpr hd, ↓reduceIte]
+  set shift := d.exponent - 2 * prec
+  have hm_nonneg : 0 ≤ (if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int)) := by
+    by_cases hsh : shift ≥ 0
+    · simp only [hsh, ↓reduceIte]
+      exact sqrt_scaled_shift_nonneg hd hsh
+    · push_neg at hsh
+      simp only [not_le.mpr hsh, ↓reduceIte]
+      exact Int.ediv_nonneg hd (Int.natCast_nonneg _)
+  exact intSqrt_nonneg hm_nonneg
+
+/-- sqrtUp is non-negative for non-negative inputs -/
+theorem sqrtUp_nonneg (d : Dyadic) (prec : Int) (hd : 0 ≤ d.mantissa) :
+    0 ≤ (sqrtUp d prec).mantissa := by
+  simp only [sqrtUp, not_lt.mpr hd, ↓reduceIte]
+  set shift := d.exponent - 2 * prec
+  have hm_nonneg : 0 ≤ (if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int)) := by
+    by_cases hsh : shift ≥ 0
+    · simp only [hsh, ↓reduceIte]
+      exact sqrt_scaled_shift_nonneg hd hsh
+    · push_neg at hsh
+      simp only [not_le.mpr hsh, ↓reduceIte]
+      exact Int.ediv_nonneg hd (Int.natCast_nonneg _)
+  set m := (if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int))
+  set s := intSqrt m
+  by_cases hperfect : s * s = m
+  · simp only [hperfect, ↓reduceIte]
+    exact intSqrt_nonneg hm_nonneg
+  · simp only [hperfect, ↓reduceIte]
+    calc 0 ≤ s := intSqrt_nonneg hm_nonneg
+      _ ≤ s + 1 := by omega
+
+/-- sqrtDown.toRat ≤ sqrtUp.toRat for non-negative inputs -/
+theorem sqrtDown_le_sqrtUp (d : Dyadic) (prec : Int) (hd : 0 ≤ d.mantissa) :
+    (sqrtDown d prec).toRat ≤ (sqrtUp d prec).toRat := by
+  simp only [sqrtDown, sqrtUp, not_lt.mpr hd, ↓reduceIte]
+  set shift := d.exponent - 2 * prec
+  have hm_nonneg : 0 ≤ (if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int)) := by
+    by_cases hsh : shift ≥ 0
+    · simp only [hsh, ↓reduceIte]
+      exact sqrt_scaled_shift_nonneg hd hsh
+    · push_neg at hsh
+      simp only [not_le.mpr hsh, ↓reduceIte]
+      exact Int.ediv_nonneg hd (Int.natCast_nonneg _)
+  set m := (if shift ≥ 0 then
+      d.mantissa * (pow2Nat shift.toNat : Int)
+    else
+      d.mantissa / (pow2Nat (-shift).toNat : Int))
+  set s := intSqrt m
+  by_cases hperfect : s * s = m
+  · -- Perfect square: both return s
+    simp only [hperfect, ↓reduceIte]
+    exact le_refl _
+  · -- Non-perfect: sqrtDown returns s, sqrtUp returns s+1
+    simp only [hperfect, ↓reduceIte]
+    rw [toRat_eq, toRat_eq]
+    apply mul_le_mul_of_nonneg_right _ (le_of_lt (zpow_pos (by norm_num : (0 : ℚ) < 2) _))
+    simp only [Int.cast_add, Int.cast_one]
+    exact le_add_of_nonneg_right (by norm_num : (0 : ℚ) ≤ 1)
+
 end Dyadic
 end LeanBound.Core

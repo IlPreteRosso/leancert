@@ -208,6 +208,7 @@ noncomputable def fromExpr (e : Expr) (domain : IntervalRat) (degree : ℕ) : Ta
   | Expr.sinh e => sinh (fromExpr e domain degree) degree
   | Expr.cosh e => cosh (fromExpr e domain degree) degree
   | Expr.tanh e => tanh (fromExpr e domain degree) degree
+  | Expr.sqrt _ => const 0 domain  -- Fallback for sqrt (not yet supported)
 
 /-- Safe (partial) builder: convert an expression to a Taylor model, returning `none`
     if an inversion would require dividing by an interval that contains 0. -/
@@ -259,6 +260,7 @@ noncomputable def fromExpr? (e : Expr) (domain : IntervalRat) (degree : ℕ) :
   | Expr.tanh e => do
       let tm ← fromExpr? e domain degree
       pure <| tanh tm degree
+  | Expr.sqrt _ => none  -- Not supported: sqrt evalSet proof incomplete
 
 end TaylorModel
 
@@ -387,6 +389,9 @@ theorem fromExpr?_center (e : Expr) (domain : IntervalRat) (degree : ℕ)
         simp [TaylorModel.fromExpr?, h0] at h
         cases h
         simp [TaylorModel.tanh, ih degree tm0 h0]
+  | sqrt _ _ =>
+      intro tm h
+      simp [TaylorModel.fromExpr?] at h
 
 namespace TaylorModel
 
@@ -710,6 +715,9 @@ theorem fromExpr?_domain (e : Expr) (domain : IntervalRat) (degree : ℕ)
       | none => simp [TaylorModel.fromExpr?, h0] at h
       | some tm0 =>
         simp [TaylorModel.fromExpr?, h0] at h; cases h; simp [TaylorModel.tanh, ih degree tm0 h0]
+  | sqrt _ _ =>
+      intro tm h
+      simp [TaylorModel.fromExpr?] at h
 
 /-- Core evalSet correctness: if fromExpr? succeeds, evaluation is in evalSet. -/
 theorem fromExpr_evalSet_correct (e : Expr) (domain : IntervalRat) (degree : ℕ)
@@ -891,6 +899,8 @@ theorem fromExpr_evalSet_correct (e : Expr) (domain : IntervalRat) (degree : ℕ
         have hx0 : x ∈ tm0.domain := hd0 ▸ hx
         exact TaylorModel.tanh_evalSet_correct (fun y => Expr.eval (fun _ => y) e) tm0 degree
           (hd0.symm ▸ ih degree tm0 h0) x hx0
+  | sqrt _ _ =>
+      simp [TaylorModel.fromExpr?] at h
 
 /-- fromExpr? produces correct Taylor models when it succeeds. -/
 theorem fromExpr_correct (e : Expr) (domain : IntervalRat) (degree : ℕ)
