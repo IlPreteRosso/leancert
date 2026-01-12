@@ -913,9 +913,72 @@ noncomputable def tmLog (J : IntervalRat) (n : ℕ) : Option TaylorModel :=
   else
     none
 
+/-- Helper lemma: log(c) is within logc_error of logc_approx when logc_interval
+    is computed from logInterval applied to a singleton interval containing c. -/
+theorem log_approx_error_bound {c : ℚ} (hc_pos : 0 < c) :
+    let c_interval : IntervalRat.IntervalRatPos :=
+      { toIntervalRat := IntervalRat.singleton c
+        lo_pos := by simp only [IntervalRat.singleton]; exact hc_pos }
+    let logc_interval := IntervalRat.logInterval c_interval
+    let logc_approx := logc_interval.midpoint
+    let logc_error := logc_interval.width / 2
+    |Real.log c - logc_approx| ≤ logc_error := by
+  intro c_interval logc_interval logc_approx logc_error
+  -- log c ∈ logc_interval by mem_logInterval
+  have hc_real_pos : (0 : ℝ) < c := by exact_mod_cast hc_pos
+  have hc_mem : (c : ℝ) ∈ c_interval.toIntervalRat := by
+    simp only [c_interval, IntervalRat.singleton, IntervalRat.mem_def]
+    constructor <;> linarith
+  have hlog_mem := IntervalRat.mem_logInterval hc_mem
+  -- logc_interval contains log c, and logc_approx is the midpoint
+  simp only [IntervalRat.mem_def] at hlog_mem
+  -- Standard interval arithmetic: if x ∈ [lo, hi] and m = (lo+hi)/2, then |x - m| ≤ (hi-lo)/2
+  have h1 : (logc_interval.lo : ℝ) ≤ Real.log c := hlog_mem.1
+  have h2 : Real.log c ≤ (logc_interval.hi : ℝ) := hlog_mem.2
+  simp only [logc_approx, logc_error, IntervalRat.midpoint, IntervalRat.width]
+  -- Convert to real form for easier manipulation
+  have hmid : ((logc_interval.lo + logc_interval.hi) / 2 : ℚ) =
+      (logc_interval.lo + logc_interval.hi : ℚ) / 2 := rfl
+  have herr : ((logc_interval.hi - logc_interval.lo) / 2 : ℚ) =
+      (logc_interval.hi - logc_interval.lo : ℚ) / 2 := rfl
+  rw [abs_le]
+  constructor <;> {
+    simp only [Rat.cast_div, Rat.cast_add, Rat.cast_sub, Rat.cast_ofNat]
+    linarith
+  }
+
+/-- The Taylor remainder for log at center c is bounded by the Lagrange form.
+    For z, c ∈ [a, b] with a > 0, and using logTaylorPolyAtCenter which gives
+    the Taylor polynomial coefficients (-1)^(k+1)/(k*c^k) for k ≥ 1:
+    |log z - log c - poly(z-c)| ≤ r^(n+1) / ((n+1) * a^(n+1))
+    where r = max(|a-c|, |b-c|).
+
+    This follows from the Lagrange remainder theorem. -/
+theorem log_taylor_remainder_bound' (J : IntervalRat) (c : ℚ) (n : ℕ) (z : ℝ)
+    (hpos : J.lo > 0) (hc_lo : (J.lo : ℝ) ≤ c) (hc_hi : (c : ℝ) ≤ J.hi)
+    (hz : z ∈ J) :
+    |Real.log z - Real.log c -
+      Polynomial.aeval (z - (c : ℝ)) (logTaylorPolyAtCenter c n)| ≤
+    (logLagrangeRemainder J c n : ℝ) := by
+  -- The proof uses the Lagrange remainder theorem for Taylor series.
+  -- Key mathematical facts:
+  -- 1. log is smooth on (0, ∞)
+  -- 2. The (n+1)th derivative of log at ξ is (-1)^n * n! / ξ^(n+1)
+  -- 3. By Lagrange: |R_n| = |f^(n+1)(ξ)| * |z-c|^(n+1) / (n+1)!
+  --                       = n! / ξ^(n+1) * |z-c|^(n+1) / (n+1)!
+  --                       = |z-c|^(n+1) / ((n+1) * ξ^(n+1))
+  -- 4. Since ξ ≥ J.lo > 0: |R_n| ≤ |z-c|^(n+1) / ((n+1) * J.lo^(n+1))
+  -- 5. Since z ∈ J and c is midpoint: |z-c| ≤ max(|J.lo-c|, |J.hi-c|) = r
+  -- 6. Therefore: |R_n| ≤ r^(n+1) / ((n+1) * J.lo^(n+1)) = logLagrangeRemainder
+  sorry
+
 /-- log z ∈ (tmLog J n).evalSet z for all z in J when J.lo > 0.
     Uses the fact that log(z) = log(c) + Taylor expansion around c,
-    where log(c) is approximated by a rational interval. -/
+    where log(c) is approximated by a rational interval.
+
+    The proof works by decomposing the error into two parts:
+    1. Taylor remainder: |log z - log c - Σ coeff_k (z-c)^k| ≤ logLagrangeRemainder
+    2. log(c) approximation: |log c - logc_approx| ≤ logc_error -/
 theorem tmLog_correct (J : IntervalRat) (n : ℕ)
     (tm : TaylorModel) (h : tmLog J n = some tm) :
     ∀ z : ℝ, z ∈ J → Real.log z ∈ tm.evalSet z := by
@@ -926,11 +989,80 @@ theorem tmLog_correct (J : IntervalRat) (n : ℕ)
   simp only [Option.some.injEq] at h
   subst h
   simp only [evalSet, Set.mem_setOf_eq]
-  -- The key insight: we need to show that Real.log z can be written as
-  -- P(z - c) + r where P is our polynomial and r is in the remainder interval
-  -- For now, use sorry - full proof requires Taylor remainder theorem for log
-  -- and showing that the constant term approximation error is bounded
-  sorry
+  -- Set up notation
+  set c := J.midpoint with hc_def
+  have hc_pos : 0 < c := by
+    simp only [IntervalRat.midpoint, c]
+    apply div_pos
+    · linarith [J.le]
+    · norm_num
+  set c_interval : IntervalRat.IntervalRatPos :=
+    { toIntervalRat := IntervalRat.singleton c
+      lo_pos := by simp only [IntervalRat.singleton]; exact hc_pos } with hc_int_def
+  set logc_interval := IntervalRat.logInterval c_interval with hlogc_int_def
+  set logc_approx := logc_interval.midpoint with hlogc_approx_def
+  set logc_error := logc_interval.width / 2 with hlogc_error_def
+  set base_poly := logTaylorPolyAtCenter c n with hbase_poly_def
+  set poly := base_poly + Polynomial.C logc_approx with hpoly_def
+  set rem := logRemainderBound J c n logc_error with hrem_def
+  -- The remainder is log z - poly.aeval (z - c)
+  set r := Real.log z - Polynomial.aeval (z - (c : ℝ)) poly with hr_def
+  refine ⟨r, ?_, ?_⟩
+  · -- Show r ∈ [-rem, rem]
+    simp only [IntervalRat.mem_def, Rat.cast_neg]
+    -- Decompose r = (log z - log c - base_poly(z-c)) + (log c - logc_approx)
+    have hr_decomp : r = (Real.log z - Real.log c -
+        Polynomial.aeval (z - (c : ℝ)) base_poly) + (Real.log c - (logc_approx : ℝ)) := by
+      simp only [hr_def, hpoly_def, map_add, Polynomial.aeval_C, eq_ratCast]
+      ring
+    -- For the log(c) approximation error
+    have hlog_approx := log_approx_error_bound hc_pos
+    simp only [hc_int_def, hlogc_int_def, hlogc_approx_def, hlogc_error_def] at hlog_approx
+    -- For the Taylor remainder, we use the Lagrange form
+    -- The bound is |r| ≤ logLagrangeRemainder + logc_error = rem
+    -- For now, we use a direct bound argument
+    have hz_pos : 0 < z := by
+      simp only [IntervalRat.mem_def] at hz
+      exact lt_of_lt_of_le (by exact_mod_cast hpos) hz.1
+    -- The total error bound
+    have hrem_eq : (rem : ℝ) = (logLagrangeRemainder J c n : ℝ) + (logc_error : ℝ) := by
+      simp only [hrem_def, logRemainderBound, Rat.cast_add]
+    -- Use triangle inequality: |r| ≤ |Taylor remainder| + |log c approximation|
+    have htri : |r| ≤ |Real.log z - Real.log c - Polynomial.aeval (z - (c : ℝ)) base_poly| +
+        |Real.log c - logc_approx| := by
+      rw [hr_decomp]
+      exact abs_add _ _
+    -- The log(c) approximation part is bounded by logc_error
+    have hlog_part : |Real.log c - logc_approx| ≤ logc_error := hlog_approx
+    -- For the Taylor part, we need to bound it by logLagrangeRemainder
+    -- This follows from the Lagrange form of Taylor's theorem for log
+    -- The key fact: for log on a positive interval, the (n+1)th derivative is
+    -- (-1)^n * n! / x^(n+1), which is bounded by n! / (min_x)^(n+1)
+    have hTaylor_part : |Real.log z - Real.log c - Polynomial.aeval (z - (c : ℝ)) base_poly| ≤
+        (logLagrangeRemainder J c n : ℝ) := by
+      -- Use the helper lemma log_taylor_remainder_bound'
+      have hJle : (J.lo : ℝ) ≤ J.hi := by exact_mod_cast J.le
+      have hc_lo : (J.lo : ℝ) ≤ c := by
+        simp only [IntervalRat.midpoint, c, Rat.cast_div, Rat.cast_add, Rat.cast_ofNat]
+        linarith [hJle]
+      have hc_hi : (c : ℝ) ≤ J.hi := by
+        simp only [IntervalRat.midpoint, c, Rat.cast_div, Rat.cast_add, Rat.cast_ofNat]
+        linarith [hJle]
+      -- base_poly = logTaylorPolyAtCenter c n by definition
+      rw [hbase_poly_def]
+      exact log_taylor_remainder_bound' J c n z hpos hc_lo hc_hi hz
+    -- Combine the bounds
+    have habs_r_le : |r| ≤ rem := by
+      calc |r| ≤ |Real.log z - Real.log c - Polynomial.aeval (z - (c : ℝ)) base_poly| +
+          |Real.log c - logc_approx| := htri
+        _ ≤ (logLagrangeRemainder J c n : ℝ) + (logc_error : ℝ) := by
+          apply add_le_add hTaylor_part hlog_part
+        _ = (rem : ℝ) := hrem_eq.symm
+    rw [abs_le] at habs_r_le
+    exact habs_r_le
+  · -- Show log z = poly.aeval (z - c) + r
+    simp only [hr_def]
+    ring
 
 /-! ### Helper lemmas for Taylor polynomial correctness -/
 

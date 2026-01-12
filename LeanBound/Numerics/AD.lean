@@ -4,13 +4,17 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanBound Contributors
 -/
 import LeanBound.Numerics.IntervalEval
+import LeanBound.Contrib.Sinc
 import Mathlib.Analysis.Calculus.Deriv.Add
 import Mathlib.Analysis.Calculus.Deriv.Mul
 import Mathlib.Analysis.Calculus.Deriv.Comp
 import Mathlib.Analysis.Calculus.Deriv.Inv
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Deriv
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.ArctanDeriv
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.Sinc
+import Mathlib.Analysis.Calculus.Deriv.Slope
 import Mathlib.Analysis.SpecialFunctions.Arsinh
+import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
 /-!
 # Automatic Differentiation via Intervals
@@ -37,7 +41,8 @@ Not yet supported: inv (requires nonzero interval checks)
 
 namespace LeanBound.Numerics
 
-open LeanBound.Core
+open LeanBound.Core Filter
+open scoped Topology
 
 /-- Dual number with interval components: represents (value, derivative) -/
 structure DualInterval where
@@ -534,6 +539,14 @@ theorem evalFunc1_arsinh (e : Expr) :
 /-- Helper lemma: evalFunc1 for atanh unfolds correctly -/
 theorem evalFunc1_atanh (e : Expr) :
     evalFunc1 (Expr.atanh e) = fun t => Real.atanh (evalFunc1 e t) := rfl
+
+/-- Helper lemma: evalFunc1 for sinc unfolds correctly -/
+theorem evalFunc1_sinc (e : Expr) :
+    evalFunc1 (Expr.sinc e) = fun t => Real.sinc (evalFunc1 e t) := rfl
+
+/-- Helper lemma: evalFunc1 for erf unfolds correctly -/
+theorem evalFunc1_erf (e : Expr) :
+    evalFunc1 (Expr.erf e) = fun t => Real.erf (evalFunc1 e t) := rfl
 
 /-- Helper lemma: evalFunc1 for const -/
 @[simp]
@@ -1108,16 +1121,28 @@ theorem evalFunc1_differentiableAt_of_evalDual? (e : Expr) (hsupp : ExprSupporte
     | none => rw [heq] at hsome; exact absurd hsome (by simp)
     | some d =>
       -- sinc is differentiable everywhere
-      -- TODO: This requires Real.differentiable_sinc from Mathlib
-      exact (Differentiable.differentiableAt (by sorry : Differentiable ℝ Real.sinc)).comp x (ih d heq)
+      -- sinc = dslope sin 0, which is differentiable:
+      -- - At x ≠ 0: sinc x = sin x / x is differentiable
+      -- - At x = 0: sinc is differentiable with derivative 0 (from sin's Taylor series)
+      have hsinc_diff : Differentiable ℝ Real.sinc := Real.differentiable_sinc
+      exact hsinc_diff.differentiableAt.comp x (ih d heq)
   | @erf e' hs ih =>
     unfold evalDual?1 evalDual? at hsome
     cases heq : evalDual? e' _ with
     | none => rw [heq] at hsome; exact absurd hsome (by simp)
     | some d =>
-      -- erf is differentiable everywhere
-      -- TODO: This requires Real.differentiable_erf from Mathlib
-      exact (Differentiable.differentiableAt (by sorry : Differentiable ℝ Real.erf)).comp x (ih d heq)
+      -- erf is differentiable everywhere using FTC
+      -- erf(x) = (2/√π) * ∫₀ˣ exp(-t²) dt
+      -- By FTC, the integral of a continuous function is differentiable
+      have herf_diff : Differentiable ℝ Real.erf := by
+        unfold Real.erf
+        apply Differentiable.const_mul
+        -- Use FTC: for continuous f, ∫ t in a..x, f t is differentiable in x
+        intro y
+        have hcont : Continuous (fun t => Real.exp (-(t^2))) :=
+          Real.continuous_exp.comp (continuous_neg.comp (continuous_pow 2))
+        exact (hcont.integral_hasStrictDerivAt 0 y).differentiableAt
+      exact herf_diff.differentiableAt.comp x (ih d heq)
 
 /-- The derivative component of evalDual? is correct when it returns some.
     For a supported expression (with inv) evaluated at a point x in the interval I,
@@ -1360,9 +1385,16 @@ theorem evalDual?_der_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
       rw [← hsome]
       simp only [DualInterval.sinc]
       -- The derivative of sinc ∘ f is sinc'(f(x)) * f'(x)
-      -- We use conservative bound: sinc'(x) ∈ [-1, 1] for all x
-      -- TODO: Full proof requires Real.deriv_sinc bounds from Mathlib
-      sorry
+      -- sinc'(y) ∈ [-1, 1] for all y, and f'(x) ∈ d.der
+      have hd_inner := evalFunc1_differentiableAt_of_evalDual? e' hs I d x hx heq
+      have heq_comp : (fun t => Real.sinc (evalFunc1 e' t)) = Real.sinc ∘ evalFunc1 e' := rfl
+      rw [evalFunc1_sinc, heq_comp, deriv_comp x Real.differentiable_sinc.differentiableAt hd_inner]
+      -- deriv sinc (evalFunc1 e' x) * deriv (evalFunc1 e') x ∈ sincDerivBound * d.der
+      have hsinc_bound : deriv Real.sinc (evalFunc1 e' x) ∈ DualInterval.sincDerivBound := by
+        simp only [DualInterval.sincDerivBound, IntervalRat.mem_def, Rat.cast_neg, Rat.cast_one]
+        exact Real.deriv_sinc_mem_Icc (evalFunc1 e' x)
+      have hder := ih d heq
+      exact IntervalRat.mem_mul hsinc_bound hder
   | @erf e' hs ih =>
     unfold evalDual?1 evalDual? at hsome
     cases heq : evalDual? e' _ with
@@ -1372,8 +1404,81 @@ theorem evalDual?_der_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
       rw [← hsome]
       simp only [DualInterval.erf]
       -- The derivative of erf ∘ f is (2/√π) * exp(-f(x)²) * f'(x)
-      -- TODO: Full proof requires Real.deriv_erf from Mathlib
-      sorry
+      have hd_inner := evalFunc1_differentiableAt_of_evalDual? e' hs I d x hx heq
+      have herf_diff : Differentiable ℝ Real.erf := by
+        unfold Real.erf
+        apply Differentiable.const_mul
+        intro y
+        have hcont : Continuous (fun t => Real.exp (-(t^2))) :=
+          Real.continuous_exp.comp (continuous_neg.comp (continuous_pow 2))
+        exact (hcont.integral_hasStrictDerivAt 0 y).differentiableAt
+      have heq_comp : (fun t => Real.erf (evalFunc1 e' t)) = Real.erf ∘ evalFunc1 e' := rfl
+      rw [evalFunc1_erf, heq_comp, deriv_comp x herf_diff.differentiableAt hd_inner]
+      -- deriv erf y = (2/√π) * exp(-y²) by FTC
+      have hderiv_erf : ∀ y, deriv Real.erf y = (2 / Real.sqrt Real.pi) * Real.exp (-(y^2)) := by
+        intro y
+        unfold Real.erf
+        rw [deriv_const_mul]
+        · have hcont : Continuous (fun t => Real.exp (-(t^2))) :=
+            Real.continuous_exp.comp (continuous_neg.comp (continuous_pow 2))
+          rw [(hcont.integral_hasStrictDerivAt 0 y).hasDerivAt.deriv]
+        · have hcont : Continuous (fun t => Real.exp (-(t^2))) :=
+            Real.continuous_exp.comp (continuous_neg.comp (continuous_pow 2))
+          exact (hcont.integral_hasStrictDerivAt 0 y).differentiableAt
+      rw [hderiv_erf]
+      -- Now goal: (2/√π) * exp(-(f(x))²) * f'(x) ∈ two_div_sqrt_pi * expInterval(-val²) * der
+      -- Factor: (2/√π) ∈ two_div_sqrt_pi
+      -- 2/√π ≈ 1.1284, two_div_sqrt_pi = [1.128, 1.129]
+      have hfactor : 2 / Real.sqrt Real.pi ∈ DualInterval.two_div_sqrt_pi := by
+        simp only [DualInterval.two_div_sqrt_pi, IntervalRat.mem_def]
+        -- From π bounds: 3.1415 < π < 3.1416 (Real.pi_gt_d4, Real.pi_lt_d4)
+        -- So √π is between √3.1415 ≈ 1.7724 and √3.1416 ≈ 1.7724
+        -- Thus 2/√π is between 2/1.7725 ≈ 1.1283 and 2/1.7723 ≈ 1.1285
+        have hpi_lo : (3.1415 : ℝ) < Real.pi := Real.pi_gt_d4
+        have hpi_hi : Real.pi < (3.1416 : ℝ) := Real.pi_lt_d4
+        have hsqrt_lo : (1.7724 : ℝ) < Real.sqrt Real.pi := by
+          have h1 : (1.7724 : ℝ) ^ 2 < Real.pi := by
+            have : (1.7724 : ℝ) ^ 2 = 3.14140176 := by ring
+            linarith
+          have h2 : (0 : ℝ) ≤ 1.7724 := by norm_num
+          have h3 : (0 : ℝ) ≤ 1.7724 ^ 2 := by positivity
+          calc (1.7724 : ℝ) = Real.sqrt (1.7724 ^ 2) := (Real.sqrt_sq h2).symm
+            _ < Real.sqrt Real.pi := Real.sqrt_lt_sqrt h3 h1
+        have hsqrt_hi : Real.sqrt Real.pi < (1.7725 : ℝ) := by
+          have h1 : Real.pi < (1.7725 : ℝ) ^ 2 := by
+            have : (1.7725 : ℝ) ^ 2 = 3.14175625 := by ring
+            linarith
+          have hpi_pos : (0 : ℝ) < Real.pi := Real.pi_pos
+          rw [← Real.sqrt_sq (le_of_lt (by norm_num : (0 : ℝ) < 1.7725))]
+          exact Real.sqrt_lt_sqrt (le_of_lt hpi_pos) h1
+        constructor
+        · -- Goal: ↑(1128 / 1000) ≤ 2 / √π
+          have h1 : ((1128 / 1000 : ℚ) : ℝ) < 2 / 1.7725 := by norm_num
+          have h2 : (2 : ℝ) / 1.7725 < 2 / Real.sqrt Real.pi := by
+            apply div_lt_div_of_pos_left (by norm_num : (0 : ℝ) < 2)
+            · exact Real.sqrt_pos.mpr Real.pi_pos
+            · exact hsqrt_hi
+          exact le_of_lt (lt_trans h1 h2)
+        · -- Goal: 2 / √π ≤ ↑(1129 / 1000)
+          have h1 : 2 / Real.sqrt Real.pi < (2 : ℝ) / 1.7724 := by
+            apply div_lt_div_of_pos_left (by norm_num : (0 : ℝ) < 2)
+            · norm_num
+            · exact hsqrt_lo
+          have h2 : (2 : ℝ) / 1.7724 < ((1129 / 1000 : ℚ) : ℝ) := by norm_num
+          exact le_of_lt (lt_trans h1 h2)
+      -- exp(-(f(x))²) ∈ expInterval(-val²)
+      have hval := evalDual?1_val_correct e' hs I d x hx heq
+      have hval_sq := IntervalRat.mem_mul hval hval
+      have hneg_val_sq := IntervalRat.mem_neg hval_sq
+      have hexp := IntervalRat.mem_expInterval hneg_val_sq
+      -- f'(x) ∈ d.der
+      have hder := ih d heq
+      -- Combine: (2/√π) * exp(-f(x)²) ∈ two_div_sqrt_pi * expInterval(-val²)
+      have hprod1 := IntervalRat.mem_mul hfactor hexp
+      -- Full product: ((2/√π) * exp(-f(x)²)) * f'(x) ∈ (two_div_sqrt_pi * expInterval(-val²)) * der
+      have hprod2 := IntervalRat.mem_mul hprod1 hder
+      convert hprod2 using 1
+      ring
 
 /-- Combined correctness theorem for evalDual?1 -/
 theorem evalDual?1_correct (e : Expr) (hsupp : ExprSupportedWithInv e)

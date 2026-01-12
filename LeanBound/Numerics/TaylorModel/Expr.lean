@@ -829,9 +829,23 @@ theorem fromExpr_evalSet_correct (e : Expr) (domain : IntervalRat) (degree : ℕ
             taylorModel_correct tm0 (fun y => Expr.eval (fun _ => y) e) (hd0.symm ▸ ih degree tm0 h0) x hx0
           simp only [TaylorModel.evalSet, Set.mem_setOf_eq]
           refine ⟨Real.log (Expr.eval (fun _ => x) e), ?_, ?_⟩
-          · -- Need to show Real.log (f x) ∈ logTM.bound using tmLog_correct
-            -- This requires proving that tmLog correctly bounds log on positive intervals
-            sorry  -- TODO: add tmLog_correct theorem
+          · -- Use tmLog_correct: log z ∈ logTM.evalSet z, then taylorModel_correct
+            -- logTM.domain = tm0.bound by definition of TaylorModel.tmLog
+            have hlogTM_domain : logTM.domain = tm0.bound := by
+              unfold TaylorModel.tmLog at hlog
+              split_ifs at hlog with hpos
+              · simp only [Option.some.injEq] at hlog
+                rw [← hlog]
+            -- Use tmLog_correct with z ∈ tm0.bound
+            have hlog_evalSet := TaylorModel.tmLog_correct tm0.bound degree logTM hlog
+              (Expr.eval (fun _ => x) e) _h_arg_in_bound
+            -- Convert domain membership for taylorModel_correct
+            have hz_in_logTM_domain : Expr.eval (fun _ => x) e ∈ logTM.domain :=
+              hlogTM_domain ▸ _h_arg_in_bound
+            exact taylorModel_correct logTM Real.log
+              (fun w hw => TaylorModel.tmLog_correct tm0.bound degree logTM hlog w
+                (hlogTM_domain.symm ▸ hw))
+              (Expr.eval (fun _ => x) e) hz_in_logTM_domain
           · simp only [Polynomial.aeval_zero]; ring
         · simp_all
   | atan _ _ =>
