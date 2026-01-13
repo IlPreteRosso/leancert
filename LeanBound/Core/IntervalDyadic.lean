@@ -339,7 +339,7 @@ theorem mem_sqrt {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (hx_nn : 0 ≤ x)
     Handles both non-negative inputs and negative inputs (where Real.sqrt returns 0). -/
 theorem mem_sqrt' {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) (prec : Int) :
     Real.sqrt x ∈ sqrt I prec := by
-  rcases le_or_lt 0 x with hx_nn | hx_neg
+  rcases le_or_gt 0 x with hx_nn | hx_neg
   · -- Non-negative case
     exact mem_sqrt hx hx_nn prec
   · -- Negative case: sqrt(x) = 0 for x < 0

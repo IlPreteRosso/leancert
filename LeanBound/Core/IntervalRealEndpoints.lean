@@ -394,6 +394,56 @@ theorem mem_coshInterval {x : ℝ} {I : IntervalReal} (hx : x ∈ I) :
           linarith
         exact le_trans hle (le_max_left _ _)
 
+/-! ### Square root interval -/
+
+/-- Interval bound for sqrt.
+    For any interval I, sqrt(x) ∈ [0, max(hi, 1)] for x ∈ I.
+    This is always sound because:
+    - sqrt(x) ≥ 0 for all x (Mathlib convention: sqrt(negative) = 0)
+    - sqrt(x) ≤ max(x, 1) for x ≥ 0, so sqrt(x) ≤ max(hi, 1) -/
+noncomputable def sqrtInterval (I : IntervalReal) : IntervalReal where
+  lo := 0
+  hi := max I.hi 1
+  le := le_max_of_le_right zero_le_one
+
+/-- Helper: sqrt(x) ≤ max(x, 1) for x ≥ 0 -/
+private theorem sqrt_le_max_one {x : ℝ} (hx : 0 ≤ x) : Real.sqrt x ≤ max x 1 := by
+  rcases le_or_gt x 1 with hle | hgt
+  · -- x ≤ 1: sqrt(x) ≤ 1 ≤ max(x, 1)
+    calc Real.sqrt x ≤ Real.sqrt 1 := Real.sqrt_le_sqrt hle
+      _ = 1 := Real.sqrt_one
+      _ ≤ max x 1 := le_max_right x 1
+  · -- x > 1: sqrt(x) < x ≤ max(x, 1)
+    have hx_pos : 0 < x := lt_trans zero_lt_one hgt
+    have hsqrt_pos : 0 < Real.sqrt x := Real.sqrt_pos.mpr hx_pos
+    have hsqrt_gt_one : 1 < Real.sqrt x := by
+      rw [← Real.sqrt_one]
+      exact Real.sqrt_lt_sqrt (by norm_num) hgt
+    have hsqrt_lt : Real.sqrt x < x := by
+      have h1 : Real.sqrt x * Real.sqrt x = x := Real.mul_self_sqrt hx
+      have h2 : Real.sqrt x * 1 < Real.sqrt x * Real.sqrt x :=
+        mul_lt_mul_of_pos_left hsqrt_gt_one hsqrt_pos
+      simp only [mul_one] at h2
+      linarith
+    calc Real.sqrt x ≤ x := le_of_lt hsqrt_lt
+      _ ≤ max x 1 := le_max_left x 1
+
+/-- FTIA for sqrt: if x ∈ I, then sqrt(x) ∈ sqrtInterval(I).
+    Works for all x including negative (where sqrt returns 0 by Mathlib convention). -/
+theorem mem_sqrtInterval {x : ℝ} {I : IntervalReal} (hx : x ∈ I) :
+    Real.sqrt x ∈ sqrtInterval I := by
+  simp only [mem_def, sqrtInterval]
+  constructor
+  · exact Real.sqrt_nonneg x
+  · rcases le_or_gt 0 x with hnn | hneg
+    · -- x ≥ 0: sqrt(x) ≤ max(x, 1) ≤ max(hi, 1)
+      calc Real.sqrt x ≤ max x 1 := sqrt_le_max_one hnn
+        _ ≤ max I.hi 1 := max_le_max_right 1 hx.2
+    · -- x < 0: sqrt(x) = 0 ≤ max(hi, 1)
+      have hsqrt_zero : Real.sqrt x = 0 := Real.sqrt_eq_zero'.mpr (le_of_lt hneg)
+      rw [hsqrt_zero]
+      exact le_max_of_le_right zero_le_one
+
 end IntervalReal
 
 end LeanBound.Core

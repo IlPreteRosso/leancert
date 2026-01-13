@@ -432,9 +432,6 @@ theorem evalDual_val_correct (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalDual, DualInterval.exp]
     exact IntervalRat.mem_expInterval ih
-  | sqrt _ ih =>
-    simp only [Expr.eval_sqrt, evalDual, DualInterval.sqrt]
-    exact IntervalRat.mem_sqrtInterval' ih
 
 /-! ### Single-variable evaluation for derivative proofs -/
 
@@ -468,10 +465,6 @@ theorem evalFunc1_differentiable (e : Expr) (hsupp : ExprSupported e) :
     exact Real.differentiable_cos.comp ih
   | exp _ ih =>
     exact Real.differentiable_exp.comp ih
-  | sqrt _ _ih =>
-    -- sqrt is only differentiable on (0, ∞), not everywhere
-    -- This is a known limitation - sqrt expressions need domain restrictions
-    sorry
 
 /-! ### Core derivative correctness micro-lemmas -/
 
@@ -644,10 +637,6 @@ theorem deriv_mem_dualDer (e : Expr) (hsupp : ExprSupported e)
     simp only [DualInterval.varActive] at hval
     have hexp := IntervalRat.mem_expInterval hval
     exact IntervalRat.mem_mul hexp (ih x hx)
-  | @sqrt _ _ _ =>
-    -- d/dx (sqrt f) = f' / (2 * sqrt(f))
-    -- This requires f(x) > 0 for differentiability, which we don't have in general
-    sorry
 
 /-- The derivative component of dual interval evaluation is correct.
     For a supported expression evaluated at a point x in the interval I,
@@ -700,9 +689,6 @@ theorem evalAlong_differentiable (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.evalAlong_exp]
     exact Real.differentiable_exp.comp ih
-  | sqrt _ _ih =>
-    -- sqrt is only differentiable on (0, ∞), not everywhere
-    sorry
 
 /-- The derivative of evalAlong with respect to coordinate `idx` lies in the
     computed derivative interval from mkDualEnv.
@@ -769,9 +755,6 @@ theorem evalDual_der_correct_idx (e : Expr) (hsupp : ExprSupported e)
     have hmem := updateVar_mem_mkDualEnv_val ρ_real ρ_int idx x hx hρ
     have hval := evalDual_val_correct e' hs _ _ hmem
     exact IntervalRat.mem_mul (IntervalRat.mem_expInterval hval) (ih x hx)
-  | @sqrt _ _ _ =>
-    -- sqrt derivative requires positive domain
-    sorry
 
 /-- Convenience theorem: derivInterval correctness for n-variable expressions.
     The derivative of `evalAlong e ρ idx` at any point `x` in the interval
@@ -1604,7 +1587,7 @@ def evalDualCore (e : Expr) (ρ : DualEnv) (cfg : EvalConfig := {}) : DualInterv
   | Expr.sinh e => DualInterval.sinhCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.cosh e => DualInterval.coshCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.tanh e => DualInterval.tanhCore (evalDualCore e ρ cfg) cfg.taylorDepth
-  | Expr.sqrt _ => default  -- sqrt not supported in dual mode yet
+  | Expr.sqrt e => DualInterval.sqrt (evalDualCore e ρ cfg)
 
 /-- Computable single-variable derivative interval -/
 def derivIntervalCore (e : Expr) (I : IntervalRat) (cfg : EvalConfig := {}) : IntervalRat :=
@@ -1641,13 +1624,12 @@ theorem evalDualCore_val_correct (e : Expr) (hsupp : ExprSupportedCore e)
     simp only [Expr.eval_exp, evalDualCore, DualInterval.expCore]
     exact IntervalRat.mem_expComputable ih cfg.taylorDepth
   | sqrt _ ih =>
-    simp only [Expr.eval_sqrt, evalDualCore, default]
-    -- sqrt returns default = ⟨0, 0, ...⟩, which is only sound if sqrt(x) = 0
-    -- This is a placeholder - proper sqrt dual support would need DualInterval.sqrtCore
-    sorry
+    simp only [Expr.eval_sqrt, evalDualCore, DualInterval.sqrt]
+    exact IntervalRat.mem_sqrtInterval' ih
 
-/-- Correctness theorem for computable dual derivative component -/
-theorem evalDualCore_der_correct (e : Expr) (hsupp : ExprSupportedCore e)
+/-- Correctness theorem for computable dual derivative component.
+    Uses ExprSupported since derivative correctness requires differentiability. -/
+theorem evalDualCore_der_correct (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (x : ℝ) (hx : x ∈ I) (cfg : EvalConfig) :
     deriv (evalFunc1 e) x ∈ (evalDualCore e (fun _ => DualInterval.varActive I) cfg).der := by
   induction hsupp generalizing x with
@@ -1661,61 +1643,58 @@ theorem evalDualCore_der_correct (e : Expr) (hsupp : ExprSupportedCore e)
     convert IntervalRat.mem_singleton 1 using 1
     norm_cast
   | add h₁ h₂ ih₁ ih₂ =>
-    have hd₁ := evalFunc1_differentiable _ h₁.toSupported
-    have hd₂ := evalFunc1_differentiable _ h₂.toSupported
+    have hd₁ := evalFunc1_differentiable _ h₁
+    have hd₂ := evalFunc1_differentiable _ h₂
     simp only [evalDualCore, DualInterval.add, evalFunc1_add_pi, deriv_add (hd₁ x) (hd₂ x)]
     exact IntervalRat.mem_add (ih₁ x hx) (ih₂ x hx)
   | mul h₁ h₂ ih₁ ih₂ =>
-    have hd₁ := evalFunc1_differentiable _ h₁.toSupported
-    have hd₂ := evalFunc1_differentiable _ h₂.toSupported
+    have hd₁ := evalFunc1_differentiable _ h₁
+    have hd₂ := evalFunc1_differentiable _ h₂
     simp only [evalDualCore, DualInterval.mul, evalFunc1_mul_pi, deriv_mul (hd₁ x) (hd₂ x)]
-    have hval₁ := evalDualCore_val_correct _ h₁ (fun _ => x)
+    have hval₁ := evalDualCore_val_correct _ h₁.toCore (fun _ => x)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
-    have hval₂ := evalDualCore_val_correct _ h₂ (fun _ => x)
+    have hval₂ := evalDualCore_val_correct _ h₂.toCore (fun _ => x)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
     exact IntervalRat.mem_add (IntervalRat.mem_mul (ih₁ x hx) hval₂) (IntervalRat.mem_mul hval₁ (ih₂ x hx))
   | neg hs ih =>
-    have hd := evalFunc1_differentiable _ hs.toSupported
+    have hd := evalFunc1_differentiable _ hs
     simp only [evalDualCore, DualInterval.neg, evalFunc1_neg_pi, deriv.neg]
     exact IntervalRat.mem_neg (ih x hx)
   | @sin e' hs ih =>
-    have hd := evalFunc1_differentiable e' hs.toSupported
+    have hd := evalFunc1_differentiable e' hs
     simp only [evalDualCore, DualInterval.sinCore, evalFunc1_sin]
     rw [deriv_sin (hd.differentiableAt)]
-    have hval := evalDualCore_val_correct e' hs (fun _ => x)
+    have hval := evalDualCore_val_correct e' hs.toCore (fun _ => x)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
     have hcos := IntervalRat.mem_cosComputable hval cfg.taylorDepth
     exact IntervalRat.mem_mul hcos (ih x hx)
   | @cos e' hs ih =>
-    have hd := evalFunc1_differentiable e' hs.toSupported
+    have hd := evalFunc1_differentiable e' hs
     simp only [evalDualCore, DualInterval.cosCore, evalFunc1_cos]
     rw [deriv_cos (hd.differentiableAt)]
-    have hval := evalDualCore_val_correct e' hs (fun _ => x)
+    have hval := evalDualCore_val_correct e' hs.toCore (fun _ => x)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
     have hsin := IntervalRat.mem_sinComputable hval cfg.taylorDepth
     have hnegsin := IntervalRat.mem_neg hsin
     exact IntervalRat.mem_mul hnegsin (ih x hx)
   | @exp e' hs ih =>
-    have hd := evalFunc1_differentiable e' hs.toSupported
+    have hd := evalFunc1_differentiable e' hs
     simp only [evalDualCore, DualInterval.expCore, evalFunc1_exp]
     rw [deriv_exp (hd.differentiableAt)]
-    have hval := evalDualCore_val_correct e' hs (fun _ => x)
+    have hval := evalDualCore_val_correct e' hs.toCore (fun _ => x)
       (fun _ => DualInterval.varActive I) cfg (fun _ => hx)
     have hexp := IntervalRat.mem_expComputable hval cfg.taylorDepth
     exact IntervalRat.mem_mul hexp (ih x hx)
-  | @sqrt _ _ _ =>
-    -- sqrt derivative requires positive domain
-    sorry
 
 /-- Convenience theorem: derivIntervalCore correctness -/
-theorem derivIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
+theorem derivIntervalCore_correct (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (x : ℝ) (hx : x ∈ I) (cfg : EvalConfig) :
     deriv (evalFunc1 e) x ∈ derivIntervalCore e I cfg :=
   evalDualCore_der_correct e hsupp I x hx cfg
 
 /-- If derivIntervalCore doesn't contain zero, the derivative is nonzero everywhere on I.
     This is a key theorem for Newton contraction analysis. -/
-theorem derivIntervalCore_nonzero_implies_deriv_nonzero (e : Expr) (hsupp : ExprSupportedCore e)
+theorem derivIntervalCore_nonzero_implies_deriv_nonzero (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (h : ¬(derivIntervalCore e I cfg).containsZero) :
     ∀ x ∈ I, deriv (evalFunc1 e) x ≠ 0 := by
@@ -1729,7 +1708,7 @@ theorem derivIntervalCore_nonzero_implies_deriv_nonzero (e : Expr) (hsupp : Expr
   · exact absurd hmem.2 (not_le.mpr (by exact_mod_cast hhi))
 
 /-- If derivIntervalCore.lo > 0, then the derivative is positive everywhere on I. -/
-theorem derivIntervalCore_pos_implies_deriv_pos (e : Expr) (hsupp : ExprSupportedCore e)
+theorem derivIntervalCore_pos_implies_deriv_pos (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (h : 0 < (derivIntervalCore e I cfg).lo) :
     ∀ x ∈ I, 0 < deriv (evalFunc1 e) x := by
@@ -1740,7 +1719,7 @@ theorem derivIntervalCore_pos_implies_deriv_pos (e : Expr) (hsupp : ExprSupporte
     _ ≤ deriv (evalFunc1 e) x := hmem.1
 
 /-- If derivIntervalCore.hi < 0, then the derivative is negative everywhere on I. -/
-theorem derivIntervalCore_neg_implies_deriv_neg (e : Expr) (hsupp : ExprSupportedCore e)
+theorem derivIntervalCore_neg_implies_deriv_neg (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (h : (derivIntervalCore e I cfg).hi < 0) :
     ∀ x ∈ I, deriv (evalFunc1 e) x < 0 := by
@@ -1751,11 +1730,11 @@ theorem derivIntervalCore_neg_implies_deriv_neg (e : Expr) (hsupp : ExprSupporte
     _ < 0 := by exact_mod_cast h
 
 /-- Strictly positive derivative (via Core bounds) implies strict monotonicity -/
-theorem strictMonoOn_of_derivIntervalCore_pos (e : Expr) (hsupp : ExprSupportedCore e)
+theorem strictMonoOn_of_derivIntervalCore_pos (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (hpos : 0 < (derivIntervalCore e I cfg).lo) :
     StrictMonoOn (evalFunc1 e) (Set.Icc (I.lo : ℝ) (I.hi : ℝ)) := by
-  have hdiff := evalFunc1_differentiable e hsupp.toSupported
+  have hdiff := evalFunc1_differentiable e hsupp
   have hderiv_pos := derivIntervalCore_pos_implies_deriv_pos e hsupp I cfg hpos
   apply strictMonoOn_of_deriv_pos (convex_Icc _ _)
   · exact hdiff.continuous.continuousOn
@@ -1767,11 +1746,11 @@ theorem strictMonoOn_of_derivIntervalCore_pos (e : Expr) (hsupp : ExprSupportedC
     exact hderiv_pos x hx_mem
 
 /-- Strictly negative derivative (via Core bounds) implies strict antitonicity -/
-theorem strictAntiOn_of_derivIntervalCore_neg (e : Expr) (hsupp : ExprSupportedCore e)
+theorem strictAntiOn_of_derivIntervalCore_neg (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (hneg : (derivIntervalCore e I cfg).hi < 0) :
     StrictAntiOn (evalFunc1 e) (Set.Icc (I.lo : ℝ) (I.hi : ℝ)) := by
-  have hdiff := evalFunc1_differentiable e hsupp.toSupported
+  have hdiff := evalFunc1_differentiable e hsupp
   have hderiv_neg := derivIntervalCore_neg_implies_deriv_neg e hsupp I cfg hneg
   apply strictAntiOn_of_deriv_neg (convex_Icc _ _)
   · exact hdiff.continuous.continuousOn

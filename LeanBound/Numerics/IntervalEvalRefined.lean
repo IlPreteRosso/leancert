@@ -235,9 +235,6 @@ theorem evalIntervalRefined_correct (e : Expr) (hsupp : ExprSupported e)
   | exp h ih =>
     simp only [evalIntervalRefined, Expr.eval_exp]
     exact mem_expIntervalRefined ih
-  | sqrt h ih =>
-    simp only [evalIntervalRefined, Expr.eval_sqrt]
-    exact IntervalRat.mem_sqrtInterval' ih
 
 /-- Single-variable refined evaluation is correct -/
 theorem evalIntervalRefined1_correct (e : Expr) (hsupp : ExprSupported e)
@@ -354,9 +351,6 @@ theorem evalDualRefined_val_correct (e : Expr) (hsupp : ExprSupported e)
   | exp h ih =>
     simp only [evalDualRefined, Expr.eval_exp]
     exact DualInterval.expRefined_val_mem ih
-  | sqrt h ih =>
-    simp only [evalDualRefined, Expr.eval_sqrt, DualInterval.sqrt]
-    exact IntervalRat.mem_sqrtInterval' ih
 
 /-- Single-variable refined dual evaluation is correct for values -/
 theorem evalDualRefined1_val_correct (e : Expr) (hsupp : ExprSupported e)

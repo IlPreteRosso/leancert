@@ -130,12 +130,12 @@ structure UniqueRootResult (e : Expr) (I : IntervalRat) : Type where
 
     Requires `UsesOnlyVar0 e` for the Newton contraction proof to work.
     Returns `none` if no unique root can be verified. -/
-noncomputable def findUniqueRoot (e : Expr) (hsupp : ExprSupportedCore e)
+noncomputable def findUniqueRoot (e : Expr) (hsupp : ExprSupported e)
     (hvar0 : UsesOnlyVar0 e) (I : IntervalRat) (cfg : RootSearchConfig := {}) :
     Option (UniqueRootResult e I) :=
   let evalCfg : EvalConfig := { taylorDepth := cfg.taylorDepth }
   let newtonCfg : RootFinding.NewtonConfig := {}  -- Default Newton config
-  let hCont := LeanBound.Meta.exprSupportedCore_continuousOn e hsupp (s := Set.Icc I.lo I.hi)
+  let hCont := LeanBound.Meta.exprSupportedCore_continuousOn e hsupp.toCore (s := Set.Icc I.lo I.hi)
   -- Try Newton contraction check - need both core (for search) and non-core (for proof)
   if h_core : RootFinding.checkNewtonContractsCore e I evalCfg = true then
     if h_newton : RootFinding.checkNewtonContracts e I newtonCfg = true then
@@ -143,7 +143,7 @@ noncomputable def findUniqueRoot (e : Expr) (hsupp : ExprSupportedCore e)
         evalCfg newtonCfg hCont h_core h_newton
       -- Extract the components from ExistsUnique
       some {
-        supported := hsupp
+        supported := hsupp.toCore
         continuous := hCont
         hasRoot := by
           obtain ⟨x, ⟨hx_mem, hx_root⟩, _⟩ := uniqueProof

@@ -234,14 +234,13 @@ def checkUpperBoundSmart (e : Expr) (I : IntervalRat) (c : ℚ) (cfg : EvalConfi
 /-! ### Smart Golden Theorems -/
 
 /-- Helper: For increasing functions, the minimum is at the left endpoint -/
-theorem increasing_min_at_left_core (e : Expr) (hsupp : ExprSupportedCore e)
+theorem increasing_min_at_left_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig) (hpos : 0 < (derivIntervalCore e I cfg).lo) :
     ∀ x ∈ I, Expr.eval (fun _ => I.lo) e ≤ Expr.eval (fun _ => x) e := by
   intro x hx
   -- Use the MVT: f(x) - f(lo) = f'(ξ) * (x - lo) for some ξ ∈ (lo, x)
   -- Since f' > 0 and x ≥ lo, we have f(x) ≥ f(lo)
-  have hsupp' := hsupp.toSupported
-  have hdiff := evalFunc1_differentiable e hsupp'
+  have hdiff := evalFunc1_differentiable e hsupp
   by_cases heq : (I.lo : ℝ) = x
   · rw [heq]
   · -- x > lo since x ∈ I and x ≠ lo
@@ -278,12 +277,11 @@ theorem increasing_min_at_left_core (e : Expr) (hsupp : ExprSupportedCore e)
     linarith
 
 /-- Helper: For decreasing functions, the minimum is at the right endpoint -/
-theorem decreasing_min_at_right_core (e : Expr) (hsupp : ExprSupportedCore e)
+theorem decreasing_min_at_right_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig) (hneg : (derivIntervalCore e I cfg).hi < 0) :
     ∀ x ∈ I, Expr.eval (fun _ => I.hi) e ≤ Expr.eval (fun _ => x) e := by
   intro x hx
-  have hsupp' := hsupp.toSupported
-  have hdiff := evalFunc1_differentiable e hsupp'
+  have hdiff := evalFunc1_differentiable e hsupp
   by_cases heq : x = (I.hi : ℝ)
   · rw [heq]
   · have hx_le_hi : x ≤ (I.hi : ℝ) := by
@@ -315,7 +313,7 @@ theorem decreasing_min_at_right_core (e : Expr) (hsupp : ExprSupportedCore e)
     linarith
 
 /-- Smart lower bound verification using monotonicity -/
-theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (c : ℚ) (cfg : EvalConfig)
     (h_cert : checkLowerBoundSmart e I c cfg = true) :
     ∀ x ∈ I, c ≤ Expr.eval (fun _ => x) e := by
@@ -324,7 +322,7 @@ theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
   split at h_cert
   · -- Case 1: Standard check passed
     rename_i h_std
-    exact verify_lower_bound e hsupp I c cfg h_std
+    exact verify_lower_bound e hsupp.toCore I c cfg h_std
   · -- Standard check failed, simplify the let binding and split
     rename_i h_std_neg
     simp only at h_cert  -- eliminate let binding
@@ -333,7 +331,7 @@ theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
       rename_i h_pos
       intro x hx
       have hlo_mem : (I.lo : ℝ) ∈ IntervalRat.singleton I.lo := IntervalRat.mem_singleton I.lo
-      have heval := evalIntervalCore1_correct e hsupp I.lo (IntervalRat.singleton I.lo) hlo_mem cfg
+      have heval := evalIntervalCore1_correct e hsupp.toCore I.lo (IntervalRat.singleton I.lo) hlo_mem cfg
       simp only [IntervalRat.mem_def] at heval
       have hmono := increasing_min_at_left_core e hsupp I cfg h_pos x hx
       simp only [decide_eq_true_eq] at h_cert
@@ -347,7 +345,7 @@ theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
         rename_i h_neg
         intro x hx
         have hhi_mem : (I.hi : ℝ) ∈ IntervalRat.singleton I.hi := IntervalRat.mem_singleton I.hi
-        have heval := evalIntervalCore1_correct e hsupp I.hi (IntervalRat.singleton I.hi) hhi_mem cfg
+        have heval := evalIntervalCore1_correct e hsupp.toCore I.hi (IntervalRat.singleton I.hi) hhi_mem cfg
         simp only [IntervalRat.mem_def] at heval
         have hmono := decreasing_min_at_right_core e hsupp I cfg h_neg x hx
         simp only [decide_eq_true_eq] at h_cert
@@ -358,12 +356,11 @@ theorem verify_lower_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
         exact absurd h_cert Bool.false_ne_true
 
 /-- Helper: For increasing functions, the maximum is at the right endpoint -/
-theorem increasing_max_at_right_core (e : Expr) (hsupp : ExprSupportedCore e)
+theorem increasing_max_at_right_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig) (hpos : 0 < (derivIntervalCore e I cfg).lo) :
     ∀ x ∈ I, Expr.eval (fun _ => x) e ≤ Expr.eval (fun _ => I.hi) e := by
   intro x hx
-  have hsupp' := hsupp.toSupported
-  have hdiff := evalFunc1_differentiable e hsupp'
+  have hdiff := evalFunc1_differentiable e hsupp
   by_cases heq : x = (I.hi : ℝ)
   · rw [heq]
   · have hx_le_hi : x ≤ (I.hi : ℝ) := by
@@ -395,12 +392,11 @@ theorem increasing_max_at_right_core (e : Expr) (hsupp : ExprSupportedCore e)
     linarith
 
 /-- Helper: For decreasing functions, the maximum is at the left endpoint -/
-theorem decreasing_max_at_left_core (e : Expr) (hsupp : ExprSupportedCore e)
+theorem decreasing_max_at_left_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig) (hneg : (derivIntervalCore e I cfg).hi < 0) :
     ∀ x ∈ I, Expr.eval (fun _ => x) e ≤ Expr.eval (fun _ => I.lo) e := by
   intro x hx
-  have hsupp' := hsupp.toSupported
-  have hdiff := evalFunc1_differentiable e hsupp'
+  have hdiff := evalFunc1_differentiable e hsupp
   by_cases heq : (I.lo : ℝ) = x
   · rw [heq]
   · have hlo_le_x : (I.lo : ℝ) ≤ x := by
@@ -432,7 +428,7 @@ theorem decreasing_max_at_left_core (e : Expr) (hsupp : ExprSupportedCore e)
     linarith
 
 /-- Smart upper bound verification using monotonicity -/
-theorem verify_upper_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_upper_bound_smart (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (c : ℚ) (cfg : EvalConfig)
     (h_cert : checkUpperBoundSmart e I c cfg = true) :
     ∀ x ∈ I, Expr.eval (fun _ => x) e ≤ c := by
@@ -441,7 +437,7 @@ theorem verify_upper_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
   split at h_cert
   · -- Case 1: Standard check passed
     rename_i h_std
-    exact verify_upper_bound e hsupp I c cfg h_std
+    exact verify_upper_bound e hsupp.toCore I c cfg h_std
   · -- Standard check failed, simplify the let binding and split
     rename_i h_std_neg
     simp only at h_cert  -- eliminate let binding
@@ -450,7 +446,7 @@ theorem verify_upper_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
       rename_i h_pos
       intro x hx
       have hhi_mem : (I.hi : ℝ) ∈ IntervalRat.singleton I.hi := IntervalRat.mem_singleton I.hi
-      have heval := evalIntervalCore1_correct e hsupp I.hi (IntervalRat.singleton I.hi) hhi_mem cfg
+      have heval := evalIntervalCore1_correct e hsupp.toCore I.hi (IntervalRat.singleton I.hi) hhi_mem cfg
       simp only [IntervalRat.mem_def] at heval
       have hmono := increasing_max_at_right_core e hsupp I cfg h_pos x hx
       simp only [decide_eq_true_eq] at h_cert
@@ -464,7 +460,7 @@ theorem verify_upper_bound_smart (e : Expr) (hsupp : ExprSupportedCore e)
         rename_i h_neg
         intro x hx
         have hlo_mem : (I.lo : ℝ) ∈ IntervalRat.singleton I.lo := IntervalRat.mem_singleton I.lo
-        have heval := evalIntervalCore1_correct e hsupp I.lo (IntervalRat.singleton I.lo) hlo_mem cfg
+        have heval := evalIntervalCore1_correct e hsupp.toCore I.lo (IntervalRat.singleton I.lo) hlo_mem cfg
         simp only [IntervalRat.mem_def] at heval
         have hmono := decreasing_max_at_left_core e hsupp I cfg h_neg x hx
         simp only [decide_eq_true_eq] at h_cert
@@ -481,7 +477,7 @@ allowing tactics to work with the more natural Set.Icc syntax.
 -/
 
 /-- Bridge from IntervalRat proof to Set.Icc upper bound goal -/
-theorem verify_upper_bound_Icc (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_upper_bound_Icc (e : Expr) (hsupp : ExprSupported e)
     (lo hi : ℚ) (hle : lo ≤ hi) (c : ℚ) (cfg : EvalConfig)
     (h_cert : checkUpperBoundSmart e ⟨lo, hi, hle⟩ c cfg = true) :
     ∀ x ∈ Set.Icc (lo : ℝ) (hi : ℝ), Expr.eval (fun _ => x) e ≤ c := by
@@ -491,7 +487,7 @@ theorem verify_upper_bound_Icc (e : Expr) (hsupp : ExprSupportedCore e)
   rwa [IntervalRat.mem_iff_mem_Icc]
 
 /-- Bridge from IntervalRat proof to Set.Icc lower bound goal -/
-theorem verify_lower_bound_Icc (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_lower_bound_Icc (e : Expr) (hsupp : ExprSupported e)
     (lo hi : ℚ) (hle : lo ≤ hi) (c : ℚ) (cfg : EvalConfig)
     (h_cert : checkLowerBoundSmart e ⟨lo, hi, hle⟩ c cfg = true) :
     ∀ x ∈ Set.Icc (lo : ℝ) (hi : ℝ), c ≤ Expr.eval (fun _ => x) e := by
@@ -803,7 +799,7 @@ But Newton contraction requires specific quotient bounds that MVT proves are vio
 
 /-- MVT lower bound using derivIntervalCore: if f'(ξ) ∈ [dI.lo, dI.hi] for all ξ ∈ I,
     then f(y) - f(x) ≥ dI.lo * (y - x) for x ≤ y in I. -/
-lemma mvt_lower_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
+lemma mvt_lower_bound_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi)) :
     ∀ x y, x ∈ I → y ∈ I → x ≤ y →
@@ -815,7 +811,7 @@ lemma mvt_lower_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
   -- Use Mathlib's MVT
   have hConvex : Convex ℝ (Set.Icc (I.lo : ℝ) I.hi) := convex_Icc _ _
   have hDiff : DifferentiableOn ℝ (evalFunc1 e) (interior (Set.Icc (I.lo : ℝ) I.hi)) := by
-    have hdiff := evalFunc1_differentiable e hsupp.toSupported
+    have hdiff := evalFunc1_differentiable e hsupp
     exact hdiff.differentiableOn
   have hC' : ∀ ξ ∈ interior (Set.Icc (I.lo : ℝ) I.hi), (dI.lo : ℝ) ≤ deriv (evalFunc1 e) ξ := by
     intro ξ hξ
@@ -827,7 +823,7 @@ lemma mvt_lower_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
 
 /-- MVT upper bound using derivIntervalCore: if f'(ξ) ∈ [dI.lo, dI.hi] for all ξ ∈ I,
     then f(y) - f(x) ≤ dI.hi * (y - x) for x ≤ y in I. -/
-lemma mvt_upper_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
+lemma mvt_upper_bound_core (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (hCont : ContinuousOn (evalFunc1 e) (Set.Icc I.lo I.hi)) :
     ∀ x y, x ∈ I → y ∈ I → x ≤ y →
@@ -838,7 +834,7 @@ lemma mvt_upper_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
     (derivIntervalCore_correct e hsupp I ξ hξ cfg).2
   have hConvex : Convex ℝ (Set.Icc (I.lo : ℝ) I.hi) := convex_Icc _ _
   have hDiff : DifferentiableOn ℝ (evalFunc1 e) (interior (Set.Icc (I.lo : ℝ) I.hi)) := by
-    have hdiff := evalFunc1_differentiable e hsupp.toSupported
+    have hdiff := evalFunc1_differentiable e hsupp
     exact hdiff.differentiableOn
   have hC' : ∀ ξ ∈ interior (Set.Icc (I.lo : ℝ) I.hi), deriv (evalFunc1 e) ξ ≤ (dI.hi : ℝ) := by
     intro ξ hξ
@@ -863,7 +859,7 @@ lemma mvt_upper_bound_core (e : Expr) (hsupp : ExprSupportedCore e)
     Note: The `h_cert_core` hypothesis is not used in the proof but is kept
     in the signature so the certificate format can include it for external
     tooling purposes. -/
-theorem verify_unique_root_core (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_unique_root_core (e : Expr) (hsupp : ExprSupported e)
     (hvar0 : UsesOnlyVar0 e) (I : IntervalRat)
     (evalCfg : EvalConfig) (newtonCfg : NewtonConfig)
     (hCont : ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi))
@@ -871,8 +867,7 @@ theorem verify_unique_root_core (e : Expr) (hsupp : ExprSupportedCore e)
     (h_cert_newton : checkNewtonContracts e I newtonCfg = true) :
     ∃! x, x ∈ I ∧ Expr.eval (fun _ => x) e = 0 := by
   -- We only *use* `h_cert_newton`. The core certificate is present for external tooling.
-  have hsupp' : ExprSupported e := hsupp.toSupported
-  exact verify_unique_root_newton e hsupp' hvar0 I newtonCfg hCont h_cert_newton
+  exact verify_unique_root_newton e hsupp hvar0 I newtonCfg hCont h_cert_newton
 
 /-! ### Fully Computable Unique Root Verification
 
@@ -882,7 +877,7 @@ noncomputable functions like `Real.exp` or `Real.log`. -/
 
 /-- Newton step preserves roots when using Core evaluation functions.
     If x is a root in I and newtonStepCore produces N, then x ∈ N. -/
-theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupportedCore e) (hvar0 : UsesOnlyVar0 e)
+theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupported e) (hvar0 : UsesOnlyVar0 e)
     (I N : IntervalRat) (cfg : EvalConfig)
     (hStep : newtonStepCore e I cfg = some N)
     (x : ℝ) (hx : x ∈ I) (hroot : Expr.eval (fun _ => x) e = 0) :
@@ -901,7 +896,7 @@ theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupportedCore e) (hva
   -- 1. f(c) ∈ fc via evalIntervalCore1_correct
   have hfc_correct : evalFunc1 e c ∈ fc := by
     simp only [evalFunc1]
-    exact evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg
+    exact evalIntervalCore1_correct e hsupp.toCore c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg
 
   -- 2. f'(ξ) ∈ dI for all ξ ∈ I via derivIntervalCore_correct
   have hdI_correct : ∀ ξ ∈ I, deriv (evalFunc1 e) ξ ∈ dI := fun ξ hξ =>
@@ -909,7 +904,7 @@ theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupportedCore e) (hva
 
   -- Apply abstract preservation lemma
   have hroot' : evalFunc1 e x = 0 := hroot
-  have h_in_Newton := newton_operator_preserves_root e hsupp.toSupported hvar0
+  have h_in_Newton := newton_operator_preserves_root e hsupp hvar0
     I c fc dI hc_in_I hfc_correct hdI_correct hdI_nonzero x hx hroot'
 
   -- Now we need to show x ∈ N where N = I ∩ Newton
@@ -934,7 +929,7 @@ theorem newton_preserves_root_core (e : Expr) (hsupp : ExprSupportedCore e) (hva
 /-- If Newton step succeeds, there's at most one root in I (via Rolle's theorem).
     This uses the fact that if dI doesn't contain zero, the derivative is nonzero
     everywhere on I, so f is strictly monotonic. -/
-theorem newton_step_core_at_most_one_root (e : Expr) (hsupp : ExprSupportedCore e) (_hvar0 : UsesOnlyVar0 e)
+theorem newton_step_core_at_most_one_root (e : Expr) (hsupp : ExprSupported e) (_hvar0 : UsesOnlyVar0 e)
     (I : IntervalRat) (cfg : EvalConfig)
     (hStep : ∃ N, newtonStepCore e I cfg = some N)
     (hCont : ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi))
@@ -1000,7 +995,7 @@ theorem newton_step_core_at_most_one_root (e : Expr) (hsupp : ExprSupportedCore 
 /-- MVT bound using Core functions: If f' ≥ dI.lo > 0 (increasing) and f(I.lo) > 0,
     then f(c) > dI.lo * hw where c = midpoint and hw = half-width. -/
 lemma mvt_fc_lower_bound_pos_increasing_core
-    (e : Expr) (hsupp : ExprSupportedCore e)
+    (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (_hI_nonsingleton : I.lo < I.hi)
     (_hdI_lo_pos : 0 < (derivIntervalCore e I cfg).lo)
@@ -1037,7 +1032,7 @@ lemma mvt_fc_lower_bound_pos_increasing_core
 /-- MVT bound using Core functions: If f' ≥ dI.lo > 0 (increasing) and f(I.hi) < 0,
     then f(c) < -dI.lo * hw where c = midpoint and hw = half-width. -/
 lemma mvt_fc_upper_bound_pos_increasing_core
-    (e : Expr) (hsupp : ExprSupportedCore e)
+    (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (_hI_nonsingleton : I.lo < I.hi)
     (_hdI_lo_pos : 0 < (derivIntervalCore e I cfg).lo)
@@ -1074,7 +1069,7 @@ lemma mvt_fc_upper_bound_pos_increasing_core
 /-- MVT bound using Core functions: If f' ≤ dI.hi < 0 (decreasing) and f(I.lo) < 0,
     then f(c) < 0 and more specifically, fc.lo / dI.hi ≥ hw. -/
 lemma mvt_fc_upper_bound_neg_decreasing_core
-    (e : Expr) (hsupp : ExprSupportedCore e)
+    (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (_hI_nonsingleton : I.lo < I.hi)
     (_hdI_hi_neg : (derivIntervalCore e I cfg).hi < 0)
@@ -1111,7 +1106,7 @@ lemma mvt_fc_upper_bound_neg_decreasing_core
 /-- MVT bound using Core functions: If f' ≤ dI.hi < 0 (decreasing) and f(I.hi) > 0,
     then f(c) > 0 and more specifically, fc.hi / dI.hi ≤ -hw. -/
 lemma mvt_fc_lower_bound_neg_decreasing_core
-    (e : Expr) (hsupp : ExprSupportedCore e)
+    (e : Expr) (hsupp : ExprSupported e)
     (I : IntervalRat) (cfg : EvalConfig)
     (_hI_nonsingleton : I.lo < I.hi)
     (_hdI_hi_neg : (derivIntervalCore e I cfg).hi < 0)
@@ -1151,7 +1146,7 @@ lemma mvt_fc_lower_bound_neg_decreasing_core
 
     This theorem uses ONLY computable functions (no Real.exp, Real.log, etc.),
     making it suitable for `native_decide` verification. -/
-theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
+theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupported e)
     (hvar0 : UsesOnlyVar0 e) (I : IntervalRat) (cfg : EvalConfig)
     (hCont : ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi))
     (h_cert : checkNewtonContractsCore e I cfg = true) :
@@ -1255,7 +1250,7 @@ theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
             have hMVT := mvt_fc_lower_bound_pos_increasing_core e hsupp I cfg hI_nonsingleton hdI_pos hCont hlo_pos
             -- Apply generic contraction contradiction
             exact generic_contraction_absurd_hi I c fc dI N rfl hdI_nonzero hdI_pos
-              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              (evalIntervalCore1_correct e hsupp.toCore c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
               hN_lo hContract.1 hMVT
       · push_neg at hlo
         by_cases hhi : f I.hi ≤ 0
@@ -1273,7 +1268,7 @@ theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
             exfalso
             have hMVT := mvt_fc_upper_bound_pos_increasing_core e hsupp I cfg hI_nonsingleton hdI_pos hCont hhi_neg
             exact generic_contraction_absurd_lo I c fc dI N rfl hdI_nonzero hdI_pos
-              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              (evalIntervalCore1_correct e hsupp.toCore c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
               hN_hi hContract.2 hMVT
         · -- f(lo) < 0 and f(hi) > 0: SIGN CHANGE! Apply IVT.
           push_neg at hhi
@@ -1332,7 +1327,7 @@ theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
             exfalso
             have hMVT := mvt_fc_upper_bound_neg_decreasing_core e hsupp I cfg hI_nonsingleton hdI_neg hCont hlo_neg
             exact generic_contraction_absurd_hi_neg I c fc dI N rfl hdI_nonzero hdI_neg
-              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              (evalIntervalCore1_correct e hsupp.toCore c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
               hN_lo hContract.1 hMVT
       · push_neg at hlo
         by_cases hhi : f I.hi ≥ 0
@@ -1350,7 +1345,7 @@ theorem verify_unique_root_computable (e : Expr) (hsupp : ExprSupportedCore e)
             exfalso
             have hMVT := mvt_fc_lower_bound_neg_decreasing_core e hsupp I cfg hI_nonsingleton hdI_neg hCont hhi_pos
             exact generic_contraction_absurd_lo_neg I c fc dI N rfl hdI_nonzero hdI_neg
-              (evalIntervalCore1_correct e hsupp c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
+              (evalIntervalCore1_correct e hsupp.toCore c (IntervalRat.singleton c) (IntervalRat.mem_singleton c) cfg)
               hN_hi hContract.2 hMVT
         · -- f(lo) > 0 and f(hi) < 0: SIGN CHANGE for decreasing function!
           push_neg at hhi

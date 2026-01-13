@@ -68,10 +68,13 @@ inductive ExprSupportedCore : Expr → Prop where
 
 /-! ### Extended supported expression subset (with exp) -/
 
-/-- Predicate indicating an expression is in the fully-verified subset.
-    Supports: const, var, add, mul, neg, sin, cos, exp, sqrt
-    Does NOT support: inv (requires nonzero interval checks), log (requires positive interval checks),
-    atan/arsinh/atanh (derivative proofs incomplete - use ExprSupportedWithInv + evalInterval? instead) -/
+/-- Predicate indicating an expression is in the fully-verified subset for AD.
+    Supports: const, var, add, mul, neg, sin, cos, exp
+    Does NOT support:
+    - sqrt (not differentiable at 0 - use ExprSupportedCore for interval evaluation only)
+    - inv (requires nonzero interval checks)
+    - log (requires positive interval checks)
+    - atan/arsinh/atanh (derivative proofs incomplete - use ExprSupportedWithInv + evalInterval?) -/
 inductive ExprSupported : Expr → Prop where
   | const (q : ℚ) : ExprSupported (Expr.const q)
   | var (idx : Nat) : ExprSupported (Expr.var idx)
@@ -81,20 +84,18 @@ inductive ExprSupported : Expr → Prop where
   | sin {e : Expr} : ExprSupported e → ExprSupported (Expr.sin e)
   | cos {e : Expr} : ExprSupported e → ExprSupported (Expr.cos e)
   | exp {e : Expr} : ExprSupported e → ExprSupported (Expr.exp e)
-  | sqrt {e : Expr} : ExprSupported e → ExprSupported (Expr.sqrt e)
 
-/-- Core expressions are also in the extended supported set -/
-theorem ExprSupportedCore.toSupported {e : Expr} (h : ExprSupportedCore e) : ExprSupported e := by
+/-- ExprSupported expressions are also in ExprSupportedCore -/
+theorem ExprSupported.toCore {e : Expr} (h : ExprSupported e) : ExprSupportedCore e := by
   induction h with
-  | const q => exact ExprSupported.const q
-  | var idx => exact ExprSupported.var idx
-  | add _ _ ih₁ ih₂ => exact ExprSupported.add ih₁ ih₂
-  | mul _ _ ih₁ ih₂ => exact ExprSupported.mul ih₁ ih₂
-  | neg _ ih => exact ExprSupported.neg ih
-  | sin _ ih => exact ExprSupported.sin ih
-  | cos _ ih => exact ExprSupported.cos ih
-  | exp _ ih => exact ExprSupported.exp ih
-  | sqrt _ ih => exact ExprSupported.sqrt ih
+  | const q => exact ExprSupportedCore.const q
+  | var idx => exact ExprSupportedCore.var idx
+  | add _ _ ih₁ ih₂ => exact ExprSupportedCore.add ih₁ ih₂
+  | mul _ _ ih₁ ih₂ => exact ExprSupportedCore.mul ih₁ ih₂
+  | neg _ ih => exact ExprSupportedCore.neg ih
+  | sin _ ih => exact ExprSupportedCore.sin ih
+  | cos _ ih => exact ExprSupportedCore.cos ih
+  | exp _ ih => exact ExprSupportedCore.exp ih
 
 /-! ### Interval bounds for transcendental functions -/
 
@@ -494,9 +495,6 @@ theorem evalInterval_correct (e : Expr) (hsupp : ExprSupported e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalInterval]
     exact IntervalRat.mem_expInterval ih
-  | sqrt _ ih =>
-    simp only [Expr.eval_sqrt, evalInterval]
-    exact IntervalRat.mem_sqrtInterval' ih
 
 /-! ### Convenience functions
 
@@ -688,7 +686,6 @@ theorem ExprSupported.toWithInv {e : Expr} (h : ExprSupported e) : ExprSupported
   | sin _ ih => exact ExprSupportedWithInv.sin ih
   | cos _ ih => exact ExprSupportedWithInv.cos ih
   | exp _ ih => exact ExprSupportedWithInv.exp ih
-  | sqrt _ ih => exact ExprSupportedWithInv.sqrt ih
 
 /-- Main correctness theorem for evalInterval? (approach 1 from plan).
 

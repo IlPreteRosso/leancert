@@ -136,7 +136,7 @@ def findGlobalMax (expr : Expr) (hsupp : ExprSupportedCore expr)
 
 Returns `some proof` if the bound is verified, `none` otherwise.
 -/
-def verifyUpperBound (expr : Expr) (hsupp : ExprSupportedCore expr)
+def verifyUpperBound (expr : Expr) (hsupp : ExprSupported expr)
     (domain : IntervalRat) (bound : ℚ) (cfg : DiscoveryConfig := {}) :
     Option (VerifiedUpperBound expr domain) :=
   let evalCfg := cfg.toEvalConfig
@@ -152,7 +152,7 @@ def verifyUpperBound (expr : Expr) (hsupp : ExprSupportedCore expr)
 
 Returns `some proof` if the bound is verified, `none` otherwise.
 -/
-def verifyLowerBound (expr : Expr) (hsupp : ExprSupportedCore expr)
+def verifyLowerBound (expr : Expr) (hsupp : ExprSupported expr)
     (domain : IntervalRat) (bound : ℚ) (cfg : DiscoveryConfig := {}) :
     Option (VerifiedLowerBound expr domain) :=
   let evalCfg := cfg.toEvalConfig
@@ -223,7 +223,7 @@ These functions automatically increase precision until verification succeeds.
 
 /-- Try to verify an upper bound with increasing Taylor depths.
 Returns `some` with the verified bound if successful, `none` otherwise. -/
-def tryVerifyUpperBound (expr : Expr) (hsupp : ExprSupportedCore expr)
+def tryVerifyUpperBound (expr : Expr) (hsupp : ExprSupported expr)
     (domain : IntervalRat) (bound : ℚ) (maxDepth : Nat := 40) :
     Option (VerifiedUpperBound expr domain) :=
   let depths := [10, 15, 20, 30, 40].filter (· ≤ maxDepth)
@@ -233,7 +233,7 @@ def tryVerifyUpperBound (expr : Expr) (hsupp : ExprSupportedCore expr)
 
 /-- Try to verify a lower bound with increasing Taylor depths.
 Returns `some` with the verified bound if successful, `none` otherwise. -/
-def tryVerifyLowerBound (expr : Expr) (hsupp : ExprSupportedCore expr)
+def tryVerifyLowerBound (expr : Expr) (hsupp : ExprSupported expr)
     (domain : IntervalRat) (bound : ℚ) (maxDepth : Nat := 40) :
     Option (VerifiedLowerBound expr domain) :=
   let depths := [10, 15, 20, 30, 40].filter (· ≤ maxDepth)

@@ -46,8 +46,9 @@ def exprXSq : Expr := Expr.mul (Expr.var 0) (Expr.var 0)
 def exprXSq_core : ExprSupportedCore exprXSq :=
   ExprSupportedCore.mul (ExprSupportedCore.var 0) (ExprSupportedCore.var 0)
 
-/-- Proof that x² is supported (follows from core) -/
-def exprXSq_supp : ExprSupported exprXSq := exprXSq_core.toSupported
+/-- Proof that x² is supported -/
+def exprXSq_supp : ExprSupported exprXSq :=
+  ExprSupported.mul (ExprSupported.var 0) (ExprSupported.var 0)
 
 /-- The unit interval [0, 1] -/
 def I01 : IntervalRat := ⟨0, 1, by norm_num⟩
@@ -93,7 +94,8 @@ def exprSin_core : ExprSupportedCore exprSin :=
   ExprSupportedCore.sin (ExprSupportedCore.var 0)
 
 /-- Proof that sin(x) is supported -/
-def exprSin_supp : ExprSupported exprSin := exprSin_core.toSupported
+def exprSin_supp : ExprSupported exprSin :=
+  ExprSupported.sin (ExprSupported.var 0)
 
 /-- Example: sin(x) ≤ 1 for all x ∈ [0, 1] using native_decide. -/
 theorem sin_le_one_native : ∀ x ∈ I01, Expr.eval (fun _ => x) exprSin ≤ (1 : ℚ) := by
@@ -132,7 +134,10 @@ def exprXSqPlusSin_core : ExprSupportedCore exprXSqPlusSin :=
     (ExprSupportedCore.sin (ExprSupportedCore.var 0))
 
 /-- Proof that x² + sin(x) is supported -/
-def exprXSqPlusSin_supp : ExprSupported exprXSqPlusSin := exprXSqPlusSin_core.toSupported
+def exprXSqPlusSin_supp : ExprSupported exprXSqPlusSin :=
+  ExprSupported.add
+    (ExprSupported.mul (ExprSupported.var 0) (ExprSupported.var 0))
+    (ExprSupported.sin (ExprSupported.var 0))
 
 /-- Example: x² + sin(x) ≤ 2 for all x ∈ [0, 1] using native_decide. -/
 theorem xsq_plus_sin_le_two_native : ∀ x ∈ I01, Expr.eval (fun _ => x) exprXSqPlusSin ≤ (2 : ℚ) := by
@@ -181,7 +186,10 @@ def exprXSqMinus2_core : ExprSupportedCore exprXSqMinus2 :=
     (ExprSupportedCore.neg (ExprSupportedCore.const 2))
 
 /-- Proof that x² - 2 is supported -/
-def exprXSqMinus2_supp : ExprSupported exprXSqMinus2 := exprXSqMinus2_core.toSupported
+def exprXSqMinus2_supp : ExprSupported exprXSqMinus2 :=
+  ExprSupported.add
+    (ExprSupported.mul (ExprSupported.var 0) (ExprSupported.var 0))
+    (ExprSupported.neg (ExprSupported.const 2))
 
 /-- Example: x² - 2 < 0 for all x ∈ [0, 1] using native_decide.
     Since x² ≤ 1 on [0,1], we have x² - 2 ≤ -1 < 0. -/
@@ -220,7 +228,13 @@ def exprPoly_core : ExprSupportedCore exprPoly :=
     (ExprSupportedCore.const 1)
 
 /-- Proof that 2x² + 3x + 1 is supported -/
-def exprPoly_supp : ExprSupported exprPoly := exprPoly_core.toSupported
+def exprPoly_supp : ExprSupported exprPoly :=
+  ExprSupported.add
+    (ExprSupported.add
+      (ExprSupported.mul (ExprSupported.const 2)
+        (ExprSupported.mul (ExprSupported.var 0) (ExprSupported.var 0)))
+      (ExprSupported.mul (ExprSupported.const 3) (ExprSupported.var 0)))
+    (ExprSupported.const 1)
 
 /-- Example: 2x² + 3x + 1 ≤ 6 for all x ∈ [0, 1] using native_decide.
     At x=1: 2 + 3 + 1 = 6. -/
