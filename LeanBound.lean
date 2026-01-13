@@ -32,6 +32,16 @@ import LeanBound.Numerics.IntervalEvalDyadic
 import LeanBound.Numerics.Optimization.Box
 import LeanBound.Numerics.Optimization.Gradient
 import LeanBound.Numerics.Optimization.Global
+import LeanBound.Numerics.Optimization.Guided
+
+-- Affine Arithmetic
+import LeanBound.Numerics.Affine.Basic
+import LeanBound.Numerics.Affine.Nonlinear
+import LeanBound.Numerics.Affine.Transcendental
+import LeanBound.Numerics.Affine.Vector
+
+-- Extended Numerics
+import LeanBound.Numerics.Extended
 
 -- Search + Certify APIs
 import LeanBound.Numerics.SearchAPI
@@ -41,6 +51,8 @@ import LeanBound.Tactic.Interval
 import LeanBound.Tactic.Discovery
 -- v1.1: fast_bound tactic (uses Dyadic backend)
 import LeanBound.Tactic.DyadicAuto
+-- Counter-example hunting
+import LeanBound.Tactic.Refute
 
 -- Discovery Mode
 import LeanBound.Discovery
@@ -51,6 +63,10 @@ import LeanBound.ML.IntervalVector
 import LeanBound.ML.Distillation
 import LeanBound.ML.Symbolic.ReLU
 import LeanBound.ML.Symbolic.Sigmoid
+import LeanBound.ML.Transformer
+import LeanBound.ML.Softmax
+import LeanBound.ML.Attention
+import LeanBound.ML.Optimized.MatrixNetwork
 
 -- ML Examples
 import LeanBound.Examples.ML.Distillation
