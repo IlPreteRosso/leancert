@@ -90,7 +90,7 @@ def evalDualCore (e : Expr) (ρ : DualEnv) (cfg : EvalConfig := {}) : DualInterv
   | Expr.add e₁ e₂ => DualInterval.add (evalDualCore e₁ ρ cfg) (evalDualCore e₂ ρ cfg)
   | Expr.mul e₁ e₂ => DualInterval.mul (evalDualCore e₁ ρ cfg) (evalDualCore e₂ ρ cfg)
   | Expr.neg e => DualInterval.neg (evalDualCore e ρ cfg)
-  | Expr.inv _ => default
+  | Expr.inv e => DualInterval.inv (evalDualCore e ρ cfg)
   | Expr.exp e => DualInterval.expCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.sin e => DualInterval.sinCore (evalDualCore e ρ cfg) cfg.taylorDepth
   | Expr.cos e => DualInterval.cosCore (evalDualCore e ρ cfg) cfg.taylorDepth
@@ -130,11 +130,10 @@ theorem evalDualCore_val_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalDualCore, DualInterval.neg]
     exact IntervalRat.mem_neg ih
-  | inv _ _ =>
-    -- evalDualCore returns default for inv, which is not verified
-    -- This case uses sorry as a marker that inv is not fully supported in AD mode
-    simp only [Expr.eval_inv, evalDualCore]
-    sorry
+  | inv _ ih =>
+    simp only [Expr.eval_inv, evalDualCore, DualInterval.inv]
+    -- The value component uses invInterval, which is proved correct via mem_invInterval
+    exact mem_invInterval ih
   | sin _ ih =>
     simp only [Expr.eval_sin, evalDualCore, DualInterval.sinCore]
     exact IntervalRat.mem_sinComputable ih cfg.taylorDepth

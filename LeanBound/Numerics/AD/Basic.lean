@@ -71,6 +71,16 @@ def neg (d : DualInterval) : DualInterval :=
   { val := IntervalRat.neg d.val
     der := IntervalRat.neg d.der }
 
+/-- Inverse of a dual interval (quotient rule: d(1/f) = -f'/f²)
+    Uses invInterval for the value component.
+    For intervals containing zero, returns wide bounds. -/
+def inv (d : DualInterval) : DualInterval :=
+  let inv_val := invInterval d.val
+  -- d(1/f) = -f'/f² = -f' * (1/f)²
+  let inv_sq := IntervalRat.mul inv_val inv_val
+  let der' := IntervalRat.neg (IntervalRat.mul d.der inv_sq)
+  { val := inv_val, der := der' }
+
 end DualInterval
 
 end LeanBound.Numerics

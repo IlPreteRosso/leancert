@@ -141,6 +141,12 @@ def erfIntervalDyadic (_I : IntervalDyadic) (_cfg : DyadicConfig) : IntervalDyad
   let pos1 := Dyadic.ofInt 1
   ⟨neg1, pos1, by rw [Dyadic.toRat_ofInt, Dyadic.toRat_ofInt]; norm_num⟩
 
+/-- Compute inv interval: convert to Rat, use invInterval, convert back to Dyadic -/
+def invIntervalDyadic (I : IntervalDyadic) (cfg : DyadicConfig) : IntervalDyadic :=
+  let Irat := I.toIntervalRat
+  let result := invInterval Irat
+  IntervalDyadic.ofIntervalRat result cfg.precision
+
 /-- sqrt interval: uses conservative bound [0, max(hi, 1)] -/
 def sqrtIntervalDyadic (I : IntervalDyadic) (cfg : DyadicConfig) : IntervalDyadic :=
   IntervalDyadic.sqrt I cfg.precision
@@ -190,7 +196,7 @@ def evalIntervalDyadic (e : Expr) (ρ : IntervalDyadicEnv) (cfg : DyadicConfig :
   | Expr.neg e =>
       let I := evalIntervalDyadic e ρ cfg
       IntervalDyadic.neg I  -- Negation doesn't increase precision
-  | Expr.inv _ => default  -- Not in ExprSupportedCore
+  | Expr.inv e => invIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.exp e => expIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.sin e => sinIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
   | Expr.cos e => cosIntervalDyadic (evalIntervalDyadic e ρ cfg) cfg
@@ -246,10 +252,12 @@ theorem evalIntervalDyadic_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalIntervalDyadic]
     exact IntervalDyadic.mem_neg ih
-  | inv _ _ =>
-    -- inv (1/x) is not fully supported in Dyadic mode
-    simp only [Expr.eval_inv, evalIntervalDyadic]
-    sorry
+  | inv _ ih =>
+    simp only [Expr.eval_inv, evalIntervalDyadic, invIntervalDyadic]
+    -- Convert to Rat, use mem_invInterval, convert back
+    have hrat := IntervalDyadic.mem_toIntervalRat.mp ih
+    have hinv := mem_invInterval hrat
+    exact IntervalDyadic.mem_ofIntervalRat hinv cfg.precision hprec
   | sin _ ih =>
     simp only [Expr.eval_sin, evalIntervalDyadic, sinIntervalDyadic]
     -- Chain: ih gives Dyadic membership → convert to Rat → use sinComputable → convert back

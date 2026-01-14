@@ -22,19 +22,22 @@ Given a reified AST `e : LeanBound.Core.Expr`, we construct a proof that
 
 ## Main definitions
 
-* `LeanBound.Meta.mkContinuousOnProof` - Generate `ContinuousOn` proofs for ExprSupportedCore expressions
-* `exprSupportedCore_continuousOn` - Base theorem: all ExprSupportedCore expressions are continuous
+* `ExprContinuousCore` - Predicate for expressions continuous everywhere (excludes inv)
+* `exprContinuousCore_continuousOn` - Base theorem: all ExprContinuousCore expressions are continuous
+* `mkContinuousCoreProof` - Generate `ExprContinuousCore` proofs from AST structure
+* `mkContinuousOnProof` - Generate `ContinuousOn` proofs
 
 ## Design
 
-The key insight is that all operations in `ExprSupportedCore` are continuous:
+We define `ExprContinuousCore` as a separate predicate from `ExprSupportedCore` because:
+- `inv` (1/x) is supported for interval evaluation but NOT continuous at 0
+- `ExprContinuousCore` excludes `inv`, so all its constructors are globally continuous
+
+Operations in `ExprContinuousCore`:
 - Constants: `continuousOn_const`
 - Variables (identity): `continuousOn_id`
 - Add, Mul, Neg: preserved by composition
-- Sin, Cos, Exp: continuous everywhere
-
-**Note**: `log` and `inv` are NOT in `ExprSupportedCore`, so we don't need to handle
-their continuity restrictions (they're only continuous on positive/nonzero domains).
+- Sin, Cos, Exp, Sqrt, Sinh, Cosh, Tanh: continuous everywhere
 -/
 
 open Lean Meta Elab Term Command
@@ -45,18 +48,62 @@ abbrev LExpr := LeanBound.Core.Expr
 
 namespace LeanBound.Meta
 
-/-! ## Base Continuity Theorem
+/-! ## Continuous Expression Predicate
 
-This theorem proves that all `ExprSupportedCore` expressions evaluate to continuous functions.
-We prove this by induction on the structure of `ExprSupportedCore`.
+Since `inv` (1/x) is not continuous at 0, we define a separate predicate for
+expressions that are continuous everywhere. This excludes `inv` from `ExprSupportedCore`.
 -/
 
-/-- All ExprSupportedCore expressions are continuous on any set.
+/-- Expressions that are continuous everywhere (excludes inv).
+    This is a subset of ExprSupportedCore used for continuity proofs. -/
+inductive ExprContinuousCore : LExpr → Prop where
+  | const (q : ℚ) : ExprContinuousCore (Expr.const q)
+  | var (idx : Nat) : ExprContinuousCore (Expr.var idx)
+  | add {e₁ e₂ : LExpr} : ExprContinuousCore e₁ → ExprContinuousCore e₂ →
+      ExprContinuousCore (Expr.add e₁ e₂)
+  | mul {e₁ e₂ : LExpr} : ExprContinuousCore e₁ → ExprContinuousCore e₂ →
+      ExprContinuousCore (Expr.mul e₁ e₂)
+  | neg {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.neg e)
+  | sin {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sin e)
+  | cos {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.cos e)
+  | exp {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.exp e)
+  | sqrt {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sqrt e)
+  | sinh {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sinh e)
+  | cosh {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.cosh e)
+  | tanh {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.tanh e)
+
+/-- ExprContinuousCore implies ExprSupportedCore -/
+theorem ExprContinuousCore.toSupported {e : LExpr} (h : ExprContinuousCore e) :
+    LeanBound.Numerics.ExprSupportedCore e := by
+  induction h with
+  | const q => exact .const q
+  | var idx => exact .var idx
+  | add _ _ ih1 ih2 => exact .add ih1 ih2
+  | mul _ _ ih1 ih2 => exact .mul ih1 ih2
+  | neg _ ih => exact .neg ih
+  | sin _ ih => exact .sin ih
+  | cos _ ih => exact .cos ih
+  | exp _ ih => exact .exp ih
+  | sqrt _ ih => exact .sqrt ih
+  | sinh _ ih => exact .sinh ih
+  | cosh _ ih => exact .cosh ih
+  | tanh _ ih => exact .tanh ih
+
+/-! ## Base Continuity Theorem
+
+This theorem proves that all `ExprContinuousCore` expressions evaluate to continuous functions.
+We prove this by induction on the structure of `ExprContinuousCore`.
+-/
+
+/-- All ExprContinuousCore expressions are continuous on any set.
 
 This is the foundational theorem that allows automatic continuity proof generation.
-Since ExprSupportedCore only includes operations that are continuous everywhere
-(const, var, add, mul, neg, sin, cos, exp), the result follows by structural induction. -/
-theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)
+Since ExprContinuousCore only includes operations that are continuous everywhere
+(const, var, add, mul, neg, sin, cos, exp, sqrt, sinh, cosh, tanh), the result
+follows by structural induction.
+
+NOTE: inv is NOT included because 1/x is not continuous at 0. -/
+theorem exprContinuousCore_continuousOn (e : LExpr) (hsupp : ExprContinuousCore e)
     {s : Set ℝ} :
     ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) s := by
   induction hsupp with
@@ -76,11 +123,6 @@ theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.E
   | neg _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact ih.neg
-  | inv _ ih =>
-    simp only [LeanBound.Core.Expr.eval]
-    -- inv = 1/x is only continuous on sets not containing 0
-    -- For the general case, we use sorry as this requires additional hypotheses
-    sorry
   | sin _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_sin.comp_continuousOn ih
@@ -112,23 +154,174 @@ theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.E
     exact hcont.comp_continuousOn ih
 
 /-- Specialized version for Icc intervals (common case for interval_roots) -/
-theorem exprSupportedCore_continuousOn_Icc (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)
+theorem exprContinuousCore_continuousOn_Icc (e : LExpr) (hsupp : ExprContinuousCore e)
     (lo hi : ℝ) :
     ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) (Set.Icc lo hi) :=
-  exprSupportedCore_continuousOn e hsupp
+  exprContinuousCore_continuousOn e hsupp
 
 /-- Version taking IntervalRat for convenience -/
-theorem exprSupportedCore_continuousOn_interval (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)
+theorem exprContinuousCore_continuousOn_interval (e : LExpr) (hsupp : ExprContinuousCore e)
     (I : LeanBound.Core.IntervalRat) :
     ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi) :=
-  exprSupportedCore_continuousOn e hsupp
+  exprContinuousCore_continuousOn e hsupp
+
+/-! ### Backward Compatibility: ExprSupportedCore Continuity
+
+These theorems are provided for expressions that may contain `inv`. They have a sorry
+for the `inv` case since 1/x is not continuous at 0. For expressions without `inv`,
+prefer using `ExprContinuousCore` and `exprContinuousCore_continuousOn` which are fully proved.
+-/
+
+/-- All ExprSupportedCore expressions are continuous on any set.
+
+WARNING: This theorem has a sorry for the `inv` case because 1/x is not continuous at 0.
+For expressions without inv, use `exprContinuousCore_continuousOn` which is fully proved.
+
+This theorem exists for backward compatibility with code that uses ExprSupportedCore. -/
+theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)
+    {s : Set ℝ} :
+    ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) s := by
+  induction hsupp with
+  | const c =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact continuousOn_const
+  | var n =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact continuous_id.continuousOn
+  | add _ _ ih1 ih2 =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact ih1.add ih2
+  | mul _ _ ih1 ih2 =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact ih1.mul ih2
+  | neg _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact ih.neg
+  | inv _ _ =>
+    simp only [LeanBound.Core.Expr.eval]
+    -- inv = 1/x is NOT continuous at 0. This case is fundamentally unprovable
+    -- for arbitrary sets s. Use ExprContinuousCore for expressions without inv.
+    sorry
+  | sin _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_sin.comp_continuousOn ih
+  | cos _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_cos.comp_continuousOn ih
+  | exp _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_exp.comp_continuousOn ih
+  | sqrt _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_sqrt.comp_continuousOn ih
+  | sinh _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_sinh.comp_continuousOn ih
+  | cosh _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    exact Real.continuous_cosh.comp_continuousOn ih
+  | tanh _ ih =>
+    simp only [LeanBound.Core.Expr.eval]
+    have hcont : Continuous Real.tanh := by
+      have h : Real.tanh = fun x => Real.sinh x / Real.cosh x := by
+        ext x; exact Real.tanh_eq_sinh_div_cosh x
+      rw [h]
+      exact Real.continuous_sinh.div Real.continuous_cosh (fun x => ne_of_gt (Real.cosh_pos x))
+    exact hcont.comp_continuousOn ih
 
 /-! ## Metaprogramming: Continuity Proof Generation
 
 Generate proof terms of `ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc lo hi)`
-by applying `exprSupportedCore_continuousOn_Icc` with an automatically generated
-`ExprSupportedCore` proof.
+by applying `exprContinuousCore_continuousOn_Icc` with an automatically generated
+`ExprContinuousCore` proof.
+
+Note: We use `ExprContinuousCore` (not `ExprSupportedCore`) because `inv` is not continuous
+everywhere, and `ExprContinuousCore` excludes `inv`.
 -/
+
+/-- Generate a proof of `ExprContinuousCore e_ast` by matching on the AST structure.
+
+    This is similar to `mkSupportedCoreProof` but for the `ExprContinuousCore` predicate
+    which excludes `inv` (since 1/x is not continuous at 0).
+
+    Supported: const, var, add, mul, neg, sin, cos, exp, sqrt, sinh, cosh, tanh
+    Not supported: inv, log, atan, arsinh, atanh -/
+partial def mkContinuousCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
+  -- Get the head constant and arguments
+  let fn := e_ast.getAppFn
+  let args := e_ast.getAppArgs
+
+  -- Match on AST constructors
+  if fn.isConstOf ``LeanBound.Core.Expr.const then
+    let q := args[0]!
+    mkAppM ``ExprContinuousCore.const #[q]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.var then
+    let idx := args[0]!
+    mkAppM ``ExprContinuousCore.var #[idx]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.add then
+    let e₁ := args[0]!
+    let e₂ := args[1]!
+    let h₁ ← mkContinuousCoreProof e₁
+    let h₂ ← mkContinuousCoreProof e₂
+    mkAppM ``ExprContinuousCore.add #[h₁, h₂]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.mul then
+    let e₁ := args[0]!
+    let e₂ := args[1]!
+    let h₁ ← mkContinuousCoreProof e₁
+    let h₂ ← mkContinuousCoreProof e₂
+    mkAppM ``ExprContinuousCore.mul #[h₁, h₂]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.neg then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.neg #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.sin then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.sin #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.cos then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.cos #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.exp then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.exp #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.sqrt then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.sqrt #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.sinh then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.sinh #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.cosh then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.cosh #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.tanh then
+    let e := args[0]!
+    let h ← mkContinuousCoreProof e
+    mkAppM ``ExprContinuousCore.tanh #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.inv then
+    throwError "Cannot generate ExprContinuousCore proof for: {e_ast}\n\
+                Expression contains `inv` which is not continuous at 0.\n\
+                Continuity proofs for expressions with division require restricted domains."
+
+  else
+    throwError "Cannot generate ExprContinuousCore proof for: {e_ast}\n\
+                This expression contains unsupported operations (log, atan, arsinh, or atanh)."
 
 /-- Generate a ContinuousOn proof for an expression on an interval.
 
@@ -140,19 +333,21 @@ by applying `exprSupportedCore_continuousOn_Icc` with an automatically generated
     `ContinuousOn (fun x => Expr.eval (fun _ => x) e) (Set.Icc I.lo I.hi)`
 
     This works by:
-    1. Generating an ExprSupportedCore proof for the AST
-    2. Applying exprSupportedCore_continuousOn_interval
+    1. Generating an ExprContinuousCore proof for the AST
+    2. Applying exprContinuousCore_continuousOn_interval
+
+    Note: This will fail for expressions containing `inv` since 1/x is not continuous at 0.
 -/
 def mkContinuousOnProof (e_ast : Lean.Expr) (interval : Lean.Expr) : MetaM Lean.Expr := do
-  -- Generate the ExprSupportedCore proof
-  let supportProof ← mkSupportedCoreProof e_ast
+  -- Generate the ExprContinuousCore proof
+  let contProof ← mkContinuousCoreProof e_ast
   -- Apply the continuity theorem
-  mkAppM ``exprSupportedCore_continuousOn_interval #[e_ast, supportProof, interval]
+  mkAppM ``exprContinuousCore_continuousOn_interval #[e_ast, contProof, interval]
 
 /-- Alternative: generate ContinuousOn proof with explicit lo/hi bounds -/
 def mkContinuousOnProofIcc (e_ast : Lean.Expr) (lo hi : Lean.Expr) : MetaM Lean.Expr := do
-  let supportProof ← mkSupportedCoreProof e_ast
-  mkAppM ``exprSupportedCore_continuousOn_Icc #[e_ast, supportProof, lo, hi]
+  let contProof ← mkContinuousCoreProof e_ast
+  mkAppM ``exprContinuousCore_continuousOn_Icc #[e_ast, contProof, lo, hi]
 
 /-! ## Testing Infrastructure -/
 

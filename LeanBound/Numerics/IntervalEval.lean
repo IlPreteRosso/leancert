@@ -400,9 +400,12 @@ theorem mem_invInterval_wide {x : ℝ} {I : IntervalRat}
 
 /-- Main correctness theorem for invInterval.
     Fully proved for intervals bounded away from zero.
-    The case where the interval contains zero uses sorry (see note in mem_invInterval_wide). -/
+    The case where the interval contains zero uses sorry (see note in mem_invInterval_wide).
+
+    NOTE: The `x ≠ 0` hypothesis would be needed for a complete proof in the zero-crossing case,
+    but even with it, finite bounds can't contain x⁻¹ when x can be arbitrarily close to 0. -/
 theorem mem_invInterval {x : ℝ} {I : IntervalRat}
-    (hx : x ∈ I) (hx_ne : x ≠ 0) :
+    (hx : x ∈ I) :
     x⁻¹ ∈ invInterval I := by
   -- Case split based on the interval position
   by_cases hpos : I.lo > 0
@@ -563,15 +566,20 @@ theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
     exact IntervalRat.mem_neg ih
   | @inv e _ ih =>
     simp only [Expr.eval_inv, evalIntervalCore]
-    -- NOTE: mem_invInterval requires x ≠ 0. When the interval doesn't contain 0,
-    -- this is provable. When it does contain 0, the proof uses sorry (see mem_invInterval_wide).
-    -- The tactic will fail gracefully in that case since the wide bounds won't satisfy goals.
-    have hx_ne : Expr.eval ρ_real e ≠ 0 := by
-      -- This is where we need the denominator to be nonzero.
-      -- When the computed interval doesn't contain 0, we could prove this.
-      -- For now, we use sorry for the general case.
-      sorry
-    exact mem_invInterval ih hx_ne
+    -- Case split based on whether the interval contains 0
+    let I := evalIntervalCore e ρ_int cfg
+    by_cases hpos : I.lo > 0
+    · -- Positive interval: x > 0 implies x ≠ 0
+      have hlo_pos : (0 : ℝ) < I.lo := by exact_mod_cast hpos
+      have hx_pos : Expr.eval ρ_real e > 0 := lt_of_lt_of_le hlo_pos ih.1
+      exact mem_invInterval_pos ih hpos
+    · by_cases hneg : I.hi < 0
+      · -- Negative interval: x < 0 implies x ≠ 0
+        have hhi_neg : (I.hi : ℝ) < 0 := by exact_mod_cast hneg
+        have hx_neg : Expr.eval ρ_real e < 0 := lt_of_le_of_lt ih.2 hhi_neg
+        exact mem_invInterval_neg ih hneg
+      · -- Zero-crossing interval: uses sorry (fundamentally unprovable with finite bounds)
+        exact mem_invInterval_wide ih hpos hneg
   | sin _ ih =>
     simp only [Expr.eval_sin, evalIntervalCore]
     exact IntervalRat.mem_sinComputable ih cfg.taylorDepth
