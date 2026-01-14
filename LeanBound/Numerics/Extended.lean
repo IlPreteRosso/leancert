@@ -204,6 +204,10 @@ theorem defaultLargeBound_pos : 0 < defaultLargeBound := by
   simp only [defaultLargeBound]
   norm_num
 
+/-- Helper to construct an interval, using min/max to ensure validity -/
+private def mkSafeInterval (a b : ℚ) : IntervalRat :=
+  { lo := min a b, hi := max a b, le := @min_le_max ℚ _ a b }
+
 /-- Extended inversion: handles 1/I when I may contain zero.
 
     Cases:
@@ -212,7 +216,10 @@ theorem defaultLargeBound_pos : 0 < defaultLargeBound := by
     3. I straddles zero → split into two parts: (-∞, 1/lo] ∪ [1/hi, ∞)
     4. I = [0, b] with b > 0 → [1/b, ∞)
     5. I = [a, 0] with a < 0 → (-∞, 1/a]
-    6. I = [0, 0] → empty (1/0 is undefined) -/
+    6. I = [0, 0] → empty (1/0 is undefined)
+
+    NOTE: Uses large_bound (default 10^30) to represent ±∞. For inputs with
+    |lo|, |hi| ≥ 10^-30, the bounds are guaranteed valid. -/
 def invExtended (I : IntervalRat) (large_bound : ℚ := defaultLargeBound) : ExtendedInterval :=
   if hpos : 0 < I.lo then
     -- Case 1: Strictly positive interval [1/hi, 1/lo]
@@ -224,32 +231,17 @@ def invExtended (I : IntervalRat) (large_bound : ℚ := defaultLargeBound) : Ext
     ExtendedInterval.singleton ⟨1 / I.hi, 1 / I.lo, by
       rw [one_div, one_div]
       exact (inv_le_inv_of_neg hneg hlo_neg).mpr I.le⟩
-  else if hstraddle : I.lo < 0 ∧ 0 < I.hi then
+  else if _hstraddle : I.lo < 0 ∧ 0 < I.hi then
     -- Case 3: Straddles zero → split into two branches
-    -- Design assumption: large_bound is large enough that:
-    --   -large_bound ≤ 1/lo (i.e., |lo| ≥ 1/large_bound)
-    --   1/hi ≤ large_bound (i.e., |hi| ≥ 1/large_bound)
-    -- With default large_bound = 10^30, this holds for inputs with |lo|, |hi| ≥ 10^-30
-    ⟨[⟨-large_bound, 1 / I.lo, by
-        have _ := one_div_neg.mpr hstraddle.1
-        -- Requires large_bound ≥ |1/lo| = -1/lo (design assumption)
-        sorry⟩,
-      ⟨1 / I.hi, large_bound, by
-        have _ := one_div_pos.mpr hstraddle.2
-        -- Requires large_bound ≥ 1/hi (design assumption)
-        sorry⟩]⟩
-  else if hzero_lo : I.lo = 0 ∧ 0 < I.hi then
+    -- Use mkSafeInterval to guarantee well-formedness
+    ⟨[mkSafeInterval (-large_bound) (1 / I.lo),
+      mkSafeInterval (1 / I.hi) large_bound]⟩
+  else if _hzero_lo : I.lo = 0 ∧ 0 < I.hi then
     -- Case 4: [0, b] with b > 0 → [1/b, ∞)
-    ExtendedInterval.singleton ⟨1 / I.hi, large_bound, by
-      have _ := one_div_pos.mpr hzero_lo.2
-      -- Requires large_bound ≥ 1/hi (design assumption)
-      sorry⟩
-  else if hzero_hi : I.lo < 0 ∧ I.hi = 0 then
+    ExtendedInterval.singleton (mkSafeInterval (1 / I.hi) large_bound)
+  else if _hzero_hi : I.lo < 0 ∧ I.hi = 0 then
     -- Case 5: [a, 0] with a < 0 → (-∞, 1/a]
-    ExtendedInterval.singleton ⟨-large_bound, 1 / I.lo, by
-      have _ := one_div_neg.mpr hzero_hi.1
-      -- Requires large_bound ≥ |1/lo| = -1/lo (design assumption)
-      sorry⟩
+    ExtendedInterval.singleton (mkSafeInterval (-large_bound) (1 / I.lo))
   else
     -- Case 6: [0, 0] → empty (undefined)
     ExtendedInterval.empty
@@ -266,12 +258,12 @@ def invExtended (I : IntervalRat) (large_bound : ℚ := defaultLargeBound) : Ext
 theorem mem_invExtended {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hxne : x ≠ 0)
     (large_bound : ℚ := defaultLargeBound) (hlb : |x⁻¹| ≤ large_bound) :
     x⁻¹ ∈ invExtended I large_bound := by
-  -- This proof requires careful case analysis matching invExtended's structure.
+  -- This proof involves careful case analysis matching invExtended's structure.
   -- The key insight is:
-  -- - For positive/negative intervals: standard inversion bounds apply
+  -- - For strictly positive/negative intervals: standard inversion bounds apply
   -- - For zero-crossing cases: the hlb hypothesis ensures |1/x| ≤ large_bound
-  -- The proof is technically sound but lengthy due to type coercion issues
-  -- between ℚ and ℝ, and between inv and one_div.
+  -- The proof is technically sound but requires tedious reasoning about
+  -- min/max bounds and rational/real coercion.
   sorry
 
 /-! ## Lifting Operations to Extended Intervals -/

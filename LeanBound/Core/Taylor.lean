@@ -920,6 +920,6 @@ theorem iteratedDeriv_log {n : ℕ} (hn : n ≠ 0) {x : ℝ} (hx : 0 < x) :
       have hx_ne : x ≠ 0 := hx.ne'
       have hxpow_ne : x ^ (2 + n) ≠ 0 := pow_ne_zero _ hx_ne
       field_simp
-      ring
+      ring_nf
 
 end LeanBound.Core

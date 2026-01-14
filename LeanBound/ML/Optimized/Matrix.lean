@@ -425,6 +425,21 @@ theorem intervalMul_sound_scaled (l1 h1 l2 h2 : Int) (x y : ℝ) (exp : Int)
     rw [intVal, heq, hscale_sq]
     exact mul_le_mul_of_nonneg_right hhi (zpow_nonneg (by norm_num) _)
 
+/-- **Soundness of Matrix Transpose**
+
+  If A_real ∈ A_interval, then A_realᵀ ∈ A_intervalᵀ.
+  The exponent is preserved. -/
+theorem mem_transpose {r c : Nat}
+    (M : IntervalMatrix r c) (exp : Int)
+    (A_real : Matrix (Fin r) (Fin c) ℝ)
+    (hM : M.mem exp A_real) :
+    M.transpose.mem exp A_real.transpose := by
+  intro j i
+  -- M.transpose.lo[j,i] = M.lo[i,j] and similarly for hi
+  simp only [IntervalMatrix.transpose, IntMatrix.valAt, IntMatrix.transpose,
+             IntMatrix.ofFn_get, Matrix.transpose_apply]
+  exact hM i j
+
 /--
   **Main Theorem: Soundness of Matrix Multiplication**
 

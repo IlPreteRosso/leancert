@@ -170,8 +170,9 @@ theorem mem_attentionScores {seqLen dK : Nat}
     (hK : K.mem exp K_real) :
     (attentionScores Q K).mem (exp + exp) (Q_real * K_real.transpose) := by
   unfold attentionScores
-  -- Need to show Q.matmul K.transpose is sound
-  -- This requires showing K.transpose preserves membership
-  sorry -- Requires transpose soundness lemma
+  -- K.transpose preserves membership
+  have hKT := mem_transpose K exp K_real hK
+  -- Apply matrix multiplication soundness
+  exact mem_matmul Q K.transpose Q_real K_real.transpose exp hQ hKT
 
 end LeanBound.ML.Optimized

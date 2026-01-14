@@ -727,7 +727,7 @@ theorem evalDual?_der_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
       -- Full product: ((2/√π) * exp(-f(x)²)) * f'(x) ∈ (two_div_sqrt_pi * expInterval(-val²)) * der
       have hprod2 := IntervalRat.mem_mul hprod1 hder
       convert hprod2 using 1
-      ring
+      ring_nf
   | @sqrt e' hs ih =>
     unfold evalDual?1 evalDual? at hsome
     cases heq : evalDual? e' _ with

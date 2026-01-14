@@ -629,7 +629,7 @@ theorem tmAtanh_correct (J : IntervalRat) (n : ℕ)
         _ ≤ r := neg_abs_le r
     · calc r ≤ |r| := le_abs_self r
         _ ≤ (atanhRemainderBound J n : ℝ) := habs_le
-  · simp only [hr_def, sub_zero]; ring
+  · simp only [hr_def, sub_zero]; ring_nf
 
 /-- sinh z ∈ (tmSinh J n).evalSet z for all z in J.
     Uses taylor_remainder_bound with f = Real.sinh. -/

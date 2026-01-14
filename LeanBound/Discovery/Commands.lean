@@ -54,16 +54,17 @@ abbrev LExpr := LeanBound.Core.Expr
 
 /-! ## Interval Parsing Helpers -/
 
-/-- Parse a rational number from a Lean expression (partial due to nested recursion) -/
-partial def parseRat (e : Lean.Expr) : MetaM ℚ := do
-  -- Try direct Nat literal
+/-- Parse a rational number from a Lean expression using native evaluation -/
+unsafe def parseRatUnsafe (e : Lean.Expr) : MetaM ℚ := do
+  -- First try to evaluate the expression directly to a ℚ
+  try
+    return ← evalExpr ℚ (mkConst ``Rat) e
+  catch _ =>
+    pure ()
+  -- Fallback: pattern matching for common cases
+  let e ← reduce e (skipTypes := true) (skipProofs := true)
   if let some n := e.rawNatLit? then
     return n
-  -- Try matching after reduction
-  let e ← whnf e
-  if let some n := e.rawNatLit? then
-    return n
-  -- Try OfNat
   match_expr e with
   | OfNat.ofNat _ n _ =>
     if let some k := n.rawNatLit? then
@@ -71,6 +72,28 @@ partial def parseRat (e : Lean.Expr) : MetaM ℚ := do
     if let some k := n.nat? then
       return k
     throwError "Cannot parse numeric: {e}"
+  | Zero.zero _ _ =>
+    return 0
+  | One.one _ _ =>
+    return 1
+  | _ => throwError "Cannot parse as rational: {e}"
+
+/-- Safe wrapper for parseRatUnsafe -/
+@[implemented_by parseRatUnsafe]
+partial def parseRat (e : Lean.Expr) : MetaM ℚ := do
+  -- Pattern matching fallback (shouldn't be called due to implemented_by)
+  let e ← reduce e (skipTypes := true) (skipProofs := true)
+  if let some n := e.rawNatLit? then
+    return n
+  match_expr e with
+  | OfNat.ofNat _ n _ =>
+    if let some k := n.rawNatLit? then
+      return k
+    throwError "Cannot parse numeric: {e}"
+  | Zero.zero _ _ =>
+    return 0
+  | One.one _ _ =>
+    return 1
   | Neg.neg _ _ x =>
     let q ← parseRat x
     return -q
@@ -81,14 +104,68 @@ partial def parseRat (e : Lean.Expr) : MetaM ℚ := do
     return qa / qb
   | _ => throwError "Cannot parse as rational: {e}"
 
+/-- Parse an integer from a reduced Lean expression -/
+partial def parseIntFromExpr (e : Lean.Expr) : MetaM ℤ := do
+  -- Fully reduce the expression to get concrete values
+  let e ← reduce e (skipTypes := true) (skipProofs := true)
+  -- Check for Int.ofNat n
+  match_expr e with
+  | Int.ofNat n =>
+    let n ← reduce n (skipTypes := true) (skipProofs := true)
+    if let some k := n.rawNatLit? then
+      return k
+    match_expr n with
+    | OfNat.ofNat _ m _ =>
+      if let some k := m.rawNatLit? then
+        return k
+      let m ← reduce m (skipTypes := true) (skipProofs := true)
+      if let some k := m.rawNatLit? then
+        return k
+      throwError "Cannot parse nat in Int.ofNat: {n}"
+    | _ => throwError "Cannot parse Int.ofNat argument: {n}"
+  | Int.negSucc n =>
+    let n ← reduce n (skipTypes := true) (skipProofs := true)
+    if let some k := n.rawNatLit? then
+      return Int.negSucc k
+    throwError "Cannot parse Int.negSucc argument: {n}"
+  | Int.negOfNat n =>
+    let n ← reduce n (skipTypes := true) (skipProofs := true)
+    if let some k := n.rawNatLit? then
+      return -(k : ℤ)
+    throwError "Cannot parse Int.negOfNat argument: {n}"
+  | Neg.neg _ _ x =>
+    let v ← parseIntFromExpr x
+    return -v
+  | OfNat.ofNat _ n _ =>
+    let n ← reduce n (skipTypes := true) (skipProofs := true)
+    if let some k := n.rawNatLit? then
+      return k
+    throwError "Cannot parse ofNat: {n}"
+  | _ =>
+    if let some k := e.rawNatLit? then
+      return k
+    throwError "Cannot parse as integer: {e}"
+
+/-- Parse an integer directly from term syntax -/
+partial def parseIntFromSyntax (stx : Syntax) : TermElabM ℤ := do
+  -- Handle negative: -n
+  if let `(-$n:term) := stx then
+    let v ← parseIntFromSyntax n
+    return -v
+  -- Handle numeric literal
+  if let `($n:num) := stx then
+    return n.getNat
+  throwError "Cannot parse as integer: {stx}"
+
 /-- Parse an interval from syntax like `[a, b]` -/
 def parseInterval (stx : Syntax) : TermElabM IntervalRat := do
   match stx with
   | `([$lo:term, $hi:term]) =>
-    let loExpr ← elabTerm lo (some (mkConst ``Real))
-    let hiExpr ← elabTerm hi (some (mkConst ``Real))
-    let loQ ← parseRat loExpr
-    let hiQ ← parseRat hiExpr
+    -- Parse directly from syntax to avoid elaboration issues
+    let loI ← parseIntFromSyntax lo
+    let hiI ← parseIntFromSyntax hi
+    let loQ : ℚ := loI
+    let hiQ : ℚ := hiI
     if h : loQ ≤ hiQ then
       return { lo := loQ, hi := hiQ, le := h }
     else
