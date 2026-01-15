@@ -273,6 +273,45 @@ private theorem linearSum_map_neg (l : List ℚ) (eps : NoiseAssignment) :
 
 /-! ## Soundness Proofs -/
 
+/-- Constants are sound: const q represents q -/
+theorem mem_const (q : ℚ) (eps : NoiseAssignment) :
+    mem_affine (const q) eps (q : ℝ) := by
+  use 0
+  constructor
+  · simp [const]
+  · simp [evalLinear, const, linearSum]
+
+/-- Helper: linearSum of scaled coefficients equals scaled linearSum -/
+private theorem linearSum_map_mul (q : ℚ) (coeffs : List ℚ) (eps : NoiseAssignment) :
+    linearSum (coeffs.map (q * ·)) eps = (q : ℝ) * linearSum coeffs eps := by
+  simp only [linearSum]
+  induction coeffs generalizing eps with
+  | nil => simp [List.zipWith]
+  | cons c cs ih =>
+    cases eps with
+    | nil => simp [List.zipWith]
+    | cons e es =>
+      simp only [List.map_cons, List.zipWith, List.sum_cons]
+      rw [ih es]
+      push_cast
+      ring
+
+/-- Scalar multiplication is sound -/
+theorem mem_scale (q : ℚ) {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
+    (hmem : mem_affine a eps v) :
+    mem_affine (scale q a) eps ((q : ℝ) * v) := by
+  obtain ⟨err, herr, hv⟩ := hmem
+  use (q : ℝ) * err
+  constructor
+  · calc |(q : ℝ) * err| = |(q : ℝ)| * |err| := abs_mul _ _
+      _ ≤ |(q : ℝ)| * (a.r : ℝ) := by nlinarith [abs_nonneg (q : ℝ)]
+      _ = ((|q| * a.r : ℚ) : ℝ) := by push_cast; rw [← Rat.cast_abs]
+  · simp only [evalLinear, scale, linearSum_map_mul]
+    simp only [evalLinear] at hv
+    rw [hv]
+    push_cast
+    ring
+
 /-- Addition is sound -/
 theorem mem_add {a b : AffineForm} {eps : NoiseAssignment} {va vb : ℝ}
     (ha : mem_affine a eps va) (hb : mem_affine b eps vb) :

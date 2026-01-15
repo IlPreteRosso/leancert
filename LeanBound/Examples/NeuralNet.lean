@@ -5,6 +5,8 @@ Authors: LeanBound Contributors
 -/
 import LeanBound.ML.Network
 
+set_option linter.unnecessarySeqFocus false
+
 /-!
 # Neural Network Verification Example
 

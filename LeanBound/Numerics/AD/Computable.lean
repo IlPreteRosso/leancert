@@ -82,7 +82,8 @@ end DualInterval
     This uses Taylor series approximations for transcendental functions,
     making it fully computable and usable with `native_decide`.
 
-    For unsupported expressions (inv, log, atanh), returns default. -/
+    For expressions outside `ExprSupportedCore` (inv, log, atanh), use `evalDual?`
+    for domain-checked evaluation; correctness is not covered here. -/
 def evalDualCore (e : Expr) (ρ : DualEnv) (cfg : EvalConfig := {}) : DualInterval :=
   match e with
   | Expr.const q => DualInterval.const q
@@ -131,11 +132,6 @@ theorem evalDualCore_val_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalDualCore, DualInterval.neg]
     exact IntervalRat.mem_neg ih
-  | inv _ ih =>
-    simp only [Expr.eval_inv, evalDualCore, DualInterval.inv]
-    -- For intervals not containing zero, this is fully proved
-    -- For zero-crossing intervals, we need a bound on |x⁻¹| we can't provide
-    sorry
   | sin _ ih =>
     simp only [Expr.eval_sin, evalDualCore, DualInterval.sinCore]
     exact IntervalRat.mem_sinComputable ih cfg.taylorDepth

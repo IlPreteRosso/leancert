@@ -25,24 +25,24 @@ to contain all possible values.
 * `evalIntervalCore` - Computable interval evaluator for core expressions
 * `evalIntervalCore_correct` - Correctness theorem for core evaluation
 
-### Extended (with exp) subset
-* `ExprSupported` - Predicate including exp (extends core)
+### Extended (noncomputable) subset
+* `ExprSupported` - Predicate for the noncomputable AD subset (const, var, add, mul, neg, sin, cos, exp)
 * `evalInterval` - Noncomputable interval evaluator supporting exp
 * `evalInterval_correct` - Correctness theorem for extended evaluation
 
 ## Design notes
 
-Core subset (computable): const, var, add, mul, neg, sin, cos
-Extended subset (noncomputable): core + exp
+Core subset (computable): const, var, add, mul, neg, sin, cos, exp, sqrt, sinh, cosh, tanh, pi
+Extended subset (noncomputable): const, var, add, mul, neg, sin, cos, exp
 
 The core subset is kept computable so that tactics can use `native_decide`
 for interval bound checking. The extended subset uses `Real.exp` with
 floor/ceil bounds, which requires noncomputability.
 
-For sin and cos, we use global [-1, 1] bounds which are always sound.
 For exp, we use floor/ceil to get rational bounds from Real.exp.
 
-Not yet supported: inv (requires nonzero interval checks)
+Not yet supported in `ExprSupportedCore`: inv (requires nonzero interval checks);
+use `evalInterval?` for expressions containing inv.
 -/
 
 namespace LeanBound.Numerics
@@ -52,8 +52,8 @@ open LeanBound.Core
 /-! ### Core supported expression subset (computable) -/
 
 /-- Predicate indicating an expression is in the computable core subset.
-    Supports: const, var, add, mul, neg, inv, sin, cos, exp, sqrt, sinh, cosh, tanh
-    Does NOT support: log, atan, arsinh, atanh -/
+    Supports: const, var, add, mul, neg, sin, cos, exp, sqrt, sinh, cosh, tanh, pi
+    Does NOT support: inv, log, atan, arsinh, atanh -/
 inductive ExprSupportedCore : Expr → Prop where
   | const (q : ℚ) : ExprSupportedCore (Expr.const q)
   | var (idx : Nat) : ExprSupportedCore (Expr.var idx)
@@ -62,7 +62,6 @@ inductive ExprSupportedCore : Expr → Prop where
   | mul {e₁ e₂ : Expr} : ExprSupportedCore e₁ → ExprSupportedCore e₂ →
       ExprSupportedCore (Expr.mul e₁ e₂)
   | neg {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.neg e)
-  | inv {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.inv e)
   | sin {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sin e)
   | cos {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.cos e)
   | exp {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.exp e)
@@ -466,11 +465,11 @@ instance : Inhabited EvalConfig := ⟨{ taylorDepth := 10 }⟩
 
 /-- Computable interval evaluator for core expressions with configurable depth.
 
-    For core expressions (const, var, add, mul, neg, inv, sin, cos, exp), this
-    computes correct interval bounds with a fully-verified proof.
+    For expressions in `ExprSupportedCore`, this computes correct interval
+    bounds with a fully-verified proof.
 
-    For inv: computes tight bounds when denominator interval doesn't contain 0.
-    When denominator interval contains 0, returns wide bounds (proof incomplete).
+    For inv: computes bounds using `invInterval`, but correctness is not
+    covered by `evalIntervalCore_correct`. Use `evalInterval?` for inv.
 
     For unsupported expressions (log), returns a default interval.
     Do not rely on results for expressions containing log.
@@ -573,14 +572,9 @@ def envMem (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) : Prop :=
 
 /-- Fundamental correctness theorem for core evaluation.
 
-    This theorem is FULLY PROVED for most core expressions (no sorry, no axioms).
+    This theorem is FULLY PROVED for core expressions (no sorry, no axioms).
     The `hsupp` hypothesis ensures we only consider expressions in the
-    computable verified subset. Works for any Taylor depth.
-
-    NOTE: For inv, the proof requires the denominator to be nonzero. When the
-    denominator interval doesn't contain 0, the bounds are fully verified. When
-    it does contain 0, sorry is used. The tactic will fail gracefully in that
-    case since the wide bounds won't satisfy typical proof goals. -/
+    computable verified subset. Works for any Taylor depth. -/
 theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) (hρ : envMem ρ_real ρ_int)
     (cfg : EvalConfig := {}) :
@@ -601,23 +595,6 @@ theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalIntervalCore]
     exact IntervalRat.mem_neg ih
-  | @inv e _ ih =>
-    simp only [Expr.eval_inv, evalIntervalCore]
-    -- Case split based on whether the interval contains 0
-    let I := evalIntervalCore e ρ_int cfg
-    by_cases hpos : I.lo > 0
-    · -- Positive interval: x > 0 implies x ≠ 0
-      have hlo_pos : (0 : ℝ) < I.lo := by exact_mod_cast hpos
-      have hx_pos : Expr.eval ρ_real e > 0 := lt_of_lt_of_le hlo_pos ih.1
-      exact mem_invInterval_pos ih hpos
-    · by_cases hneg : I.hi < 0
-      · -- Negative interval: x < 0 implies x ≠ 0
-        have hhi_neg : (I.hi : ℝ) < 0 := by exact_mod_cast hneg
-        have hx_neg : Expr.eval ρ_real e < 0 := lt_of_le_of_lt ih.2 hhi_neg
-        exact mem_invInterval_neg ih hneg
-      · -- Zero-crossing interval: need bound hypothesis we can't provide here
-        -- The value (Expr.eval ρ_real e)⁻¹ could be arbitrarily large
-        sorry
   | sin _ ih =>
     simp only [Expr.eval_sin, evalIntervalCore]
     exact IntervalRat.mem_sinComputable ih cfg.taylorDepth

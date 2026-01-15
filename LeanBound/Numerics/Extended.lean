@@ -208,6 +208,12 @@ theorem defaultLargeBound_pos : 0 < defaultLargeBound := by
 private def mkSafeInterval (a b : ℚ) : IntervalRat :=
   { lo := min a b, hi := max a b, le := @min_le_max ℚ _ a b }
 
+private theorem mem_mkSafeInterval_of_le_le {x : ℝ} {a b : ℚ}
+    (ha : (a : ℝ) ≤ x) (hb : x ≤ (b : ℝ)) :
+    x ∈ mkSafeInterval a b := by
+  simp [mkSafeInterval, IntervalRat.mem_def, min_le_iff, le_max_iff]
+  exact ⟨Or.inl ha, Or.inr hb⟩
+
 /-- Extended inversion: handles 1/I when I may contain zero.
 
     Cases:
@@ -258,13 +264,109 @@ def invExtended (I : IntervalRat) (large_bound : ℚ := defaultLargeBound) : Ext
 theorem mem_invExtended {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hxne : x ≠ 0)
     (large_bound : ℚ := defaultLargeBound) (hlb : |x⁻¹| ≤ large_bound) :
     x⁻¹ ∈ invExtended I large_bound := by
-  -- This proof involves careful case analysis matching invExtended's structure.
-  -- The key insight is:
-  -- - For strictly positive/negative intervals: standard inversion bounds apply
-  -- - For zero-crossing cases: the hlb hypothesis ensures |1/x| ≤ large_bound
-  -- The proof is technically sound but requires tedious reasoning about
-  -- min/max bounds and rational/real coercion.
-  sorry
+  have hxI : (I.lo : ℝ) ≤ x ∧ x ≤ (I.hi : ℝ) := (IntervalRat.mem_def _ _).1 hx
+  have hbound : (-(large_bound : ℝ)) ≤ x⁻¹ ∧ x⁻¹ ≤ (large_bound : ℝ) := abs_le.mp hlb
+  by_cases hpos : 0 < I.lo
+  · have hxpos : 0 < x := by
+      have hlo_pos : (0 : ℝ) < I.lo := by exact_mod_cast hpos
+      exact lt_of_lt_of_le hlo_pos hxI.1
+    have hhi_pos : (0 : ℝ) < I.hi := by
+      have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+      have hlo_pos : (0 : ℝ) < I.lo := by exact_mod_cast hpos
+      linarith
+    simp [invExtended, hpos, ExtendedInterval.mem_singleton, IntervalRat.mem_def,
+      Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div]
+    constructor
+    · exact (inv_le_inv₀ hhi_pos hxpos).mpr hxI.2
+    · exact (inv_le_inv₀ hxpos (by exact_mod_cast hpos)).mpr hxI.1
+  · by_cases hneg : I.hi < 0
+    · have hxneg : x < 0 := lt_of_le_of_lt hxI.2 (by exact_mod_cast hneg)
+      have hhi_neg : (I.hi : ℝ) < 0 := by exact_mod_cast hneg
+      have hle : (I.lo : ℝ) ≤ I.hi := by exact_mod_cast I.le
+      have hlo_neg : (I.lo : ℝ) < 0 := lt_of_le_of_lt hle hhi_neg
+      simp [invExtended, hpos, hneg, ExtendedInterval.mem_singleton, IntervalRat.mem_def,
+        Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div]
+      constructor
+      · exact (inv_le_inv_of_neg (by exact_mod_cast hneg) hxneg).mpr hxI.2
+      · exact (inv_le_inv_of_neg hxneg hlo_neg).mpr hxI.1
+    · by_cases hstraddle : I.lo < 0 ∧ 0 < I.hi
+      · by_cases hxneg : x < 0
+        · have hupper_r : x⁻¹ ≤ (I.lo : ℝ)⁻¹ :=
+            (inv_le_inv_of_neg hxneg (by exact_mod_cast hstraddle.1)).mpr hxI.1
+          have hupper : x⁻¹ ≤ ((1 / I.lo : ℚ) : ℝ) := by
+            simpa [Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div] using hupper_r
+          have hlower : ((-large_bound : ℚ) : ℝ) ≤ x⁻¹ := by
+            simpa using hbound.1
+          have hmem : x⁻¹ ∈ mkSafeInterval (-large_bound) (1 / I.lo) :=
+            mem_mkSafeInterval_of_le_le hlower hupper
+          simp [invExtended, hpos, hneg, hstraddle, ExtendedInterval.mem_def]
+          left
+          simpa [IntervalRat.mem_def] using hmem
+        · have hxpos : 0 < x := by
+            have hxnonneg : 0 ≤ x := le_of_not_gt hxneg
+            have hxne0 : (0 : ℝ) ≠ x := by simpa [ne_comm] using hxne
+            exact lt_of_le_of_ne hxnonneg hxne0
+          have hlower_r : (I.hi : ℝ)⁻¹ ≤ x⁻¹ :=
+            (inv_le_inv₀ (by exact_mod_cast hstraddle.2) hxpos).mpr hxI.2
+          have hlower : ((1 / I.hi : ℚ) : ℝ) ≤ x⁻¹ := by
+            simpa [Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div] using hlower_r
+          have hupper : x⁻¹ ≤ (large_bound : ℝ) := hbound.2
+          have hmem : x⁻¹ ∈ mkSafeInterval (1 / I.hi) large_bound :=
+            mem_mkSafeInterval_of_le_le hlower hupper
+          simp [invExtended, hpos, hneg, hstraddle, ExtendedInterval.mem_def]
+          right
+          simpa [IntervalRat.mem_def] using hmem
+      · by_cases hzero_lo : I.lo = 0 ∧ 0 < I.hi
+        · have hxpos : 0 < x := by
+            have hxnonneg : 0 ≤ x := by simpa [hzero_lo.1] using hxI.1
+            have hxne0 : (0 : ℝ) ≠ x := by simpa [ne_comm] using hxne
+            exact lt_of_le_of_ne hxnonneg hxne0
+          have hlower_r : (I.hi : ℝ)⁻¹ ≤ x⁻¹ :=
+            (inv_le_inv₀ (by exact_mod_cast hzero_lo.2) hxpos).mpr hxI.2
+          have hlower : ((1 / I.hi : ℚ) : ℝ) ≤ x⁻¹ := by
+            simpa [Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div] using hlower_r
+          have hupper : x⁻¹ ≤ (large_bound : ℝ) := hbound.2
+          have hmem : x⁻¹ ∈ mkSafeInterval (1 / I.hi) large_bound :=
+            mem_mkSafeInterval_of_le_le hlower hupper
+          simpa [invExtended, hpos, hneg, hstraddle, hzero_lo, ExtendedInterval.mem_singleton] using hmem
+        · by_cases hzero_hi : I.lo < 0 ∧ I.hi = 0
+          · have hxneg : x < 0 := by
+              have hxnonpos : x ≤ 0 := by simpa [hzero_hi.2] using hxI.2
+              exact lt_of_le_of_ne hxnonpos hxne
+            have hupper_r : x⁻¹ ≤ (I.lo : ℝ)⁻¹ :=
+              (inv_le_inv_of_neg hxneg (by exact_mod_cast hzero_hi.1)).mpr hxI.1
+            have hupper : x⁻¹ ≤ ((1 / I.lo : ℚ) : ℝ) := by
+              simpa [Rat.cast_inv, Rat.cast_div, Rat.cast_one, one_div] using hupper_r
+            have hlower : ((-large_bound : ℚ) : ℝ) ≤ x⁻¹ := by
+              simpa using hbound.1
+            have hmem : x⁻¹ ∈ mkSafeInterval (-large_bound) (1 / I.lo) :=
+              mem_mkSafeInterval_of_le_le hlower hupper
+            simpa [invExtended, hpos, hneg, hstraddle, hzero_lo, hzero_hi,
+              ExtendedInterval.mem_singleton] using hmem
+          · exfalso
+            -- Remaining case implies I.lo = 0 and I.hi = 0, contradicting x ≠ 0.
+            have hlo_nonpos : I.lo ≤ 0 := le_of_not_gt hpos
+            have hhi_nonneg : 0 ≤ I.hi := le_of_not_gt hneg
+            by_cases hlo_eq : I.lo = 0
+            · have hhi_nonpos : I.hi ≤ 0 := by
+                have : ¬(0 < I.hi) := by
+                  intro hhi_pos
+                  exact hzero_lo ⟨hlo_eq, hhi_pos⟩
+                exact le_of_not_gt this
+              have hhi_eq : I.hi = 0 := le_antisymm hhi_nonpos hhi_nonneg
+              have hxzero : x = 0 := by
+                have hxlo : (0 : ℝ) ≤ x := by simpa [hlo_eq] using hxI.1
+                have hxhi : x ≤ (0 : ℝ) := by simpa [hhi_eq] using hxI.2
+                exact le_antisymm hxhi hxlo
+              exact hxne hxzero
+            · have hlo_neg : I.lo < 0 := lt_of_le_of_ne hlo_nonpos hlo_eq
+              have hhi_nonpos : I.hi ≤ 0 := by
+                have : ¬(0 < I.hi) := by
+                  intro hhi_pos
+                  exact hstraddle ⟨hlo_neg, hhi_pos⟩
+                exact le_of_not_gt this
+              have hhi_eq : I.hi = 0 := le_antisymm hhi_nonpos hhi_nonneg
+              exact hzero_hi ⟨hlo_neg, hhi_eq⟩
 
 /-! ## Lifting Operations to Extended Intervals -/
 
@@ -402,10 +504,7 @@ def extendedEnvMem (ρ_real : Nat → ℝ) (ρ_ext : ExtendedEnv) : Prop :=
 
     If all variables are in their respective extended intervals, and the expression
     is in the supported core subset (no partial functions), then the result is
-    in the extended interval.
-
-    NOTE: For expressions with `inv`, we need additional hypotheses about
-    the result being bounded (not approaching infinity). -/
+    in the extended interval. -/
 theorem evalExtended_correct_core (e : Expr) (hsupp : ExprSupportedCore e)
     (ρ_real : Nat → ℝ) (ρ_ext : ExtendedEnv) (hρ : extendedEnvMem ρ_real ρ_ext)
     (cfg : ExtendedConfig := {}) :
@@ -427,10 +526,6 @@ theorem evalExtended_correct_core (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalExtended]
     exact mem_liftUnary (fun x I hx => IntervalRat.mem_neg hx) ih
-  | inv _ _ =>
-    -- inv can produce unbounded results, so this case is incomplete
-    simp only [Expr.eval_inv, evalExtended]
-    sorry
   | sin _ ih =>
     simp only [Expr.eval_sin, evalExtended]
     exact mem_liftUnary (fun x I hx => IntervalRat.mem_sinComputable hx cfg.taylorDepth) ih

@@ -167,17 +167,15 @@ theorem exprContinuousCore_continuousOn_interval (e : LExpr) (hsupp : ExprContin
 
 /-! ### Backward Compatibility: ExprSupportedCore Continuity
 
-These theorems are provided for expressions that may contain `inv`. They have a sorry
-for the `inv` case since 1/x is not continuous at 0. For expressions without `inv`,
-prefer using `ExprContinuousCore` and `exprContinuousCore_continuousOn` which are fully proved.
+These theorems are provided for backward compatibility with code that uses
+`ExprSupportedCore`. Since `ExprSupportedCore` excludes `inv`, the proof is
+fully verified.
 -/
 
 /-- All ExprSupportedCore expressions are continuous on any set.
 
-WARNING: This theorem has a sorry for the `inv` case because 1/x is not continuous at 0.
-For expressions without inv, use `exprContinuousCore_continuousOn` which is fully proved.
-
-This theorem exists for backward compatibility with code that uses ExprSupportedCore. -/
+This theorem exists for backward compatibility with code that uses
+`ExprSupportedCore`. -/
 theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.ExprSupportedCore e)
     {s : Set ℝ} :
     ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) s := by
@@ -197,11 +195,6 @@ theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.E
   | neg _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact ih.neg
-  | inv _ _ =>
-    simp only [LeanBound.Core.Expr.eval]
-    -- inv = 1/x is NOT continuous at 0. This case is fundamentally unprovable
-    -- for arbitrary sets s. Use ExprContinuousCore for expressions without inv.
-    sorry
   | sin _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_sin.comp_continuousOn ih

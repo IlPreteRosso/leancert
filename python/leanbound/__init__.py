@@ -112,6 +112,15 @@ from .exceptions import (
 
 # Neural network export
 from . import nn
+from .nn import (
+    # Transformer components
+    LayerNormParams,
+    LinearLayer,
+    FFNBlock,
+    TransformerBlock,
+    TransformerEncoder,
+    from_pytorch_transformer,
+)
 
 # Bug validation and false positive filtering
 from .validation import (
@@ -212,4 +221,11 @@ __all__ = [
     "verify_counterexample_concrete",
     # Neural network export
     "nn",
+    # Transformer components
+    "LayerNormParams",
+    "LinearLayer",
+    "FFNBlock",
+    "TransformerBlock",
+    "TransformerEncoder",
+    "from_pytorch_transformer",
 ]

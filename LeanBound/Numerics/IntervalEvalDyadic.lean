@@ -176,9 +176,9 @@ This is the core function for v1.1. It evaluates expressions using Dyadic
 arithmetic for polynomial operations (add, mul, neg) and delegates to
 rational Taylor series for transcendentals.
 
-Returns an interval guaranteed to contain all possible values of the expression.
-
-For expressions not in `ExprSupportedCore`, returns a default safe interval. -/
+Returns an interval guaranteed to contain all possible values of the expression
+when `ExprSupportedCore` holds. For other expressions, it computes conservative
+fallbacks (e.g., inv/log), but the core correctness theorem does not apply. -/
 def evalIntervalDyadic (e : Expr) (ρ : IntervalDyadicEnv) (cfg : DyadicConfig := {}) : IntervalDyadic :=
   match e with
   | Expr.const q =>
@@ -253,13 +253,6 @@ theorem evalIntervalDyadic_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalIntervalDyadic]
     exact IntervalDyadic.mem_neg ih
-  | inv _ ih =>
-    simp only [Expr.eval_inv, evalIntervalDyadic, invIntervalDyadic]
-    -- Convert to Rat, use mem_invInterval, convert back
-    have hrat := IntervalDyadic.mem_toIntervalRat.mp ih
-    -- For intervals not containing zero, this is fully proved
-    -- For zero-crossing intervals, we need a bound on |x⁻¹| we can't provide
-    sorry
   | sin _ ih =>
     simp only [Expr.eval_sin, evalIntervalDyadic, sinIntervalDyadic]
     -- Chain: ih gives Dyadic membership → convert to Rat → use sinComputable → convert back

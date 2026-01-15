@@ -873,7 +873,7 @@ elab "interval_bound" depth:(num)? : tactic => do
   | none =>
     -- Adaptive: try increasing depths until success
     let depths := [10, 15, 20, 25, 30]
-    let goal ← getMainGoal
+    let _goal ← getMainGoal
     let goalState ← saveState
     let mut lastError : Option Exception := none
     for d in depths do
@@ -1484,9 +1484,6 @@ def proveClosedExpressionBound (goal : MVarId) (goalType : Lean.Expr) (taylorDep
     -- Since lo = hi = 0, this is (↑(0:ℚ) : ℝ) ≤ 0 ∧ 0 ≤ (↑(0:ℚ) : ℝ)
     -- Which simplifies to 0 ≤ 0 ∧ 0 ≤ 0
 
-    -- (0 : ℝ) expressed as the zero element of Real
-    let zeroReal ← mkAppOptM ``OfNat.ofNat #[mkConst ``Real, mkRawNatLit 0, none]
-
     -- Now we need to apply the proof to 0 and provide the membership proof
     -- The membership type is: zeroReal ∈ intervalExpr
     -- IntervalRat.instMembership defines: x ∈ I ↔ (I.lo : ℝ) ≤ x ∧ x ≤ (I.hi : ℝ)
@@ -1525,9 +1522,6 @@ def proveClosedExpressionBound (goal : MVarId) (goalType : Lean.Expr) (taylorDep
     -- The proof has type: Expr.eval (fun _ => 0) ast ≤/≥ (boundRat : ℝ)
     -- The goal has type: Real.pi ≤/≥ 4 (or similar)
     -- We need to show these are definitionally equal after simp
-    -- Build the rational bound expression for comparison
-    let boundRatExpr := toExpr boundRat
-
     -- Try multiple approaches to close the goal
     -- Approach 1: Direct simp + exact (works for integer bounds like 4)
     try
@@ -1619,7 +1613,7 @@ def intervalDecideCore (taylorDepth : Nat) : TacticM Unit := do
   let goalType ← goal.getType
   trace[interval_decide] "intervalDecideCore: goal type = {goalType}"
 
-  let some (lhs, rhs, isStrict, isReversed) ← parsePointIneq goalType
+  let some (lhs, rhs, _isStrict, isReversed) ← parsePointIneq goalType
     | throwError "interval_decide: Expected a point inequality (≤, <, ≥, >)"
 
   -- Determine which side has the transcendental function by checking where we find rational constants

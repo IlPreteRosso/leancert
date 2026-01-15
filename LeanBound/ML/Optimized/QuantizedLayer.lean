@@ -465,7 +465,7 @@ theorem forwardQuantized_sound
     -- Already aligned
     (h_aligned : input.exp = l_quant.commonExp) :
     -- Conclusion: Output bounds are valid (lo ≤ hi)
-    ∀ idx (hidx : idx < l_quant.outDim),
+    ∀ idx (_hidx : idx < l_quant.outDim),
       (l_quant.forwardQuantized input).lo[idx]! ≤ (l_quant.forwardQuantized input).hi[idx]! := by
 
   intro idx hidx
@@ -613,7 +613,7 @@ theorem forwardQuantized_nonempty
     (hx_lo : ∀ k, k < l_quant.inDim → intVal input.lo[k]! input.exp ≤ x[k]!)
     (hx_hi : ∀ k, k < l_quant.inDim → x[k]! ≤ intVal input.hi[k]! input.exp) :
     -- Conclusion: Output interval is non-empty
-    ∀ i (hi : i < l_quant.outDim),
+    ∀ i (_hi : i < l_quant.outDim),
       intVal (l_quant.forwardQuantized input).lo[i]! (l_quant.forwardQuantized input).exp ≤
       intVal (l_quant.forwardQuantized input).hi[i]! (l_quant.forwardQuantized input).exp := by
   intro i hi

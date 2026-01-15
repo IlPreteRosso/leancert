@@ -3,6 +3,8 @@ Copyright (c) 2025 LeanBound Contributors. All rights reserved.
 Released under AGPL-3.0 license as described in the file LICENSE.
 Authors: LeanBound Contributors
 -/
+import LeanBound.ML.Network
+
 /-!
 # Trained Sine Approximator Network
 
@@ -12,8 +14,6 @@ This file contains the weights for a neural network trained to approximate sin(x
 - Training domain: x ∈ [0, π]
 - Weights exported as exact rational numbers
 -/
-
-import LeanBound.ML.Network
 
 namespace LeanBound.Examples.ML.SineApprox
 
