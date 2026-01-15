@@ -107,6 +107,26 @@ theorem evalIntervalDyadic_correct (e : Expr) (hsupp : ExprSupportedCore e)
 
 The dyadic backend avoids denominator explosion by using fixed-precision arithmetic, making it essential for neural network verification and optimization loops.
 
+## Dyadic Kernel Verification
+
+For higher trust, the dyadic backend supports verification via `decide` instead of `native_decide`:
+
+| Theorem | Verification | Trust Level |
+|---------|--------------|-------------|
+| `verify_upper_bound_dyadic` | `decide` | Kernel only |
+| `verify_lower_bound_dyadic` | `decide` | Kernel only |
+
+```lean
+theorem verify_upper_bound_dyadic (e : Expr) (hsupp : ExprSupportedCore e)
+    (I : IntervalDyadic) (c : Dyadic) (cfg : DyadicConfig)
+    (h_cert : checkUpperBoundDyadic e I c cfg = true) :
+    ∀ x ∈ I, Expr.eval (fun _ => x) e ≤ c
+```
+
+This removes the compiler from the trusted computing base—only the Lean kernel must be trusted.
+
+**Note**: Kernel verification requires the goal to be in `Core.Expr.eval` form with rational interval bounds.
+
 ## The Certificate Workflow
 
 1. **Python discovers**: Find bounds, roots, or optima

@@ -32,6 +32,16 @@ Rigorous bounds via Taylor series with verified remainder terms:
 | \\( \text{arsinh} x \\) | `mem_arsinhInterval` | `Core/IntervalReal.lean` |
 | \\( \text{atanh} x \\) | `mem_atanhInterval` | `Numerics/IntervalEval.lean` |
 
+### Extended Interval Arithmetic
+
+Standard interval arithmetic fails when dividing by an interval containing zero. LeanBound's **Extended Arithmetic** returns a union of intervals, preserving soundness even across singularities.
+
+- **Theorem**: `evalExtended_correct_core`
+- **Behavior**: 1 / [-1, 1] → (-∞, -1] ∪ [1, ∞)
+- **Status**: Verified for core expressions
+
+This enables robust handling of expressions like 1/x near x = 0.
+
 ### Taylor Series
 
 The core Taylor remainder bounds are fully proved:
@@ -91,7 +101,24 @@ The ML module provides verified interval propagation for neural networks:
 - `relu_relaxation_sound`: DeepPoly ReLU triangle relaxation
 - `sigmoid_relaxation_sound`: DeepPoly sigmoid monotonicity bounds
 
+**Transformer Components:**
+
+- `mem_scaledDotProductAttention`: Soundness of Q×K^T + Softmax + V
+- `mem_layerNormInterval`: Soundness of Layer Normalization
+- `mem_geluInterval`: Soundness of GELU activation
+- `forwardQuantized_sound`: Soundness of integer-quantized split-sign inference
+
 See `LeanBound/ML/` for the full implementation.
+
+### Kernel Verification (Dyadic)
+
+Bridge theorems for kernel-level verification via `decide`:
+
+- `verify_upper_bound_dyadic`: Connects Dyadic boolean check to Real semantic bounds
+- `verify_lower_bound_dyadic`: Lower bound variant
+- `evalIntervalDyadic_correct`: Dyadic evaluation is sound w.r.t Real operations
+
+These enable the `fast_bound` tactic to produce proofs verified purely by the Lean kernel, removing the compiler from the trusted computing base.
 
 ## Incomplete (Contains `sorry`)
 

@@ -1,6 +1,6 @@
-# Neural Network Verification
+# Neural Network & Transformer Verification
 
-LeanBound includes a verified neural network verification module based on interval propagation and DeepPoly relaxations.
+LeanBound includes verified neural network verification based on interval propagation and DeepPoly relaxations, with support for modern architectures including Transformers.
 
 ## Overview
 
@@ -8,7 +8,16 @@ The ML module provides:
 
 - **Interval Propagation**: Sound overapproximation of neural network outputs
 - **DeepPoly Relaxations**: Tight linear bounds for ReLU and sigmoid activations
+- **Transformer Support**: Multi-Head Attention, LayerNorm, GELU, Residual connections
 - **Verified Soundness**: All propagation theorems are formally proved in Lean
+
+## Supported Architectures
+
+| Architecture | Components | Status |
+|--------------|------------|--------|
+| Feedforward (MLP) | Linear, ReLU, Sigmoid | Fully verified |
+| Transformers | Attention, LayerNorm, GELU | Fully verified |
+| Residual Networks | Skip connections | Fully verified |
 
 ## Quick Example
 
@@ -121,6 +130,63 @@ Since sigmoid is strictly monotone:
 theorem sigmoid_relaxation_sound (l u x : ℝ) (h : l ≤ x ∧ x ≤ u) :
     sigmoid l ≤ sigmoid x ∧ sigmoid x ≤ sigmoid u
 ```
+
+### GELU Activation
+
+GELU (Gaussian Error Linear Unit) is the standard activation for Transformers:
+
+\\[
+\text{GELU}(x) = 0.5 \cdot x \cdot (1 + \tanh(\sqrt{2/\pi} \cdot (x + 0.044715 \cdot x^3)))
+\\]
+
+```lean
+def gelu (I : IntervalDyadic) : IntervalDyadic :=
+  -- Verified interval approximation
+  let inner := I.add (I.mul I.mul I.scale 0.044715)
+  let scaled := inner.scale (Real.sqrt (2 / Real.pi))
+  I.scale 0.5 |>.mul (IntervalDyadic.one.add (tanh scaled))
+
+theorem mem_geluInterval {x : ℝ} {I : IntervalDyadic} (hx : x ∈ I) :
+    Real.gelu x ∈ gelu I
+```
+
+## Transformer Components
+
+### Self-Attention
+
+LeanBound verifies the scaled dot-product attention mechanism:
+
+\\[
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{Q \cdot K^T}{\sqrt{d_k}}\right) \cdot V
+\\]
+
+```lean
+import LeanBound.ML.Attention
+
+-- Verified attention output bounds
+theorem mem_scaledDotProductAttention
+    {Q K V : Matrix n d ℝ} {Q_int K_int V_int : IntervalMatrix n d}
+    (hQ : ∀ i j, Q i j ∈ Q_int i j)
+    (hK : ∀ i j, K i j ∈ K_int i j)
+    (hV : ∀ i j, V i j ∈ V_int i j) :
+    ∀ i j, (scaledDotProductAttention Q K V) i j ∈
+           (scaledDotProductAttentionInterval Q_int K_int V_int) i j
+```
+
+### Layer Normalization
+
+Interval bounds for LayerNorm are computed soundly:
+
+```lean
+import LeanBound.ML.LayerNorm
+
+-- LayerNorm: y = (x - μ) / σ * γ + β
+theorem mem_layerNormInterval {x : Vector n ℝ} {I : IntervalVector n}
+    (hx : ∀ i, x i ∈ I i) :
+    ∀ i, (layerNorm x γ β) i ∈ (layerNormInterval I γ_int β_int) i
+```
+
+**Note**: Standard interval arithmetic may overestimate LayerNorm bounds due to variable correlation (the mean and variance are computed from the same input).
 
 ## Optimized Implementation
 

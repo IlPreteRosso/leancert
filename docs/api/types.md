@@ -61,3 +61,38 @@ Returned by `verify_bound()`.
 ::: leanbound.result.VerifyResult
     options:
       show_root_heading: true
+
+## Discovery Results (Lean)
+
+The Lean side provides structured result types for discovery operations.
+
+### VerifiedGlobalMin
+
+Contains the lower bound, the box where it was found, and the formal proof.
+
+```lean
+structure VerifiedGlobalMin where
+  lowerBound : ℚ
+  achievingBox : Box
+  proof : ∀ x ∈ domain, f x ≥ lowerBound
+```
+
+### VerifiedRoot
+
+Contains an isolating interval for a root and the proof of existence (via sign change/IVT).
+
+```lean
+structure VerifiedRoot where
+  interval : IntervalRat
+  proof : ∃ x ∈ interval, f x = 0
+```
+
+### VerifiedEquivalence
+
+Contains the certificate that two neural networks produce outputs within a specific tolerance ε.
+
+```lean
+structure VerifiedEquivalence where
+  tolerance : ℚ
+  proof : ∀ x ∈ domain, |teacher x - student x| ≤ tolerance
+```

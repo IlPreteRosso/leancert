@@ -7,10 +7,13 @@ LeanBound automates proofs of inequalities, global extrema, root existence, and 
 ## Key Features
 
 - **Rigorous Interval Arithmetic**: Computable bounds with formal correctness proofs
+- **Kernel-Only Verification**: `fast_bound` tactic uses `decide` for proofs trusted only by the Lean kernel
 - **Global Optimization**: Branch-and-bound with verified lower/upper bounds
 - **Root Finding**: Existence proofs (bisection) and uniqueness proofs (Newton contraction)
 - **Integration**: Verified Riemann sum bounds
 - **Neural Network Verification**: Interval propagation with DeepPoly relaxations
+- **Transformer Verification**: Multi-Head Attention, LayerNorm, GELU soundness proofs
+- **Counter-Example Search**: `interval_refute` finds where conjectured bounds fail
 - **Python SDK**: High-level API with symbolic simplification and false-positive filtering
 
 ## Quick Example

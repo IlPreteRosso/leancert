@@ -54,7 +54,24 @@ simplified = lf.simplify(expr)  # Returns const(5)
 
 ## Lean Tactics
 
-### Proving Bounds
+### Point Inequalities (`interval_decide`)
+
+To prove inequalities involving specific numbers (including transcendentals like π or e), use `interval_decide`:
+
+```lean
+import LeanBound.Tactic.IntervalAuto
+
+-- Proves π < 3.15
+example : Real.pi < 3.15 := by interval_decide
+
+-- Proves e < 3
+example : Real.exp 1 < 3 := by interval_decide
+
+-- For complex expressions with constants
+example : Real.sin 1 + Real.cos 1 < 1.5 := by interval_decide
+```
+
+### Proving Bounds (`interval_bound`)
 
 ```lean
 import LeanBound.Tactic.IntervalAuto
@@ -72,6 +89,47 @@ example : ∀ x ∈ Set.Icc (0 : ℝ) 1, 0 ≤ x * x := by interval_bound
 -- Or use explicit IntervalRat for more control
 def I01 : IntervalRat := ⟨0, 1, by norm_num⟩
 example : ∀ x ∈ I01, Real.exp x ≤ (3 : ℚ) := by interval_bound 15
+```
+
+### Kernel-Verified Bounds (`fast_bound`)
+
+For higher trust, use `fast_bound`. Unlike `interval_bound` which trusts the Lean compiler (`native_decide`), `fast_bound` uses the dyadic backend and reduces proofs entirely within the Lean kernel (`decide`) when possible.
+
+```lean
+import LeanBound.Tactic.DyadicAuto
+
+-- Same syntax as interval_bound, but uses dyadic backend
+example : ∀ x ∈ Set.Icc (0 : ℝ) 1, x * x + Real.sin x ≤ 2 := by
+  fast_bound
+
+-- Increase precision (bits) for tight bounds
+example : ∀ x ∈ Set.Icc (0 : ℝ) 1, Real.exp x ≤ 2.72 := by
+  fast_bound 100
+
+-- Convenience variants
+example : ∀ x ∈ Set.Icc (0 : ℝ) 1, Real.exp x ≤ 2.72 := by
+  fast_bound_precise  -- 100 bits precision
+
+example : ∀ x ∈ Set.Icc (0 : ℝ) 1, x * x ≤ 2 := by
+  fast_bound_quick    -- 30 bits, faster
+```
+
+| Tactic | Backend | Verification | Trust Level |
+|--------|---------|--------------|-------------|
+| `interval_bound` | Rational | `native_decide` | Compiler + Runtime |
+| `fast_bound` | Dyadic | `decide` (when possible) | Kernel only |
+
+### Finding Counter-Examples (`interval_refute`)
+
+If a bound doesn't hold, use `interval_refute` to find a counter-example:
+
+```lean
+import LeanBound.Tactic.Refute
+
+-- A false theorem - interval_refute finds where it fails
+example : ∀ x ∈ Set.Icc (-2 : ℝ) 2, x * x ≤ 3 := by
+  interval_refute
+  -- Output: Counter-example found at x ≈ ±2, where x² = 4 > 3
 ```
 
 ### Proving Root Existence

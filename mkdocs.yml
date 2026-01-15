@@ -63,6 +63,7 @@ nav:
     - Expressions: api/expr.md
   - Neural Networks:
     - Verification: ml/neural-networks.md
+    - Distillation: ml/distillation.md
   - Lean Architecture:
     - Golden Theorems: architecture/golden-theorems.md
     - Verification Status: architecture/verification-status.md
