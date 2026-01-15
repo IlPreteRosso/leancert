@@ -117,6 +117,16 @@ theorem verify_lower_bound_dyadic (e : Core.Expr) (hsupp : ExprSupportedCore e)
 
 /-! ## Tactic Implementation -/
 
+/-- Reasons why kernel verification might not be used. -/
+inductive KernelVerifyResult
+  | success : KernelVerifyResult
+  | nativeExpression : KernelVerifyResult  -- Goal uses native Lean expression, not Expr.eval
+  | boundsNotDefeq : KernelVerifyResult    -- Interval bounds aren't definitionally equal
+  | boundCheckFailed : KernelVerifyResult  -- Computed bound doesn't satisfy goal
+  | parseError : KernelVerifyResult        -- Couldn't parse goal structure
+  | unsupportedGoal : KernelVerifyResult   -- Goal type not supported (e.g., strict inequality)
+  deriving DecidableEq
+
 /-- Try to extract AST from a function that may be Core.Expr.eval or a raw expression.
     Returns (ast, isExprEval) where isExprEval indicates if goal was in Expr.eval form. -/
 def extractOrReifyAst (func : Lean.Expr) : TacticM (Lean.Expr × Bool) := do
@@ -134,25 +144,25 @@ def extractOrReifyAst (func : Lean.Expr) : TacticM (Lean.Expr × Bool) := do
       return (← reify func, false)
 
 /-- Core implementation of fast_bound with kernel verification.
-    Returns true if kernel verification succeeded, false if we should fall back. -/
-def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
+    Returns a result indicating success or reason for fallback. -/
+def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM KernelVerifyResult := do
   let goal ← getMainGoal
   let goalType ← goal.getType
 
   -- 1. Parse the goal
   let some boundGoal ← Auto.parseBoundGoal goalType
-    | return false
+    | return .parseError
 
   goal.withContext do
     match boundGoal with
     | .forallLe _name interval func boundExpr =>
       -- 2. Extract interval bounds
       let some (_lo, _hi, loRatExpr, hiRatExpr, leProof, _loRealExpr, _hiRealExpr) := interval.fromSetIcc
-        | return false
+        | return .parseError
 
       -- 3. Extract bound as rational
       let some c ← Auto.extractRatFromReal boundExpr
-        | return false
+        | return .parseError
       let cExpr := toExpr c
 
       -- 4. Extract AST (from Expr.eval) or reify (from raw expression)
@@ -161,7 +171,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
 
       -- For non-Expr.eval goals, kernel verification won't type-match, so skip
       if !isExprEval then
-        return false
+        return .nativeExpression
 
       -- 5. Build configuration expressions
       let precExpr := toExpr prec
@@ -189,7 +199,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
       let checkProof ← try
         mkDecideProof checkEqTrueTy
       catch _ =>
-        return false
+        return .boundCheckFailed
 
       -- 10. Apply the bridge theorem
       let proof ← mkAppM ``verify_upper_bound_dyadic
@@ -202,17 +212,17 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
       if ← isDefEq proofTy goalTy then
         goal.assign proof
         trace[fast_bound] "Kernel verification succeeded (via decide)"
-        return true
+        return .success
       else
-        return false
+        return .boundsNotDefeq
 
     | .forallGe _name interval func boundExpr =>
       -- Similar for lower bound
       let some (_lo, _hi, loRatExpr, hiRatExpr, leProof, _loRealExpr, _hiRealExpr) := interval.fromSetIcc
-        | return false
+        | return .parseError
 
       let some c ← Auto.extractRatFromReal boundExpr
-        | return false
+        | return .parseError
       let cExpr := toExpr c
 
       -- Extract AST (from Expr.eval) or reify (from raw expression)
@@ -221,7 +231,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
 
       -- For non-Expr.eval goals, kernel verification won't type-match, so skip
       if !isExprEval then
-        return false
+        return .nativeExpression
 
       let precExpr := toExpr prec
       let depthExpr := toExpr taylorDepth
@@ -244,7 +254,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
       let checkProof ← try
         mkDecideProof checkEqTrueTy
       catch _ =>
-        return false
+        return .boundCheckFailed
 
       let proof ← mkAppM ``verify_lower_bound_dyadic
         #[ast, supportProof, loRatExpr, hiRatExpr, leProof, cExpr,
@@ -254,13 +264,14 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM Bool := do
       let goalTy ← goal.getType
       if ← isDefEq proofTy goalTy then
         goal.assign proof
-        return true
+        trace[fast_bound] "Kernel verification succeeded (via decide)"
+        return .success
       else
-        return false
+        return .boundsNotDefeq
 
     | _ =>
       -- Strict inequalities not yet supported in kernel mode
-      return false
+      return .unsupportedGoal
 
 /-! ## Main Tactic -/
 
@@ -313,12 +324,27 @@ elab "fast_bound" prec:(num)? : tactic => do
     | none => -53
 
   -- Try kernel verification first (works for goals expressed in Core.Expr.eval)
-  let success ← fastBoundKernel precision 10
-  if success then
-    return
+  let result ← fastBoundKernel precision 10
+
+  match result with
+  | .success =>
+    return  -- Kernel verification succeeded
+  | .nativeExpression =>
+    trace[fast_bound] "Note: Using native_decide (goal uses native Lean expressions)"
+    trace[fast_bound] "  For kernel-only verification, express goal using Core.Expr.eval"
+  | .boundsNotDefeq =>
+    trace[fast_bound] "Note: Using native_decide (interval bounds not definitionally equal)"
+    trace[fast_bound] "  The goal's interval bounds (e.g., `0 : ℝ`) aren't definitionally"
+    trace[fast_bound] "  equal to rational casts (e.g., `↑(0 : ℚ)`)"
+  | .boundCheckFailed =>
+    trace[fast_bound] "Note: Using native_decide (kernel bound check failed)"
+    trace[fast_bound] "  Try increasing precision: `fast_bound 100` or `fast_bound_precise`"
+  | .parseError =>
+    trace[fast_bound] "Note: Using native_decide (couldn't parse goal structure)"
+  | .unsupportedGoal =>
+    trace[fast_bound] "Note: Using native_decide (strict inequalities not yet supported in kernel mode)"
 
   -- Fall back to interval_bound (uses native_decide but works for general goals)
-  trace[fast_bound] "Using native_decide verification (interval_bound)"
   evalTactic (← `(tactic| interval_bound))
 
 /-! ## Convenience Variants -/
@@ -328,8 +354,8 @@ Fast bound with high precision (100 bits).
 Use when you need tighter bounds at the cost of speed.
 -/
 elab "fast_bound_precise" : tactic => do
-  let success ← fastBoundKernel (-100) 20
-  if success then return
+  let result ← fastBoundKernel (-100) 20
+  if result == .success then return
   evalTactic (← `(tactic| interval_bound))
 
 /--
@@ -337,8 +363,8 @@ Fast bound with low precision (30 bits).
 Use when you need maximum speed and can tolerate wider bounds.
 -/
 elab "fast_bound_quick" : tactic => do
-  let success ← fastBoundKernel (-30) 5
-  if success then return
+  let result ← fastBoundKernel (-30) 5
+  if result == .success then return
   evalTactic (← `(tactic| interval_bound))
 
 -- Register trace class
