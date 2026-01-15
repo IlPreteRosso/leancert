@@ -133,6 +133,74 @@ partial def mkUsesOnlyVar0Proof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
     throwError "Cannot generate UsesOnlyVar0 proof for: {e_ast}\n\
                 This expression contains unsupported operations (inv, log, atanh, or var n with n ≠ 0)."
 
+/-! ## ExprSupported Proof Generation
+
+Generate proof terms of type `ExprSupported e` by recursively matching
+on the structure of `e : LeanBound.Core.Expr`.
+
+Note: ExprSupported is a strict subset of ExprSupportedCore.
+ExprSupported only supports: const, var, add, mul, neg, sin, cos, exp
+-/
+
+/-- Generate a proof of `ExprSupported e_ast` by matching on the AST structure.
+
+    This function inspects the head constant of the AST expression and
+    recursively builds the appropriate proof constructor.
+
+    Supported: const, var, add, mul, neg, sin, cos, exp
+    Not supported: log, sqrt, sinh, cosh, tanh, pi, inv, atan, arsinh, atanh -/
+partial def mkSupportedProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
+  let fn := e_ast.getAppFn
+  let args := e_ast.getAppArgs
+
+  if fn.isConstOf ``LeanBound.Core.Expr.const then
+    let q := args[0]!
+    mkAppM ``LeanBound.Numerics.ExprSupported.const #[q]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.var then
+    let idx := args[0]!
+    mkAppM ``LeanBound.Numerics.ExprSupported.var #[idx]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.add then
+    let e₁ := args[0]!
+    let e₂ := args[1]!
+    let h₁ ← mkSupportedProof e₁
+    let h₂ ← mkSupportedProof e₂
+    mkAppM ``LeanBound.Numerics.ExprSupported.add #[h₁, h₂]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.mul then
+    let e₁ := args[0]!
+    let e₂ := args[1]!
+    let h₁ ← mkSupportedProof e₁
+    let h₂ ← mkSupportedProof e₂
+    mkAppM ``LeanBound.Numerics.ExprSupported.mul #[h₁, h₂]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.neg then
+    let e := args[0]!
+    let h ← mkSupportedProof e
+    mkAppM ``LeanBound.Numerics.ExprSupported.neg #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.sin then
+    let e := args[0]!
+    let h ← mkSupportedProof e
+    mkAppM ``LeanBound.Numerics.ExprSupported.sin #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.cos then
+    let e := args[0]!
+    let h ← mkSupportedProof e
+    mkAppM ``LeanBound.Numerics.ExprSupported.cos #[h]
+
+  else if fn.isConstOf ``LeanBound.Core.Expr.exp then
+    let e := args[0]!
+    let h ← mkSupportedProof e
+    mkAppM ``LeanBound.Numerics.ExprSupported.exp #[h]
+
+  else
+    throwError "Cannot generate ExprSupported proof for: {e_ast}\n\
+                ExprSupported only covers: const, var, add, mul, neg, sin, cos, exp.\n\
+                This expression uses unsupported operations (log, sqrt, sinh, cosh, tanh, pi, inv, etc.).\n\
+                For unique root finding, the function must be in this restricted set."
+
 /-! ## ExprSupportedCore Proof Generation
 
 Generate proof terms of type `ExprSupportedCore e` by recursively matching

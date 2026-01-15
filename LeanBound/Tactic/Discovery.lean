@@ -10,6 +10,8 @@ import LeanBound.Meta.ProveSupported
 import LeanBound.Meta.ProveContinuous
 import LeanBound.Tactic.IntervalAuto
 import LeanBound.Numerics.Optimization.Global
+import LeanBound.Numerics.Optimization.Guided
+import LeanBound.Numerics.Optimization.Gradient
 import LeanBound.Numerics.Certificate
 
 /-!
@@ -53,6 +55,9 @@ open LeanBound.Discovery
 
 namespace LeanBound.Tactic.Discovery
 
+-- Trace class for discovery mode diagnostics
+initialize registerTraceClass `LeanBound.discovery
+
 -- Use explicit alias to avoid ambiguity with Lean.Expr
 abbrev LExpr := LeanBound.Core.Expr
 
@@ -75,7 +80,19 @@ inductive ExistentialBoundGoal where
   | minimize (varName : Name) (domain : Lean.Expr) (func : Lean.Expr)
   | maximize (varName : Name) (domain : Lean.Expr) (func : Lean.Expr)
 
+/-- Parse an existential bound goal.
+    Supports goals of the form:
+    - `∃ m, ∀ x ∈ I, f(x) ≥ m` (minimize)
+    - `∃ M, ∀ x ∈ I, f(x) ≤ M` (maximize)
+
+    The function f can be:
+    - A raw Lean expression like `x * x + Real.sin x`
+    - An `Expr.eval` wrapped expression
+
+    Auto-reification will convert raw expressions to LeanBound AST. -/
 def parseExistentialGoal (goalType : Lean.Expr) : MetaM (Option ExistentialBoundGoal) := do
+  -- Try to match the Exists pattern
+  let goalType ← whnf goalType
   if let .app (.app (.const ``Exists _) _) body := goalType then
     -- body is `fun m => ∀ x ∈ I, ...`
     if let .lam mName mTy mBody _ := body then
@@ -106,7 +123,9 @@ def parseExistentialGoal (goalType : Lean.Expr) : MetaM (Option ExistentialBound
 
 /-! ## Helper Functions -/
 
-/-- Try to extract AST from an Expr.eval application, or reify if it's a raw expression -/
+/-- Try to extract AST from an Expr.eval application, or reify if it's a raw expression.
+    This enables automatic reification - users can write standard math like `x * x + sin x`
+    without needing to wrap in `Expr.eval`. -/
 def getAstFromFunc (func : Lean.Expr) : TacticM Lean.Expr := do
   -- func is (fun x => body) where body might be Expr.eval or a raw expression
   lambdaTelescope func fun _vars body => do
@@ -118,12 +137,23 @@ def getAstFromFunc (func : Lean.Expr) : TacticM Lean.Expr := do
       -- Expr.eval takes: (env : Nat → ℝ) → Expr → ℝ
       -- So args[0] is env, args[1] is ast
       if args.size ≥ 2 then
+        trace[LeanBound.discovery] "Extracted AST from Expr.eval wrapper"
         return args[1]!
       else
         throwError "Unexpected Expr.eval application structure"
     else
-      -- It's a raw expression - reify it
-      reify func
+      -- It's a raw expression - reify it automatically
+      trace[LeanBound.discovery] "Auto-reifying raw expression: {body}"
+      try
+        let ast ← reify func
+        trace[LeanBound.discovery] "Reification successful"
+        return ast
+      catch e =>
+        throwError m!"Failed to reify expression to LeanBound AST.\n\
+                      Expression: {body}\n\n\
+                      Error: {e.toMessageData}\n\n\
+                      Supported operations: +, -, *, /, sin, cos, exp, log, sqrt, π, ...\n\
+                      Tip: Unfold custom definitions with 'simp only [myDef]' first."
 
 /-! ## Minimization Tactic -/
 
@@ -135,47 +165,57 @@ unsafe def intervalMinimizeCore (taylorDepth : Nat) : TacticM Unit := do
   let some (.minimize _varName domainExpr funcExpr) ← parseExistentialGoal goalType
     | throwError "interval_minimize: Goal must be of form `∃ m, ∀ x ∈ I, f(x) ≥ m`"
 
-  -- Debug: show what we're trying to reify
-  trace[LeanBound.tactic] "funcExpr = {funcExpr}"
+  trace[LeanBound.discovery] "Parsing goal: ∃ m, ∀ x ∈ I, f(x) ≥ m"
+  trace[LeanBound.discovery] "Function expression: {funcExpr}"
 
   -- 1. Reify the function (or extract from Expr.eval)
-  -- The function might be a lambda (fun x => Expr.eval (fun _ => x) ast)
-  -- In that case, we need to extract the AST from the Expr.eval application
   let ast ← getAstFromFunc funcExpr
-  trace[LeanBound.tactic] "ast = {ast}"
+  trace[LeanBound.discovery] "Reified AST: {ast}"
 
-  -- 2. Prepare for evaluation
-  -- We need to evaluate the globalMinimizeCore function
-  -- We construct the expression `globalMinimizeCore ast [domain] cfg`
-  let cfg : GlobalOptConfig := {
+  -- 2. Prepare for evaluation with guided optimization
+  let cfg : GuidedOptConfig := {
     maxIterations := 1000,
     tolerance := 1/1000,
     taylorDepth := taylorDepth,
-    useMonotonicity := true
+    useMonotonicity := true,
+    heuristicSamples := 200,
+    seed := 12345,
+    useGridSearch := true,
+    gridPointsPerDim := 10
   }
 
   -- Note: safely evaluating the domain expression from syntax to a value
-  -- requires `evalExpr`. We assume domainExpr evaluates to IntervalRat.
   let domainVal ← evalExpr IntervalRat (mkConst ``IntervalRat) domainExpr
   let boxVal : Box := [domainVal]
+  trace[LeanBound.discovery] "Domain: [{domainVal.lo}, {domainVal.hi}]"
 
-  -- 3. Run optimization
+  -- 3. Run float-guided optimization
+  trace[LeanBound.discovery] "Running float-guided optimization (heuristic samples={cfg.heuristicSamples}, maxIters={cfg.maxIterations}, taylorDepth={taylorDepth})..."
   let astVal ← evalExpr LExpr (mkConst ``LeanBound.Core.Expr) ast
-  let result := globalMinimizeCore astVal boxVal cfg
+  let result := globalMinimizeGuided astVal boxVal cfg
   let boundVal := result.bound.lo
 
-  -- 4. Provide witness and prove the bound
-  -- Use `exact` with the witness wrapped in Exists.intro
-  -- First construct the goal with the specific witness
-  let boundRatExpr := toExpr boundVal
+  trace[LeanBound.discovery] "Optimization complete: {result.bound.iterations} iterations"
+  trace[LeanBound.discovery] "Found minimum bound: {boundVal}"
+  trace[LeanBound.discovery] "Gap: [{result.bound.lo}, {result.bound.hi}]"
 
-  -- Use refine to provide the witness
+  -- Check if optimization converged well
+  let gap := result.bound.hi - result.bound.lo
+  if gap > cfg.tolerance then
+    logWarning m!"⚠️ Optimization gap [{result.bound.lo}, {result.bound.hi}] exceeds tolerance {cfg.tolerance}.\n\
+                  Consider increasing maxIterations or taylorDepth."
+
+  -- 4. Provide witness and prove the bound
+  -- Note: Coerce to ℝ since Expr.eval returns ℝ
+  let boundRatExpr := toExpr boundVal
   let boundSyntax ← Term.exprToSyntax boundRatExpr
-  evalTactic (← `(tactic| refine ⟨$boundSyntax:term, ?_⟩))
+  trace[LeanBound.discovery] "Providing witness: m = {boundVal}"
+  evalTactic (← `(tactic| refine ⟨(($boundSyntax : ℚ) : ℝ), ?_⟩))
 
   -- 5. Now we have a goal `∀ x ∈ I, f(x) ≥ bound`
-  -- Use intervalBoundCore which handles 1D goals properly
+  trace[LeanBound.discovery] "Proving universal bound with interval_bound..."
   LeanBound.Tactic.Auto.intervalBoundCore taylorDepth
+  trace[LeanBound.discovery] "✓ Proof complete"
 
 /-- The interval_minimize tactic.
 
@@ -203,29 +243,52 @@ unsafe def intervalMaximizeCore (taylorDepth : Nat) : TacticM Unit := do
   let some (.maximize _varName domainExpr funcExpr) ← parseExistentialGoal goalType
     | throwError "interval_maximize: Goal must be of form `∃ M, ∀ x ∈ I, f(x) ≤ M`"
 
+  trace[LeanBound.discovery] "Parsing goal: ∃ M, ∀ x ∈ I, f(x) ≤ M"
+  trace[LeanBound.discovery] "Function expression: {funcExpr}"
+
   -- Use getAstFromFunc to handle both Expr.eval and raw expressions
   let ast ← getAstFromFunc funcExpr
-  let cfg : GlobalOptConfig := {
+  trace[LeanBound.discovery] "Reified AST: {ast}"
+
+  let cfg : GuidedOptConfig := {
     maxIterations := 1000,
     tolerance := 1/1000,
     taylorDepth := taylorDepth,
-    useMonotonicity := true
+    useMonotonicity := true,
+    heuristicSamples := 200,
+    seed := 12345,
+    useGridSearch := true,
+    gridPointsPerDim := 10
   }
 
   let domainVal ← evalExpr IntervalRat (mkConst ``IntervalRat) domainExpr
   let boxVal : Box := [domainVal]
+  trace[LeanBound.discovery] "Domain: [{domainVal.lo}, {domainVal.hi}]"
+
+  trace[LeanBound.discovery] "Running float-guided optimization (heuristic samples={cfg.heuristicSamples}, maxIters={cfg.maxIterations}, taylorDepth={taylorDepth})..."
   let astVal ← evalExpr LExpr (mkConst ``LeanBound.Core.Expr) ast
-
-  let result := globalMaximizeCore astVal boxVal cfg
+  let result := globalMaximizeGuided astVal boxVal cfg
   let boundVal := result.bound.hi
-  let boundRatExpr := toExpr boundVal
 
-  -- Use refine to provide the witness
+  trace[LeanBound.discovery] "Optimization complete: {result.bound.iterations} iterations"
+  trace[LeanBound.discovery] "Found maximum bound: {boundVal}"
+  trace[LeanBound.discovery] "Gap: [{result.bound.lo}, {result.bound.hi}]"
+
+  -- Check if optimization converged well
+  let gap := result.bound.hi - result.bound.lo
+  if gap > cfg.tolerance then
+    logWarning m!"⚠️ Optimization gap [{result.bound.lo}, {result.bound.hi}] exceeds tolerance {cfg.tolerance}.\n\
+                  Consider increasing maxIterations or taylorDepth."
+
+  let boundRatExpr := toExpr boundVal
   let boundSyntax ← Term.exprToSyntax boundRatExpr
-  evalTactic (← `(tactic| refine ⟨$boundSyntax:term, ?_⟩))
+  trace[LeanBound.discovery] "Providing witness: M = {boundVal}"
+  evalTactic (← `(tactic| refine ⟨(($boundSyntax : ℚ) : ℝ), ?_⟩))
 
   -- Now prove the bound using intervalBoundCore
+  trace[LeanBound.discovery] "Proving universal bound with interval_bound..."
   LeanBound.Tactic.Auto.intervalBoundCore taylorDepth
+  trace[LeanBound.discovery] "✓ Proof complete"
 
 /-- The interval_maximize tactic.
 
@@ -239,6 +302,372 @@ unsafe def elabIntervalMaximize : Tactic := fun stx => do
     | some n => n.toNat
     | none => 10
   intervalMaximizeCore depth
+
+/-! ## Argmax/Argmin Tactics -/
+
+/-- Result of analyzing an argmax goal -/
+inductive ArgmaxGoal where
+  /-- ∃ x ∈ I, ∀ y ∈ I, f(y) ≤ f(x) -/
+  | argmax (varName : Name) (domain : Lean.Expr) (func : Lean.Expr)
+  deriving Repr
+
+/-- Try to parse a goal as an argmax goal: ∃ x ∈ I, ∀ y ∈ I, f(y) ≤ f(x) -/
+def parseArgmaxGoal (goal : Lean.Expr) : MetaM (Option ArgmaxGoal) := do
+  let goal ← whnf goal
+  -- Goal: ∃ x, x ∈ I ∧ ∀ y ∈ I, f(y) ≤ f(x)
+  match_expr goal with
+  | Exists _ body =>
+    if let .lam name ty innerBody _ := body then
+      withLocalDeclD name ty fun x => do
+        let bodyInst := innerBody.instantiate1 x
+        let bodyInst ← whnf bodyInst
+        -- bodyInst should be x ∈ I ∧ ∀ y ∈ I, f(y) ≤ f(x)
+        match_expr bodyInst with
+        | And memExpr forallExpr =>
+          -- Extract interval from membership
+          let interval? ← extractIntervalExpr memExpr x
+          let some intervalExpr := interval? | return none
+          -- Check if forallExpr is ∀ y ∈ I, f(y) ≤ f(x)
+          let forallExpr ← whnf forallExpr
+          if forallExpr.isForall then
+            let .forallE yname yty forallBody _ := forallExpr | return none
+            withLocalDeclD yname yty fun y => do
+              let forallBody := forallBody.instantiate1 y
+              let forallBody ← whnf forallBody
+              -- forallBody should be y ∈ I → f(y) ≤ f(x)
+              if forallBody.isForall then
+                let .forallE _ _memTy compBody _ := forallBody | return none
+                -- compBody should be f(y) ≤ f(x) (with y free, x from outer scope)
+                match_expr compBody with
+                | LE.le _ _ lhs _rhs =>
+                  -- lhs is f(y), we extract the function structure
+                  -- The function is fun z => (lhs with y replaced by z)
+                  let func ← mkLambdaFVars #[y] lhs
+                  return some (.argmax name intervalExpr func)
+                | _ => return none
+              else return none
+          else return none
+        | _ => return none
+    else return none
+  | _ => return none
+where
+  /-- Extract the interval from a membership expression x ∈ I -/
+  extractIntervalExpr (memExpr : Lean.Expr) (x : Lean.Expr) : MetaM (Option Lean.Expr) := do
+    match_expr memExpr with
+    | Membership.mem _ _ _ interval xExpr =>
+      if ← isDefEq xExpr x then return some interval else return none
+    | _ => return none
+
+/-- The interval_argmax tactic implementation -/
+unsafe def intervalArgmaxCore (taylorDepth : Nat) : TacticM Unit := do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+
+  let some (.argmax _varName domainExpr funcExpr) ← parseArgmaxGoal goalType
+    | throwError "interval_argmax: Goal must be of form `∃ x ∈ I, ∀ y ∈ I, f(y) ≤ f(x)`"
+
+  trace[LeanBound.discovery] "Parsing argmax goal: ∃ x ∈ I, ∀ y ∈ I, f(y) ≤ f(x)"
+  trace[LeanBound.discovery] "Function expression: {funcExpr}"
+
+  -- 1. Reify the function
+  let ast ← getAstFromFunc funcExpr
+  trace[LeanBound.discovery] "Reified AST: {ast}"
+
+  -- 2. Prepare optimization config
+  let cfg : GuidedOptConfig := {
+    maxIterations := 1000,
+    tolerance := 1/1000,
+    taylorDepth := taylorDepth,
+    useMonotonicity := true,
+    heuristicSamples := 200,
+    seed := 12345,
+    useGridSearch := true,
+    gridPointsPerDim := 10
+  }
+
+  let domainVal ← evalExpr IntervalRat (mkConst ``IntervalRat) domainExpr
+  let boxVal : Box := [domainVal]
+  trace[LeanBound.discovery] "Domain: [{domainVal.lo}, {domainVal.hi}]"
+
+  -- 3. Run optimization to find the argmax
+  trace[LeanBound.discovery] "Running float-guided maximization..."
+  let astVal ← evalExpr LExpr (mkConst ``LeanBound.Core.Expr) ast
+  let result := globalMaximizeGuided astVal boxVal cfg
+
+  -- 4. Extract the midpoint of the best box as witness
+  let bestBox := result.bound.bestBox
+  let xOpt : ℚ := match bestBox with
+    | [I] => (I.lo + I.hi) / 2
+    | _ => domainVal.lo  -- Fallback
+
+  trace[LeanBound.discovery] "Best box: {bestBox.map (fun I => s!"[{I.lo}, {I.hi}]")}"
+  trace[LeanBound.discovery] "Witness point: x = {xOpt}"
+  trace[LeanBound.discovery] "Maximum value ≈ {result.bound.hi}"
+
+  -- 5. Provide witness: refine ⟨xOpt, ?memProof, ?boundProof⟩
+  -- Note: Coerce to ℝ since interval is over ℝ
+  let xOptExpr := toExpr xOpt
+  let xOptSyntax ← Term.exprToSyntax xOptExpr
+  evalTactic (← `(tactic| refine ⟨(($xOptSyntax : ℚ) : ℝ), ?_, ?_⟩))
+
+  -- 6. Prove membership (x ∈ I)
+  trace[LeanBound.discovery] "Proving membership..."
+  let memGoal ← getMainGoal
+  try
+    evalTactic (← `(tactic| simp only [Set.mem_Icc]; constructor <;> native_decide))
+  catch _ =>
+    try
+      evalTactic (← `(tactic| decide))
+    catch _ =>
+      logWarning m!"Could not automatically prove {xOpt} ∈ [{domainVal.lo}, {domainVal.hi}]. Goal left open."
+
+  -- 7. Prove the bound: ∀ y ∈ I, f(y) ≤ f(xOpt)
+  -- Since f(xOpt) is now a concrete rational, this becomes a standard upper bound goal
+  trace[LeanBound.discovery] "Proving universal bound..."
+  try
+    LeanBound.Tactic.Auto.intervalBoundCore taylorDepth
+    trace[LeanBound.discovery] "✓ Proof complete"
+  catch e =>
+    logWarning m!"interval_argmax: Could not prove universal bound.\n{e.toMessageData}\n\
+                  The witness x = {xOpt} may need higher precision."
+
+/-- The interval_argmax tactic.
+
+Proves goals of the form `∃ x ∈ I, ∀ y ∈ I, f(y) ≤ f(x)` by:
+1. Running global optimization to find the point x where f is maximized.
+2. Instantiating the existential with x.
+3. Proving membership x ∈ I.
+4. Proving the universal bound using interval arithmetic.
+-/
+syntax (name := intervalArgmaxTac) "interval_argmax" (num)? : tactic
+
+@[tactic intervalArgmaxTac]
+unsafe def elabIntervalArgmax : Tactic := fun stx => do
+  let depth := match stx[1].getOptional? with
+    | some n => n.toNat
+    | none => 10
+  intervalArgmaxCore depth
+
+/-- The interval_argmin tactic implementation -/
+unsafe def intervalArgminCore (taylorDepth : Nat) : TacticM Unit := do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+
+  -- For argmin, the goal is: ∃ x ∈ I, ∀ y ∈ I, f(x) ≤ f(y)
+  -- This is similar to argmax but with the inequality reversed
+  throwError "interval_argmin: Not yet implemented. Use interval_argmax with negated function."
+
+/-- The interval_argmin tactic. -/
+syntax (name := intervalArgminTac) "interval_argmin" (num)? : tactic
+
+@[tactic intervalArgminTac]
+unsafe def elabIntervalArgmin : Tactic := fun stx => do
+  let depth := match stx[1].getOptional? with
+    | some n => n.toNat
+    | none => 10
+  intervalArgminCore depth
+
+/-! ## Multivariate Minimization/Maximization Tactics -/
+
+/-- Result of analyzing a multivariate existential bound goal -/
+inductive MultivariateExistentialGoal where
+  /-- ∃ m, ∀ x ∈ I, ∀ y ∈ J, ..., f(...) ≥ m (minimize) -/
+  | minimize (vars : Array LeanBound.Tactic.Auto.VarIntervalInfo) (func : Lean.Expr)
+  /-- ∃ M, ∀ x ∈ I, ∀ y ∈ J, ..., f(...) ≤ M (maximize) -/
+  | maximize (vars : Array LeanBound.Tactic.Auto.VarIntervalInfo) (func : Lean.Expr)
+
+/-- Parse a multivariate existential bound goal.
+    Supports goals of the form:
+    - `∃ m, ∀ x ∈ I, ∀ y ∈ J, f(x,y) ≥ m` (minimize)
+    - `∃ M, ∀ x ∈ I, ∀ y ∈ J, f(x,y) ≤ M` (maximize) -/
+def parseMultivariateExistentialGoal (goalType : Lean.Expr) :
+    MetaM (Option MultivariateExistentialGoal) := do
+  let goalType ← whnf goalType
+  -- Match: ∃ m, body where body is a forall chain
+  if let .app (.app (.const ``Exists _) _) body := goalType then
+    if let .lam mName mTy mBody _ := body then
+      withLocalDeclD mName mTy fun m => do
+        let mBodyInst := mBody.instantiate1 m
+        -- Now parse the multivariate forall chain
+        if let some mvGoal ← LeanBound.Tactic.Auto.parseMultivariateBoundGoal mBodyInst then
+          match mvGoal with
+          | .forallGe vars func bound =>
+            -- c ≤ f(...) where c should be our existential variable m
+            let boundContainsM := bound.containsFVar m.fvarId!
+            if boundContainsM then
+              return some (.minimize vars func)
+            else return none
+          | .forallLe vars func bound =>
+            -- f(...) ≤ c where c should be our existential variable m
+            let boundContainsM := bound.containsFVar m.fvarId!
+            if boundContainsM then
+              return some (.maximize vars func)
+            else return none
+        else return none
+    else return none
+  else return none
+
+/-- The interval_minimize_mv tactic implementation for multivariate goals -/
+unsafe def intervalMinimizeMvCore (taylorDepth : Nat) : TacticM Unit := do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+
+  let some (.minimize vars funcExpr) ← parseMultivariateExistentialGoal goalType
+    | throwError "interval_minimize_mv: Goal must be of form `∃ m, ∀ x ∈ I, ∀ y ∈ J, ..., f(...) ≥ m`"
+
+  trace[LeanBound.discovery] "Parsing multivariate goal: ∃ m, ∀ vars ∈ domains, f(...) ≥ m"
+  trace[LeanBound.discovery] "Number of variables: {vars.size}"
+  trace[LeanBound.discovery] "Function expression: {funcExpr}"
+
+  -- 1. Reify the function
+  let ast ← getAstFromFunc funcExpr
+  trace[LeanBound.discovery] "Reified AST: {ast}"
+
+  -- 2. Build the box from all variable intervals
+  let mut boxVals : Array IntervalRat := #[]
+  for v in vars do
+    let intervalVal ← evalExpr IntervalRat (mkConst ``IntervalRat) v.intervalRat
+    boxVals := boxVals.push intervalVal
+    trace[LeanBound.discovery] "Variable {v.varName}: [{intervalVal.lo}, {intervalVal.hi}]"
+
+  let boxVal : Box := boxVals.toList
+
+  -- 3. Prepare config for multivariate guided optimization
+  let cfg : GuidedOptConfig := {
+    maxIterations := 2000,  -- More iterations for multivariate
+    tolerance := 1/1000,
+    taylorDepth := taylorDepth,
+    useMonotonicity := true,
+    heuristicSamples := 300,  -- More samples for higher dimensions
+    seed := 12345,
+    useGridSearch := true,
+    gridPointsPerDim := 5  -- Fewer points per dim for multivariate
+  }
+
+  -- 4. Run float-guided optimization
+  trace[LeanBound.discovery] "Running multivariate float-guided optimization..."
+  let astVal ← evalExpr LExpr (mkConst ``LeanBound.Core.Expr) ast
+  let result := globalMinimizeGuided astVal boxVal cfg
+  let boundVal := result.bound.lo
+
+  trace[LeanBound.discovery] "Optimization complete: {result.bound.iterations} iterations"
+  trace[LeanBound.discovery] "Found minimum bound: {boundVal}"
+  trace[LeanBound.discovery] "Gap: [{result.bound.lo}, {result.bound.hi}]"
+
+  -- Check if optimization converged well
+  let gap := result.bound.hi - result.bound.lo
+  if gap > cfg.tolerance then
+    logWarning m!"⚠️ Optimization gap [{result.bound.lo}, {result.bound.hi}] exceeds tolerance {cfg.tolerance}.\n\
+                  Consider increasing maxIterations or taylorDepth."
+
+  -- 5. Provide witness and prove the bound
+  -- Note: Coerce to ℝ since Expr.eval returns ℝ
+  let boundRatExpr := toExpr boundVal
+  let boundSyntax ← Term.exprToSyntax boundRatExpr
+  trace[LeanBound.discovery] "Providing witness: m = {boundVal}"
+  evalTactic (← `(tactic| refine ⟨(($boundSyntax : ℚ) : ℝ), ?_⟩))
+
+  -- 6. Now we have a multivariate goal `∀ x ∈ I, ∀ y ∈ J, ..., f(...) ≥ bound`
+  trace[LeanBound.discovery] "Proving multivariate universal bound with interval_bound..."
+  LeanBound.Tactic.Auto.intervalBoundCore taylorDepth
+  trace[LeanBound.discovery] "✓ Proof complete"
+
+/-- The interval_minimize_mv tactic.
+
+Proves multivariate goals of the form `∃ m, ∀ x ∈ I, ∀ y ∈ J, f(x,y) ≥ m` by:
+1. Running global optimization over the n-dimensional domain.
+2. Instantiating the existential with the found minimum.
+3. Proving the bound using `interval_bound`.
+-/
+syntax (name := intervalMinimizeMvTac) "interval_minimize_mv" (num)? : tactic
+
+@[tactic intervalMinimizeMvTac]
+unsafe def elabIntervalMinimizeMv : Tactic := fun stx => do
+  let depth := match stx[1].getOptional? with
+    | some n => n.toNat
+    | none => 10
+  intervalMinimizeMvCore depth
+
+/-- The interval_maximize_mv tactic implementation for multivariate goals -/
+unsafe def intervalMaximizeMvCore (taylorDepth : Nat) : TacticM Unit := do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+
+  let some (.maximize vars funcExpr) ← parseMultivariateExistentialGoal goalType
+    | throwError "interval_maximize_mv: Goal must be of form `∃ M, ∀ x ∈ I, ∀ y ∈ J, ..., f(...) ≤ M`"
+
+  trace[LeanBound.discovery] "Parsing multivariate goal: ∃ M, ∀ vars ∈ domains, f(...) ≤ M"
+  trace[LeanBound.discovery] "Number of variables: {vars.size}"
+  trace[LeanBound.discovery] "Function expression: {funcExpr}"
+
+  -- 1. Reify the function
+  let ast ← getAstFromFunc funcExpr
+  trace[LeanBound.discovery] "Reified AST: {ast}"
+
+  -- 2. Build the box from all variable intervals
+  let mut boxVals : Array IntervalRat := #[]
+  for v in vars do
+    let intervalVal ← evalExpr IntervalRat (mkConst ``IntervalRat) v.intervalRat
+    boxVals := boxVals.push intervalVal
+    trace[LeanBound.discovery] "Variable {v.varName}: [{intervalVal.lo}, {intervalVal.hi}]"
+
+  let boxVal : Box := boxVals.toList
+
+  -- 3. Prepare config
+  let cfg : GuidedOptConfig := {
+    maxIterations := 2000,
+    tolerance := 1/1000,
+    taylorDepth := taylorDepth,
+    useMonotonicity := true,
+    heuristicSamples := 300,
+    seed := 12345,
+    useGridSearch := true,
+    gridPointsPerDim := 5
+  }
+
+  -- 4. Run float-guided optimization
+  trace[LeanBound.discovery] "Running multivariate float-guided optimization..."
+  let astVal ← evalExpr LExpr (mkConst ``LeanBound.Core.Expr) ast
+  let result := globalMaximizeGuided astVal boxVal cfg
+  let boundVal := result.bound.hi
+
+  trace[LeanBound.discovery] "Optimization complete: {result.bound.iterations} iterations"
+  trace[LeanBound.discovery] "Found maximum bound: {boundVal}"
+  trace[LeanBound.discovery] "Gap: [{result.bound.lo}, {result.bound.hi}]"
+
+  -- Check convergence
+  let gap := result.bound.hi - result.bound.lo
+  if gap > cfg.tolerance then
+    logWarning m!"⚠️ Optimization gap [{result.bound.lo}, {result.bound.hi}] exceeds tolerance {cfg.tolerance}.\n\
+                  Consider increasing maxIterations or taylorDepth."
+
+  -- 5. Provide witness
+  -- Note: Coerce to ℝ since Expr.eval returns ℝ
+  let boundRatExpr := toExpr boundVal
+  let boundSyntax ← Term.exprToSyntax boundRatExpr
+  trace[LeanBound.discovery] "Providing witness: M = {boundVal}"
+  evalTactic (← `(tactic| refine ⟨(($boundSyntax : ℚ) : ℝ), ?_⟩))
+
+  -- 6. Prove the multivariate bound
+  trace[LeanBound.discovery] "Proving multivariate universal bound with interval_bound..."
+  LeanBound.Tactic.Auto.intervalBoundCore taylorDepth
+  trace[LeanBound.discovery] "✓ Proof complete"
+
+/-- The interval_maximize_mv tactic.
+
+Proves multivariate goals of the form `∃ M, ∀ x ∈ I, ∀ y ∈ J, f(x,y) ≤ M` by:
+1. Running global optimization over the n-dimensional domain.
+2. Instantiating the existential with the found maximum.
+3. Proving the bound using `interval_bound`.
+-/
+syntax (name := intervalMaximizeMvTac) "interval_maximize_mv" (num)? : tactic
+
+@[tactic intervalMaximizeMvTac]
+unsafe def elabIntervalMaximizeMv : Tactic := fun stx => do
+  let depth := match stx[1].getOptional? with
+    | some n => n.toNat
+    | none => 10
+  intervalMaximizeMvCore depth
 
 /-! ## Roots Tactic -/
 
@@ -423,8 +852,8 @@ unsafe def intervalUniqueRootCore (taylorDepth : Nat) : TacticM Unit := do
   -- Extract AST
   let ast ← getAstFromFunc func
 
-  -- Generate ExprSupportedCore proof
-  let supportProof ← mkSupportedCoreProof ast
+  -- Generate ExprSupported proof (required by verify_unique_root_computable)
+  let supportProof ← mkSupportedProof ast
 
   -- Generate UsesOnlyVar0 proof
   let var0Proof ← mkUsesOnlyVar0Proof ast
@@ -463,7 +892,7 @@ example : ∃! x ∈ I_1_2, Expr.eval (fun _ => x) (x² - 2) = 0 := by
 ```
 
 **Requirements:**
-- Function must be in `ExprSupportedCore` (no log, inv)
+- Function must be in `ExprSupported` (const, var, add, mul, neg, sin, cos, exp only)
 - Newton step must contract (derivative doesn't contain 0)
 -/
 syntax (name := intervalUniqueRootTac) "interval_unique_root" (num)? : tactic
@@ -630,21 +1059,49 @@ elab "#explore " e:term " on " "[" lo:signedInt ", " hi:signedInt "]" : command 
     if h : loVal ≤ hiVal then
       let intervalVal : IntervalRat := ⟨loVal, hiVal, h⟩
 
-      let cfg : GlobalOptConfig := {
+      let cfg : GuidedOptConfig := {
         maxIterations := 1000,
         tolerance := 1/1000,
         taylorDepth := 10,
-        useMonotonicity := true
+        useMonotonicity := true,
+        heuristicSamples := 200,
+        seed := 12345,
+        useGridSearch := true,
+        gridPointsPerDim := 10
       }
       let box : Box := [intervalVal]
 
-      -- Compute range (min and max)
-      let minResult := globalMinimizeCore astVal box cfg
-      let maxResult := globalMaximizeCore astVal box cfg
+      -- Compute range (min and max) using float-guided optimization
+      let minResult := globalMinimizeGuided astVal box cfg
+      let maxResult := globalMaximizeGuided astVal box cfg
 
       -- Check for sign change (root detection)
       let evalCfg : EvalConfig := { taylorDepth := 10 }
       let hasSignChange := Certificate.RootFinding.checkSignChange astVal intervalVal evalCfg
+
+      -- Compute gradient/derivative bounds for monotonicity analysis
+      let grad := gradientIntervalCore astVal box evalCfg
+      let gradStr := match grad with
+        | [] => "N/A (no variables)"
+        | [dI] => s!"[{dI.lo}, {dI.hi}]"
+        | _ => s!"{grad.map (fun dI => s!"[{dI.lo}, {dI.hi}]")}"
+
+      -- Classify monotonicity based on derivative sign
+      let monotonicityStr := match grad with
+        | [] => "constant"
+        | [dI] =>
+          if dI.lo > 0 then "strictly increasing"
+          else if dI.hi < 0 then "strictly decreasing"
+          else if dI.lo ≥ 0 then "non-decreasing"
+          else if dI.hi ≤ 0 then "non-increasing"
+          else "non-monotonic (derivative changes sign)"
+        | _ => "multivariate"
+
+      -- Count potential roots from sign change
+      let rootStr := if hasSignChange then
+        "Sign change detected - at least one root exists (by IVT)"
+      else
+        "No sign change - may have no roots or an even number"
 
       -- Format output
       let minStr := s!"{minResult.bound.lo}"
@@ -658,8 +1115,11 @@ elab "#explore " e:term " on " "[" lo:signedInt ", " hi:signedInt "]" : command 
                  Global minimum: ≥ {minStr}\n\
                  Global maximum: ≤ {maxStr}\n\
                  \n\
-                 Sign change detected: {hasSignChange}\n\
-                 (If true, a root exists by IVT)"
+                 Derivative bounds: {gradStr}\n\
+                 Monotonicity: {monotonicityStr}\n\
+                 \n\
+                 Roots: {rootStr}\n\
+                 Iterations: min={minResult.bound.iterations}, max={maxResult.bound.iterations}"
     else
       throwError "#explore: Invalid interval: lo ({loVal}) must be ≤ hi ({hiVal})"
 
