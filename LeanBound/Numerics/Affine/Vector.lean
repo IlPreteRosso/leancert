@@ -568,7 +568,9 @@ theorem mem_layerNorm {v_real : List ℝ} {v : AffineVector}
     let variance_real := (v_real.map (fun x => (x - μ) * (x - μ))).sum / v_real.length
     let std_real := Real.sqrt (variance_real + epsilon)
     let inv_std_real := 1 / std_real
-    let output_real := List.zipWith3 (fun xi g b => (xi - μ) * inv_std_real * g + b) v_real gamma beta
+    let output_real :=
+      List.zipWith3 (fun xi (g : ℚ) (b : ℚ) => (xi - μ) * inv_std_real * (g : ℝ) + b)
+        v_real gamma beta
     mem output_real (layerNorm v gamma beta epsilon) eps := by
   simp only [layerNorm]
 
@@ -625,51 +627,45 @@ theorem mem_layerNorm {v_real : List ℝ} {v : AffineVector}
   · -- Length equality for zipWith3
     -- The coercion ℚ → ℝ for list elements preserves length
     simp only [length_zipWith3_aux, List.length_map, hlen_v]
-    -- The `(do let a ← l; pure ↑a)` has same length as l
-    simp only [length_do_pure_rat_real]
   · -- Element-wise membership
     intro i hi_affine hi_real
-    simp only [length_zipWith3_aux, List.length_map] at hi_affine hi_real
+
+    -- Normalize length bounds to min-forms for arithmetic reasoning.
+    have hi_affine_min : i < min (min v.length gamma.length) beta.length := by
+      simpa [length_zipWith3_aux, List.length_map] using hi_affine
+    have hi_real_min : i < min (min v_real.length gamma.length) beta.length := by
+      simpa [length_zipWith3_aux] using hi_real
 
     -- Derive index bounds for component lists
-    have hi_v : i < v.length := by omega
-    have hi_vreal : i < v_real.length := by omega
-    have hi_gamma : i < gamma.length := by omega
-    have hi_beta : i < beta.length := by omega
-    have hi_centered : i < (v.map (fun xi => xi.sub v.mean)).length := by simp; omega
+    have hi_v : i < v.length := by
+      have h1 : i < min v.length gamma.length :=
+        lt_of_lt_of_le hi_affine_min (Nat.min_le_left _ _)
+      exact lt_of_lt_of_le h1 (Nat.min_le_left _ _)
+    have hi_vreal : i < v_real.length := by
+      have h1 : i < min v_real.length gamma.length :=
+        lt_of_lt_of_le hi_real_min (Nat.min_le_left _ _)
+      exact lt_of_lt_of_le h1 (Nat.min_le_left _ _)
+    have hi_gamma : i < gamma.length := by
+      have h1 : i < min v.length gamma.length :=
+        lt_of_lt_of_le hi_affine_min (Nat.min_le_left _ _)
+      exact lt_of_lt_of_le h1 (Nat.min_le_right _ _)
+    have hi_beta : i < beta.length := by
+      exact lt_of_lt_of_le hi_affine_min (Nat.min_le_right _ _)
+    have hi_centered : i < (v.map (fun xi => xi.sub v.mean)).length := by
+      simpa [List.length_map] using hi_v
 
     -- Get membership for centered value at index i
     have hi_centered' : i < (v_real.map (· - v_real.sum / ↑v_real.length)).length := by
-      simp only [List.length_map]; omega
+      simpa [List.length_map] using hi_vreal
     have hcentered_i := hcentered.2 i hi_centered hi_centered'
     simp only [List.getElem_map] at hcentered_i
 
     -- Apply mem_layerNorm_elem with the centered value and inverse standard deviation
     have helem := mem_layerNorm_elem (g := gamma[i]) (b := beta[i]) hvalid hcentered_i hinv
 
-    -- The affine form at index i
-    have hi_affine' : i < (List.zipWith3 (fun xi g b =>
-        AffineForm.add (AffineForm.scale g (AffineForm.mul xi inv_std)) (AffineForm.const b))
-        (v.map (fun xi => xi.sub v.mean)) gamma beta).length := by
-      simp only [length_zipWith3_aux, List.length_map]; omega
-
     have affine_eq := getElem_zipWith3_aux (fun xi g b =>
         AffineForm.add (AffineForm.scale g (AffineForm.mul xi inv_std)) (AffineForm.const b))
         (v.map (fun xi => xi.sub v.mean)) gamma beta i hi_centered hi_gamma hi_beta
-
-    -- The real value at index i - need coerced gamma/beta index bounds
-    have hi_gamma_coe : i < (do let a ← gamma; pure (a : ℝ)).length := by
-      simp only [length_do_pure_rat_real]; exact hi_gamma
-    have hi_beta_coe : i < (do let a ← beta; pure (a : ℝ)).length := by
-      simp only [length_do_pure_rat_real]; exact hi_beta
-
-    -- Create hi_real' for the real zipWith3 length
-    have hi_real' : i < (List.zipWith3 (fun xi (g : ℝ) (b : ℝ) =>
-        (xi - v_real.sum / ↑v_real.length) *
-          (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
-             (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * g + b)
-        v_real (do let a ← gamma; pure (a : ℝ)) (do let a ← beta; pure (a : ℝ))).length := by
-      simp only [length_zipWith3_aux, List.length_map, length_do_pure_rat_real]; omega
 
     -- The proof follows from:
     -- 1. Affine output[i] = add (scale gamma[i] (mul centered[i] inv_std)) (const beta[i])
@@ -680,17 +676,11 @@ theorem mem_layerNorm {v_real : List ℝ} {v : AffineVector}
     simp only [List.getElem_map] at affine_eq
 
     -- Get the real zipWith3 element
-    have real_eq := getElem_zipWith3_aux (fun xi (g : ℝ) (b : ℝ) =>
+    have real_eq := getElem_zipWith3_aux (fun xi (g : ℚ) (b : ℚ) =>
         (xi - v_real.sum / ↑v_real.length) *
           (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
-             (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * g + b)
-        v_real (do let a ← gamma; pure (a : ℝ)) (do let a ← beta; pure (a : ℝ))
-        i hi_vreal hi_gamma_coe hi_beta_coe
-
-    -- Simplify coerced gamma/beta elements
-    have hg_eq := getElem_do_pure_rat_real gamma i hi_gamma hi_gamma_coe
-    have hb_eq := getElem_do_pure_rat_real beta i hi_beta hi_beta_coe
-    simp only [hg_eq, hb_eq] at real_eq
+             (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * (g : ℝ) + b)
+        v_real gamma beta i hi_vreal hi_gamma hi_beta
 
     -- Now we can convert the proof
     -- LHS: (List.zipWith3 ...)[i]'hi_affine
@@ -701,49 +691,45 @@ theorem mem_layerNorm {v_real : List ℝ} {v : AffineVector}
     have affine_eq' :
         (List.zipWith3 (fun xi g b =>
           AffineForm.add (AffineForm.scale g (AffineForm.mul xi inv_std)) (AffineForm.const b))
-          (v.map (fun xi => xi.sub v.mean)) gamma beta)[i]'hi_affine' =
+          (v.map (fun xi => xi.sub v.mean)) gamma beta)[i]'hi_affine =
           AffineForm.add (AffineForm.scale gamma[i] (AffineForm.mul (v[i].sub v.mean) inv_std))
             (AffineForm.const beta[i]) := by
       have hproof :
           (List.zipWith3 (fun xi g b =>
             AffineForm.add (AffineForm.scale g (AffineForm.mul xi inv_std)) (AffineForm.const b))
-            (v.map (fun xi => xi.sub v.mean)) gamma beta)[i]'hi_affine' =
+            (v.map (fun xi => xi.sub v.mean)) gamma beta)[i]'hi_affine =
           (List.zipWith3 (fun xi g b =>
             AffineForm.add (AffineForm.scale g (AffineForm.mul xi inv_std)) (AffineForm.const b))
             (v.map (fun xi => xi.sub v.mean)) gamma beta)[i]'(by rw [length_zipWith3_aux]; omega) :=
-        getElem_proof_irrel _ _ hi_affine' (by rw [length_zipWith3_aux]; omega)
+        getElem_proof_irrel _ _ hi_affine (by rw [length_zipWith3_aux]; omega)
       simpa [hproof] using affine_eq
 
     have real_eq' :
-        (List.zipWith3 (fun xi (g : ℝ) (b : ℝ) =>
+        (List.zipWith3 (fun xi (g : ℚ) (b : ℚ) =>
           (xi - v_real.sum / ↑v_real.length) *
             (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
-               (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * g + b)
-          v_real (do let a ← gamma; pure (a : ℝ)) (do let a ← beta; pure (a : ℝ)))[i]'hi_real' =
+               (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * (g : ℝ) + b)
+          v_real gamma beta)[i]'hi_real =
           (v_real[i] - v_real.sum / ↑v_real.length) *
             (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
                (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) *
               (gamma[i] : ℝ) + (beta[i] : ℝ) := by
       have hproof :
-          (List.zipWith3 (fun xi (g : ℝ) (b : ℝ) =>
+          (List.zipWith3 (fun xi (g : ℚ) (b : ℚ) =>
             (xi - v_real.sum / ↑v_real.length) *
               (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
-                 (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * g + b)
-            v_real (do let a ← gamma; pure (a : ℝ)) (do let a ← beta; pure (a : ℝ)))[i]'hi_real' =
-          (List.zipWith3 (fun xi (g : ℝ) (b : ℝ) =>
+                 (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * (g : ℝ) + b)
+            v_real gamma beta)[i]'hi_real =
+          (List.zipWith3 (fun xi (g : ℚ) (b : ℚ) =>
             (xi - v_real.sum / ↑v_real.length) *
               (1 / Real.sqrt ((v_real.map (fun x => (x - v_real.sum / ↑v_real.length) *
-                 (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * g + b)
-            v_real (do let a ← gamma; pure (a : ℝ)) (do let a ← beta; pure (a : ℝ)))[i]'(by
-              rw [length_zipWith3_aux]; omega) :=
-        getElem_proof_irrel _ _ hi_real' (by rw [length_zipWith3_aux]; omega)
+                 (x - v_real.sum / ↑v_real.length))).sum / ↑v_real.length + ↑epsilon)) * (g : ℝ) + b)
+            v_real gamma beta)[i]'(by rw [length_zipWith3_aux]; omega) :=
+        getElem_proof_irrel _ _ hi_real (by rw [length_zipWith3_aux]; omega)
       simpa [hproof] using real_eq
 
-    -- TODO: The proof structure needs alignment between:
-    -- - The zipWith3 based computation in layerNormAffine
-    -- - The high-level structures in mem_layerNorm_elem
-    -- For now, we use sorry to unblock the build.
-    sorry
+    rw [affine_eq', real_eq']
+    simpa [centered, variance, inv_std, List.getElem_map] using helem
 
 end AffineVector
 

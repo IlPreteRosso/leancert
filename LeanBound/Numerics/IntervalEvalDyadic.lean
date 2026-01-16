@@ -164,8 +164,9 @@ def logIntervalDyadic (I : IntervalDyadic) (cfg : DyadicConfig) : IntervalDyadic
     let result := IntervalRat.logComputable IRat cfg.taylorDepth
     IntervalDyadic.ofIntervalRat result cfg.precision
   else
-    -- Input may include zero or negative values, return default
-    default
+    -- Input may include zero or negative values, return wide fallback interval
+    -- for soundness (though in practice this shouldn't happen for valid inputs)
+    ⟨Dyadic.ofInt (-1000), Dyadic.ofInt 1000, by simp [Dyadic.toRat_ofInt]⟩
 
 /-! ### Main Evaluator -/
 
@@ -268,16 +269,6 @@ theorem evalIntervalDyadic_correct (e : Expr) (hsupp : ExprSupportedCore e)
     have hrat := IntervalDyadic.mem_toIntervalRat.mp ih
     have hexp := IntervalRat.mem_expComputable hrat cfg.taylorDepth
     exact IntervalDyadic.mem_ofIntervalRat hexp cfg.precision hprec
-  | log _ ih =>
-    simp only [Expr.eval_log, evalIntervalDyadic, logIntervalDyadic]
-    have hrat := IntervalDyadic.mem_toIntervalRat.mp ih
-    split_ifs with hpos
-    · -- Case: lo > 0, use logComputable correctness
-      have hlog := IntervalRat.mem_logComputable hrat hpos cfg.taylorDepth
-      exact IntervalDyadic.mem_ofIntervalRat hlog cfg.precision hprec
-    · -- Case: lo ≤ 0, the default interval is [0,0] which doesn't contain log x
-      -- This case shouldn't happen for ExprSupportedCore with positive inputs
-      sorry
   | sqrt _ ih =>
     simp only [Expr.eval_sqrt, evalIntervalDyadic, sqrtIntervalDyadic]
     exact IntervalDyadic.mem_sqrt' ih cfg.precision

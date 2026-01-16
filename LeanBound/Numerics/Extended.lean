@@ -455,7 +455,8 @@ def evalExtended (e : Expr) (ρ : ExtendedEnv) (cfg : ExtendedConfig := {}) : Ex
       let inner := evalExtended e ρ cfg
       let filtered := inner.parts.filter (fun I => decide (0 < I.lo))
       if filtered.isEmpty then
-        ExtendedInterval.empty
+        -- Fallback: return a very wide interval to ensure soundness
+        ExtendedInterval.singleton ⟨-1000, 1000, by norm_num⟩
       else
         ⟨filtered.map (fun I => IntervalRat.logComputable I cfg.taylorDepth)⟩
   | Expr.atan e =>
@@ -531,15 +532,6 @@ theorem evalExtended_correct_core (e : Expr) (hsupp : ExprSupportedCore e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalExtended]
     exact mem_liftUnary (fun x I hx => IntervalRat.mem_expComputable hx cfg.taylorDepth) ih
-  | log _ ih =>
-    simp only [Expr.eval_log, evalExtended]
-    -- Proof strategy:
-    -- 1. ih says x ∈ evalExtended e, meaning x is in some part I of the extended interval
-    -- 2. If I.lo > 0, then I is in the filtered list
-    -- 3. logComputable I is in the result list
-    -- 4. mem_logComputable gives log x ∈ logComputable I
-    -- The complexity is in showing the filtered/mapped structure preserves membership
-    sorry
   | sqrt _ ih =>
     simp only [Expr.eval_sqrt, evalExtended]
     exact mem_liftUnary (fun x I hx => IntervalRat.mem_sqrtInterval' hx) ih

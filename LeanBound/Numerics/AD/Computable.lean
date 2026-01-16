@@ -148,9 +148,6 @@ theorem evalDualCore_val_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalDualCore, DualInterval.expCore]
     exact IntervalRat.mem_expComputable ih cfg.taylorDepth
-  | log _ ih =>
-    simp only [Expr.eval_log, evalDualCore, DualInterval.logCore]
-    exact IntervalRat.mem_logComputable' ih cfg.taylorDepth
   | sqrt _ ih =>
     simp only [Expr.eval_sqrt, evalDualCore, DualInterval.sqrt]
     exact IntervalRat.mem_sqrtInterval' ih

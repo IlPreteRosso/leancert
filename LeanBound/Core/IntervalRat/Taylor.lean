@@ -4,8 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanBound Contributors
 -/
 import LeanBound.Core.IntervalRat.Basic
+import LeanBound.Core.IntervalRat.LogReduction
 import LeanBound.Core.Taylor
+import LeanBound.Core.Expr
 import Mathlib.Data.Complex.ExponentialBounds
+import Mathlib.Analysis.SpecialFunctions.Log.Basic
+import Mathlib.Analysis.SpecificLimits.Normed
 
 /-!
 # Rational Endpoint Intervals - Computable Taylor Series
@@ -1191,6 +1195,340 @@ def atanhPointComputable (q : ℚ) (n : ℕ := 15) : IntervalRat :=
     let remainder := atanhRemainderBoundComputable r n
     add polyVal remainder
 
+/-- The atanh series: atanh(x) = Σ_{k=0}^∞ x^(2k+1)/(2k+1) for |x| < 1.
+    Derived from Mathlib's hasSum_log_sub_log_of_abs_lt_one. -/
+theorem Real.atanh_hasSum' {x : ℝ} (hx : |x| < 1) :
+    HasSum (fun k : ℕ => x ^ (2 * k + 1) / (2 * k + 1)) (Real.atanh x) := by
+  have hlog := Real.hasSum_log_sub_log_of_abs_lt_one hx
+  have h1 : 0 < 1 + x := by linarith [(abs_lt.mp hx).1]
+  have h2 : 0 < 1 - x := by linarith [(abs_lt.mp hx).2]
+  have h_eq : Real.atanh x = (1 / 2) * (Real.log (1 + x) - Real.log (1 - x)) := by
+    rw [Real.atanh, Real.log_div (ne_of_gt h1) (ne_of_gt h2)]
+  rw [h_eq]
+  convert hlog.mul_left (1 / 2) using 1
+  funext k
+  field_simp
+
+/-- The atanh Taylor polynomial membership: the partial sum of atanh coefficients at q
+    is in evalTaylorSeries (atanhTaylorCoeffs n) (singleton q). -/
+theorem mem_evalTaylorSeries_atanh {q : ℚ} (n : ℕ) :
+    ((atanhTaylorCoeffs n).zipIdx.map (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum ∈
+      evalTaylorSeries (atanhTaylorCoeffs n) (singleton q) :=
+  mem_evalTaylorSeries (mem_singleton q) (atanhTaylorCoeffs n)
+
+/-- The atanh Taylor remainder bound: for |q| < 1, the remainder after n terms is bounded.
+    The remainder is |Σ_{k: 2k+1 > n} q^(2k+1)/(2k+1)| ≤ |q|^(n+1)/(1-|q|). -/
+theorem atanh_taylor_remainder_in_interval {q : ℚ} (hq : |(q : ℝ)| < 1) (n : ℕ) :
+    Real.atanh q - ((atanhTaylorCoeffs n).zipIdx.map (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum
+    ∈ atanhRemainderBoundComputable |q| n := by
+  -- The remainder is the tail of the series
+  simp only [atanhRemainderBoundComputable, abs_abs]
+  have hq_abs_lt : |q| < 1 := by
+    have h := abs_lt.mp hq
+    rw [abs_lt]; constructor
+    · exact_mod_cast h.1
+    · exact_mod_cast h.2
+  have h_not_ge : ¬(|q| ≥ 1) := not_le.mpr hq_abs_lt
+  simp only [h_not_ge, ↓reduceIte, mem_def]
+  -- The bound R = |q|^(n+1)/(1-|q|) in ℚ
+  set R_rat := |q| ^ (n + 1) / (1 - |q|) with hR_rat_def
+  -- Key bounds: |q| < 1 in ℚ
+  have hr_nonneg_rat : 0 ≤ |q| := abs_nonneg q
+  have hdenom_pos_rat : 0 < 1 - |q| := by linarith
+  have hR_nonneg_rat' : 0 ≤ R_rat := by
+    apply div_nonneg
+    · exact pow_nonneg hr_nonneg_rat (n + 1)
+    · linarith
+  have hR_nonneg : (0 : ℝ) ≤ R_rat := Rat.cast_nonneg.mpr hR_nonneg_rat'
+  -- The absolute value of the remainder is bounded
+  have habs : |Real.atanh q - ((atanhTaylorCoeffs n).zipIdx.map
+      (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum| ≤ (R_rat : ℝ) := by
+    -- Strategy: The atanh series is Σ_k q^(2k+1)/(2k+1)
+    -- The polynomial computes Σ_{i≤n, i odd} q^i/i
+    -- The remainder is Σ_{k: 2k+1 > n} q^(2k+1)/(2k+1)
+    -- Bound: |remainder| ≤ Σ_{k: 2k+1 > n} |q|^(2k+1) ≤ |q|^(n+1)/(1-|q|)
+
+    -- Get the series representation
+    have hseries := Real.atanh_hasSum' hq
+
+    -- The polynomial sum equals the partial series sum for terms with index ≤ n
+    -- atanhTaylorCoeffs n = [0, 1, 0, 1/3, 0, 1/5, ...] for indices 0..n
+    -- So the sum is Σ_{i odd, i ≤ n} q^i/i = Σ_{k: 2k+1 ≤ n} q^(2k+1)/(2k+1)
+
+    -- For the bound, we use that each term |q^(2k+1)/(2k+1)| ≤ |q|^(2k+1)
+    -- and the geometric series Σ_{m≥n+1} |q|^m ≤ |q|^(n+1)/(1-|q|)
+
+    -- This is a non-trivial series argument - for now use the bound directly
+    -- The remainder terms satisfy |term_k| ≤ |q|^(2k+1) for 2k+1 > n
+    -- Summing: |remainder| ≤ |q|^(n+1) * (1 + |q| + |q|² + ...) = |q|^(n+1)/(1-|q|)
+
+    have hq_real_lt : |(q : ℝ)| < 1 := hq
+    have hq_abs_nonneg : 0 ≤ |(q : ℝ)| := abs_nonneg _
+
+    -- The remainder is bounded by a geometric series tail
+    -- |Σ_{k: 2k+1 > n} q^(2k+1)/(2k+1)| ≤ Σ_{k: 2k+1 > n} |q|^(2k+1)
+    --                                    ≤ |q|^(n+1) + |q|^(n+2) + ...
+    --                                    = |q|^(n+1) / (1 - |q|)
+    -- Define the series term and the split point m
+    let term := fun k : ℕ => (q : ℝ) ^ (2 * k + 1) / (2 * k + 1)
+    -- m = number of terms with 2k+1 ≤ n, i.e., k ≤ (n-1)/2
+    let m := (n + 1) / 2
+
+    -- Key: 2m ≥ n (so 2m+1 ≥ n+1)
+    have hm_bound : 2 * m ≥ n := by simp only [m]; omega
+
+    -- Step 1: Show polynomial sum equals partial series sum up to m terms
+    -- The polynomial atanhTaylorCoeffs n has coefficients:
+    -- index i: 1/i if i is odd and i ≤ n, else 0
+    -- So the sum gives Σ_{k: 2k+1 ≤ n} q^(2k+1)/(2k+1) = Σ_{k < m} term k
+    have h_poly_eq_partial :
+        ((atanhTaylorCoeffs n).zipIdx.map (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum =
+        ∑ k ∈ Finset.range m, term k := by
+      -- Step 1: Convert the list sum to a Finset sum over indices.
+      have hlist :
+          ((atanhTaylorCoeffs n).zipIdx.map (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum =
+          ∑ i ∈ Finset.range (n + 1),
+            ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i := by
+        simp [atanhTaylorCoeffs]
+        rw [List.zipIdx_map]
+        simp only [List.map_map]
+        -- Simplify the composition after zipIdx_map.
+        have h1 :
+            (List.range (n + 1)).zipIdx.map
+                ((fun p : ℚ × ℕ => (p.1 : ℝ) * (q : ℝ) ^ p.2) ∘
+                  Prod.map (fun i : ℕ => if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0) id) =
+              (List.range (n + 1)).zipIdx.map
+                (fun p : ℕ × ℕ =>
+                  ((if p.1 % 2 = 1 then ((p.1 : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ p.2) := by
+          apply List.map_congr_left
+          intro ⟨a, b⟩ _
+          simp [Function.comp, Prod.map_apply]
+        -- Replace zipIdx over range with a direct map on indices.
+        have h2 :
+            (List.range (n + 1)).zipIdx.map
+                (fun p : ℕ × ℕ =>
+                  ((if p.1 % 2 = 1 then ((p.1 : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ p.2) =
+              (List.range (n + 1)).map
+                (fun i : ℕ =>
+                  ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i) := by
+          convert zipIdx_range_map
+            (fun a b =>
+              ((if a % 2 = 1 then ((a : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ b) (n + 1) using 2
+        rw [h1, h2]
+        exact list_map_sum_eq_finset_sum
+          (fun i : ℕ =>
+            ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i) (n + 1)
+
+      -- Step 2: Filter to odd indices (even indices contribute zero).
+      have hsum_filter :
+          ∑ i ∈ Finset.range (n + 1),
+              ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i =
+            ∑ i ∈ (Finset.range (n + 1)).filter (fun i => i % 2 = 1),
+              (q : ℝ) ^ i / i := by
+        have hterm :
+            ∀ i : ℕ,
+              ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i =
+                if i % 2 = 1 then (q : ℝ) ^ i / i else 0 := by
+          intro i
+          by_cases hodd : i % 2 = 1
+          · simp [hodd, div_eq_mul_inv, Rat.cast_inv, Rat.cast_natCast,
+              mul_comm, mul_left_comm, mul_assoc]
+          · simp [hodd]
+        calc
+          ∑ i ∈ Finset.range (n + 1),
+              ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i
+              =
+              ∑ i ∈ Finset.range (n + 1),
+                (if i % 2 = 1 then (q : ℝ) ^ i / i else 0) := by
+                  refine Finset.sum_congr rfl ?_
+                  intro i hi
+                  exact hterm i
+          _ =
+              ∑ i ∈ (Finset.range (n + 1)).filter (fun i => i % 2 = 1),
+                (q : ℝ) ^ i / i := by
+                  symm
+                  exact (Finset.sum_filter
+                    (s := Finset.range (n + 1))
+                    (f := fun i => (q : ℝ) ^ i / i)
+                    (p := fun i => i % 2 = 1))
+
+      -- Step 3: Reindex odd indices by k with i = 2k+1.
+      have hsum_reindex :
+          ∑ i ∈ (Finset.range (n + 1)).filter (fun i => i % 2 = 1),
+              (q : ℝ) ^ i / i =
+            ∑ k ∈ Finset.range m, term k := by
+        refine (Finset.sum_nbij
+          (s := Finset.range m)
+          (t := (Finset.range (n + 1)).filter (fun i => i % 2 = 1))
+          (i := fun k => 2 * k + 1)
+          (f := term)
+          (g := fun i => (q : ℝ) ^ i / i)
+          ?_ ?_ ?_ ?_).symm
+        · intro k hk
+          apply Finset.mem_filter.2
+          constructor
+          · -- membership in range
+            have hk' : k < m := Finset.mem_range.1 hk
+            have hk_succ : Nat.succ k ≤ m := (Nat.succ_le_iff).2 hk'
+            have hk_succ' : k + 1 ≤ (n + 1) / 2 := by simpa [m] using hk_succ
+            have hk_mul : (k + 1) * 2 ≤ n + 1 :=
+              (Nat.le_div_iff_mul_le Nat.zero_lt_two).1 hk_succ'
+            have hk_mul' : 2 * k + 2 ≤ n + 1 := by
+              simpa [Nat.add_mul, Nat.mul_comm, Nat.mul_left_comm, Nat.mul_assoc] using hk_mul
+            have hk_lt : 2 * k + 1 < n + 1 := by
+              have hlt : 2 * k + 1 < 2 * k + 2 := Nat.lt_succ_self (2 * k + 1)
+              exact lt_of_lt_of_le hlt hk_mul'
+            exact Finset.mem_range.2 hk_lt
+          · -- oddness
+            have hodd : Odd (2 * k + 1) := ⟨k, rfl⟩
+            exact (Nat.odd_iff).1 hodd
+        · intro a ha b hb hEq
+          have hEq' : Nat.succ (2 * a) = Nat.succ (2 * b) := by
+            simpa [Nat.succ_eq_add_one] using hEq
+          have hEq'' : 2 * a = 2 * b := (Nat.succ_inj).1 hEq'
+          exact Nat.mul_left_cancel Nat.zero_lt_two hEq''
+        · intro i hi
+          rcases Finset.mem_filter.1 hi with ⟨hi_range, hi_mod⟩
+          have hi_lt : i < n + 1 := Finset.mem_range.1 hi_range
+          have hodd : Odd i := (Nat.odd_iff).2 hi_mod
+          rcases (Odd.exists_bit1 hodd) with ⟨k, hk⟩
+          have hk_lt : k < m := by
+            have hi_lt' : 2 * k + 1 < n + 1 := by simpa [hk] using hi_lt
+            have hk2 : 2 * k + 2 ≤ n + 1 := by
+              simpa using (Nat.succ_le_iff.2 hi_lt')
+            have hk_le : k + 1 ≤ (n + 1) / 2 := by
+              apply (Nat.le_div_iff_mul_le Nat.zero_lt_two).2
+              simpa [Nat.add_mul, Nat.mul_comm, Nat.mul_left_comm, Nat.mul_assoc] using hk2
+            have hk_le' : Nat.succ k ≤ m := by
+              simpa [m] using hk_le
+            exact (Nat.succ_le_iff).1 hk_le'
+          exact ⟨k, Finset.mem_range.2 hk_lt, by simpa [hk]⟩
+        · intro k hk
+          simp [term]
+
+      -- Combine the steps.
+      calc
+        ((atanhTaylorCoeffs n).zipIdx.map (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum
+            = ∑ i ∈ Finset.range (n + 1),
+                ((if i % 2 = 1 then ((i : ℚ) : ℚ)⁻¹ else 0 : ℚ) : ℝ) * (q : ℝ) ^ i := hlist
+        _ = ∑ i ∈ (Finset.range (n + 1)).filter (fun i => i % 2 = 1),
+              (q : ℝ) ^ i / i := hsum_filter
+        _ = ∑ k ∈ Finset.range m, term k := hsum_reindex
+
+    -- Step 2: The remainder is the tail of the series starting at m
+    have h_summable := hseries.summable
+    have h_tail_summable : Summable fun k => term (k + m) := (summable_nat_add_iff m).mpr h_summable
+    have h_tail_eq : Real.atanh q - ∑ k ∈ Finset.range m, term k = ∑' k, term (k + m) := by
+      have h_split := h_summable.sum_add_tsum_nat_add m
+      have h_tsum_eq : ∑' i, term i = Real.atanh q := hseries.tsum_eq
+      linarith [h_split, h_tsum_eq]
+
+    rw [h_poly_eq_partial, h_tail_eq]
+
+    -- Step 3: Bound the tail by geometric series
+    have hz_abs_sq : |(q : ℝ)| ^ 2 < 1 := by
+      have h1 : |(q : ℝ)| ^ 2 ≤ |(q : ℝ)| := by
+        have hn : 0 ≤ |(q : ℝ)| := abs_nonneg _
+        have hle : |(q : ℝ)| ≤ 1 := le_of_lt hq
+        nlinarith [sq_nonneg (|(q : ℝ)| - 1)]
+      linarith
+    have hz_abs_nonneg : 0 ≤ |(q : ℝ)| := abs_nonneg _
+    have hz_abs_le : |(q : ℝ)| ≤ 1 := le_of_lt hq
+
+    -- Define the dominating geometric term
+    let geo_term := fun k : ℕ => |(q : ℝ)| ^ (2 * m + 1) * (|(q : ℝ)| ^ 2) ^ k
+
+    have h_geo_summable : Summable geo_term := by
+      apply Summable.mul_left
+      exact summable_geometric_of_lt_one (sq_nonneg _) hz_abs_sq
+
+    have h_term_bound : ∀ k, |term (k + m)| ≤ geo_term k := by
+      intro k
+      simp only [term, geo_term]
+      rw [abs_div, abs_pow]
+      have h_pow_eq : |(q : ℝ)| ^ (2 * (k + m) + 1) = |(q : ℝ)| ^ (2 * m + 1) * (|(q : ℝ)| ^ 2) ^ k := by
+        have : 2 * (k + m) + 1 = 2 * m + 1 + 2 * k := by ring
+        rw [this, pow_add, pow_mul]
+      rw [h_pow_eq]
+      have h_denom_pos' : (0 : ℝ) < 2 * (k + m : ℕ) + 1 := by positivity
+      have h_denom_ge_one : (1 : ℝ) ≤ |(2 : ℝ) * (k + m : ℕ) + 1| := by
+        rw [abs_of_pos h_denom_pos']
+        have hk : (0 : ℝ) ≤ k := Nat.cast_nonneg k
+        have hm' : (0 : ℝ) ≤ m := Nat.cast_nonneg m
+        push_cast; linarith
+      calc |(q : ℝ)| ^ (2 * m + 1) * (|(q : ℝ)| ^ 2) ^ k / |(2 : ℝ) * (k + m : ℕ) + 1|
+          ≤ |(q : ℝ)| ^ (2 * m + 1) * (|(q : ℝ)| ^ 2) ^ k / 1 := by
+            apply div_le_div_of_nonneg_left _ (by positivity) h_denom_ge_one
+            positivity
+        _ = |(q : ℝ)| ^ (2 * m + 1) * (|(q : ℝ)| ^ 2) ^ k := by ring
+
+    have h_norm_sum : ‖∑' k, term (k + m)‖ ≤ ∑' k, ‖term (k + m)‖ :=
+      norm_tsum_le_tsum_norm h_tail_summable.norm
+    simp only [Real.norm_eq_abs] at h_norm_sum
+    calc |∑' k, term (k + m)|
+        ≤ ∑' k, |term (k + m)| := h_norm_sum
+      _ ≤ ∑' k, geo_term k := h_tail_summable.abs.tsum_le_tsum h_term_bound h_geo_summable
+      _ = |(q : ℝ)| ^ (2 * m + 1) * ∑' k, (|(q : ℝ)| ^ 2) ^ k := by
+          simp only [geo_term]; rw [tsum_mul_left]
+      _ = |(q : ℝ)| ^ (2 * m + 1) / (1 - |(q : ℝ)| ^ 2) := by
+          rw [tsum_geometric_of_lt_one (sq_nonneg _) hz_abs_sq]; ring
+      _ ≤ |(q : ℝ)| ^ (n + 1) / (1 - |(q : ℝ)| ^ 2) := by
+          -- 2m + 1 ≥ n + 1 since 2m ≥ n
+          have h_exp_le : n + 1 ≤ 2 * m + 1 := by omega
+          have h_pow_le : |(q : ℝ)| ^ (2 * m + 1) ≤ |(q : ℝ)| ^ (n + 1) :=
+            pow_le_pow_of_le_one hz_abs_nonneg hz_abs_le h_exp_le
+          have h_denom_pos : 0 < 1 - |(q : ℝ)| ^ 2 := by nlinarith [sq_nonneg (q : ℝ), sq_abs (q : ℝ)]
+          exact div_le_div_of_nonneg_right h_pow_le h_denom_pos.le
+      _ ≤ |(q : ℝ)| ^ (n + 1) / (1 - |(q : ℝ)|) := by
+          -- 1 - |q|² ≥ 1 - |q| since |q|² ≤ |q| for |q| ≤ 1
+          have h1 : |(q : ℝ)| ^ 2 ≤ |(q : ℝ)| := by nlinarith [sq_nonneg (|(q : ℝ)| - 1)]
+          have h2 : 1 - |(q : ℝ)| ≤ 1 - |(q : ℝ)| ^ 2 := by linarith
+          have h3 : 0 < 1 - |(q : ℝ)| := by linarith
+          have h4 : 0 ≤ |(q : ℝ)| ^ (n + 1) := pow_nonneg hz_abs_nonneg _
+          exact div_le_div_of_nonneg_left h4 h3 h2
+      _ = (R_rat : ℝ) := by
+          -- R_rat = |q|^(n+1)/(1-|q|) in ℚ
+          simp only [hR_rat_def]
+          -- Show: |(q:ℝ)|^(n+1)/(1-|(q:ℝ)|) = (|q|^(n+1)/(1-|q|) : ℚ)
+          rw [← Rat.cast_abs q]
+          push_cast
+          ring
+  have h := abs_le.mp habs
+  constructor
+  · calc ((-R_rat : ℚ) : ℝ) = -((R_rat : ℚ) : ℝ) := by push_cast; ring
+      _ ≤ _ := h.1
+  · exact h.2
+
+/-- FTIA for atanhPointComputable: Real.atanh q ∈ atanhPointComputable q n for |q| < 1. -/
+theorem mem_atanhPointComputable (q : ℚ) (n : ℕ) (hq : |(q : ℝ)| < 1) :
+    Real.atanh q ∈ atanhPointComputable q n := by
+  simp only [atanhPointComputable]
+  -- Since |q| < 1, the condition |q| ≥ 1 is false
+  have hq_rat : |q| < 1 := by
+    have h := abs_lt.mp hq
+    rw [abs_lt]
+    constructor
+    · have : (-1 : ℝ) < q := h.1
+      exact_mod_cast this
+    · have : (q : ℝ) < 1 := h.2
+      exact_mod_cast this
+  have h_not_ge : ¬(|q| ≥ 1) := not_le.mpr hq_rat
+  simp only [h_not_ge, ↓reduceIte]
+
+  -- Polynomial part: the partial sum is in evalTaylorSeries
+  have hpoly := mem_evalTaylorSeries_atanh n (q := q)
+
+  -- Remainder part: the tail is in atanhRemainderBoundComputable
+  have hrem := atanh_taylor_remainder_in_interval hq n
+
+  -- Combine: atanh q = partial_sum + remainder
+  have heq : Real.atanh q = ((atanhTaylorCoeffs n).zipIdx.map
+      (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum +
+      (Real.atanh q - ((atanhTaylorCoeffs n).zipIdx.map
+        (fun (c, i) => (c : ℝ) * (q : ℝ) ^ i)).sum) := by ring
+  rw [heq]
+  exact mem_add hpoly hrem
+
 /-! ### Computable ln(2) via atanh
 
 ln(2) = 2 * atanh(1/3), since:
@@ -1204,9 +1542,25 @@ def ln2Computable (n : ℕ := 20) : IntervalRat :=
   let atanh_third := atanhPointComputable (1/3) n
   scale 2 atanh_third
 
-/-- FTIA for ln2Computable: Real.log 2 ∈ ln2Computable n (partial, with sorry for now) -/
+/-- FTIA for ln2Computable: Real.log 2 ∈ ln2Computable n.
+    Uses the identity log(2) = 2 * atanh(1/3) from log_via_atanh. -/
 theorem mem_ln2Computable (n : ℕ) : Real.log 2 ∈ ln2Computable n := by
-  sorry  -- Proof requires connecting Taylor series to Real.atanh
+  simp only [ln2Computable]
+  -- log(2) = 2 * atanh(1/3) via log_via_atanh
+  have hlog_eq : Real.log 2 = 2 * Real.atanh (↑(1/3 : ℚ)) := by
+    have h := LogReduction.log_via_atanh (by norm_num : (0 : ℚ) < 2)
+    -- Convert: ((↑2 : ℝ) - 1) / ((↑2 : ℝ) + 1) = ↑(1/3 : ℚ)
+    have h_arg : ((↑(2 : ℚ) : ℝ) - 1) / (↑(2 : ℚ) + 1) = ↑(1/3 : ℚ) := by
+      simp only [Rat.cast_ofNat]
+      norm_num
+    rw [h_arg] at h
+    convert h using 1
+  rw [hlog_eq]
+  -- atanh(1/3) ∈ atanhPointComputable (1/3) n by mem_atanhPointComputable
+  have h_third_lt : |(↑(1/3 : ℚ) : ℝ)| < 1 := by
+    rw [abs_lt]
+    constructor <;> norm_num
+  exact mem_scale 2 (mem_atanhPointComputable (1/3) n h_third_lt)
 
 /-! ### Computable log via argument reduction
 
@@ -1256,10 +1610,82 @@ def logComputable (I : IntervalRat) (n : ℕ := 20) : IntervalRat :=
     let logHi := logPointComputable I.hi n
     hull logLo logHi
 
-/-- FTIA for logPointComputable (partial, main structure) -/
+/-- The local logReductionExponent equals LogReduction.reductionExponent for positive q -/
+private theorem logReductionExponent_eq {q : ℚ} (hq : 0 < q) :
+    logReductionExponent q = LogReduction.reductionExponent q := by
+  simp only [logReductionExponent, LogReduction.reductionExponent, not_le.mpr hq, ↓reduceIte]
+
+/-- The local logReduceMantissa equals LogReduction.reduceMantissa for positive q -/
+private theorem logReduceMantissa_eq {q : ℚ} (hq : 0 < q) :
+    logReduceMantissa q = LogReduction.reduceMantissa q := by
+  simp only [logReduceMantissa, LogReduction.reduceMantissa, not_le.mpr hq, ↓reduceIte,
+             logReductionExponent_eq hq]
+
+/-- FTIA for logPointComputable -/
 theorem mem_logPointComputable {q : ℚ} (hq : 0 < q) (n : ℕ) :
     Real.log q ∈ logPointComputable q n := by
-  sorry  -- Full proof requires connecting all the components
+  unfold logPointComputable
+  simp only [not_le.mpr hq, ↓reduceIte]
+
+  -- Get the reduced mantissa and exponent
+  set k := logReductionExponent q with hk_def
+  set m := logReduceMantissa q with hm_def
+
+  -- Show they equal the LogReduction definitions
+  have hk_eq : k = LogReduction.reductionExponent q := logReductionExponent_eq hq
+  have hm_eq : m = LogReduction.reduceMantissa q := logReduceMantissa_eq hq
+
+  -- Get bounds on m from LogReduction.reduced_bounds
+  have hm_bounds : 1/2 ≤ m ∧ m ≤ 2 := by rw [hm_eq]; exact LogReduction.reduced_bounds hq
+  have hm_pos : 0 < m := by rw [hm_eq]; exact LogReduction.reduced_pos hq
+
+  -- Compute y = (m-1)/(m+1) and get bounds from atanh_arg_bounds
+  set y := (m - 1) / (m + 1) with hy_def
+  have hy_bounds : (-1)/3 ≤ y ∧ y ≤ 1/3 := LogReduction.atanh_arg_bounds hm_bounds.1 hm_bounds.2
+
+  -- Key: |y| ≤ 1/3 < 1, so we can use mem_atanhPointComputable
+  have hy_abs_lt : |(y : ℝ)| < 1 := by
+    rw [abs_lt]
+    have hlo : ((-1 : ℚ) / 3 : ℝ) ≤ y := by exact_mod_cast hy_bounds.1
+    have hhi : (y : ℝ) ≤ (1 : ℚ) / 3 := by exact_mod_cast hy_bounds.2
+    constructor <;> linarith
+
+  -- Step 1: atanh(y) ∈ atanhPointComputable y n
+  have h_atanh := mem_atanhPointComputable y n hy_abs_lt
+
+  -- Step 2: log(m) = 2 * atanh(y), so log(m) ∈ scale 2 (atanhPointComputable y n)
+  have h_log_m_eq : Real.log m = 2 * Real.atanh y := by
+    have h := LogReduction.log_via_atanh hm_pos
+    -- h : Real.log m = 2 * Real.atanh ((m - 1) / (m + 1))
+    -- Need to show: ((m - 1) / (m + 1) : ℚ) : ℝ = ((m : ℝ) - 1) / ((m : ℝ) + 1)
+    have hcast : (y : ℝ) = ((m : ℝ) - 1) / ((m : ℝ) + 1) := by
+      simp only [hy_def]
+      push_cast
+      ring
+    rw [hcast]
+    exact h
+  have h_log_m := mem_scale 2 h_atanh
+  -- h_log_m : (2 : ℚ) * Real.atanh y ∈ scale 2 (atanhPointComputable y n)
+  -- h_log_m_eq : Real.log m = 2 * Real.atanh y
+  have h_log_m' : Real.log m ∈ scale 2 (atanhPointComputable y n) := by
+    rw [h_log_m_eq]
+    exact h_log_m
+
+  -- Step 3: log(2) ∈ ln2Computable n
+  have h_ln2 := mem_ln2Computable n
+
+  -- Step 4: k * log(2) ∈ scale k (ln2Computable n)
+  have h_k_ln2 := mem_scale k h_ln2
+
+  -- Step 5: log(q) = log(m) + k * log(2) by log_reduction
+  have h_log_eq : Real.log q = Real.log m + k * Real.log 2 := by
+    have h := LogReduction.log_reduction hq
+    simp only [hk_eq, hm_eq] at h
+    exact h
+
+  -- Step 6: Combine using mem_add
+  rw [h_log_eq]
+  exact mem_add h_log_m' h_k_ln2
 
 /-- FTIA for logComputable: if x ∈ I and I.lo > 0, then log(x) ∈ logComputable I n -/
 theorem mem_logComputable {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hpos : 0 < I.lo) (n : ℕ) :
@@ -1287,21 +1713,11 @@ theorem mem_logComputable {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hpos : 0 <
       _ ≤ (logPointComputable I.hi n).hi := hhi_mem.2
       _ ≤ max ((logPointComputable I.lo n).hi : ℝ) ((logPointComputable I.hi n).hi : ℝ) := le_max_right _ _
 
-/-- Unconditional version of mem_logComputable for use in correctness proofs.
-    When I.lo ≤ 0, logComputable returns [-1000, 1000] which trivially contains any log value. -/
-theorem mem_logComputable' {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (n : ℕ) :
+/-- Conditional version of mem_logComputable for use in correctness proofs.
+    Requires I.lo > 0 so the log interval is well-defined and monotone. -/
+theorem mem_logComputable' {x : ℝ} {I : IntervalRat} (hx : x ∈ I) (hpos : 0 < I.lo) (n : ℕ) :
     Real.log x ∈ logComputable I n := by
-  by_cases hpos : 0 < I.lo
-  · exact mem_logComputable hx hpos n
-  · -- I.lo ≤ 0 case: logComputable returns [-1000, 1000]
-    simp only [logComputable, not_lt.mp hpos, ↓reduceIte, mem_def]
-    constructor
-    · -- log x ≥ -1000 (since log : ℝ → ℝ is bounded below only on (0, ∞))
-      -- For x ≤ 0, log isn't defined, so we use a sorry here
-      -- In practice, log is only called on positive intervals
-      sorry
-    · -- log x ≤ 1000
-      sorry
+  exact mem_logComputable hx hpos n
 
 end IntervalRat
 

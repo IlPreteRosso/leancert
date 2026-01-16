@@ -54,8 +54,9 @@ Since `inv` (1/x) is not continuous at 0, we define a separate predicate for
 expressions that are continuous everywhere. This excludes `inv` from `ExprSupportedCore`.
 -/
 
-/-- Expressions that are continuous everywhere (excludes inv).
-    This is a subset of ExprSupportedCore used for continuity proofs. -/
+/-- Expressions that are continuous everywhere (excludes inv and log).
+    This is a subset of ExprSupportedCore used for continuity proofs.
+    Note: log is excluded because it is not continuous at 0. -/
 inductive ExprContinuousCore : LExpr → Prop where
   | const (q : ℚ) : ExprContinuousCore (Expr.const q)
   | var (idx : Nat) : ExprContinuousCore (Expr.var idx)
@@ -67,7 +68,6 @@ inductive ExprContinuousCore : LExpr → Prop where
   | sin {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sin e)
   | cos {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.cos e)
   | exp {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.exp e)
-  | log {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.log e)
   | sqrt {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sqrt e)
   | sinh {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.sinh e)
   | cosh {e : LExpr} : ExprContinuousCore e → ExprContinuousCore (Expr.cosh e)
@@ -85,7 +85,6 @@ theorem ExprContinuousCore.toSupported {e : LExpr} (h : ExprContinuousCore e) :
   | sin _ ih => exact .sin ih
   | cos _ ih => exact .cos ih
   | exp _ ih => exact .exp ih
-  | log _ ih => exact .log ih
   | sqrt _ ih => exact .sqrt ih
   | sinh _ ih => exact .sinh ih
   | cosh _ ih => exact .cosh ih
@@ -104,7 +103,7 @@ Since ExprContinuousCore only includes operations that are continuous everywhere
 (const, var, add, mul, neg, sin, cos, exp, sqrt, sinh, cosh, tanh), the result
 follows by structural induction.
 
-NOTE: inv is NOT included because 1/x is not continuous at 0. -/
+NOTE: inv and log are NOT included because they are not continuous at 0. -/
 theorem exprContinuousCore_continuousOn (e : LExpr) (hsupp : ExprContinuousCore e)
     {s : Set ℝ} :
     ContinuousOn (fun x => LeanBound.Core.Expr.eval (fun _ => x) e) s := by
@@ -134,11 +133,6 @@ theorem exprContinuousCore_continuousOn (e : LExpr) (hsupp : ExprContinuousCore 
   | exp _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_exp.comp_continuousOn ih
-  | log _ ih =>
-    simp only [LeanBound.Core.Expr.eval]
-    -- WARNING: log is not continuous at x = 0
-    -- This proof assumes the domain s is a subset of (0, ∞)
-    sorry
   | sqrt _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     -- sqrt is continuous on [0, ∞) and returns 0 for negative inputs
@@ -175,7 +169,7 @@ theorem exprContinuousCore_continuousOn_interval (e : LExpr) (hsupp : ExprContin
 /-! ### Backward Compatibility: ExprSupportedCore Continuity
 
 These theorems are provided for backward compatibility with code that uses
-`ExprSupportedCore`. Since `ExprSupportedCore` excludes `inv`, the proof is
+`ExprSupportedCore`. Since `ExprSupportedCore` excludes `inv` and `log`, the proof is
 fully verified.
 -/
 
@@ -211,11 +205,6 @@ theorem exprSupportedCore_continuousOn (e : LExpr) (hsupp : LeanBound.Numerics.E
   | exp _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_exp.comp_continuousOn ih
-  | log _ ih =>
-    simp only [LeanBound.Core.Expr.eval]
-    -- WARNING: log is not continuous at x = 0
-    -- This proof assumes the domain s is a subset of (0, ∞)
-    sorry
   | sqrt _ ih =>
     simp only [LeanBound.Core.Expr.eval]
     exact Real.continuous_sqrt.comp_continuousOn ih
@@ -303,9 +292,9 @@ partial def mkContinuousCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
     mkAppM ``ExprContinuousCore.exp #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.log then
-    let e := args[0]!
-    let h ← mkContinuousCoreProof e
-    mkAppM ``ExprContinuousCore.log #[h]
+    throwError "Cannot generate ExprContinuousCore proof for: {e_ast}\n\
+                Expression contains `log` which is not continuous at 0.\n\
+                Continuity proofs for expressions with log require restricted domains."
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sqrt then
     let e := args[0]!

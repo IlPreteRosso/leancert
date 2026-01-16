@@ -41,8 +41,8 @@ floor/ceil bounds, which requires noncomputability.
 
 For exp, we use floor/ceil to get rational bounds from Real.exp.
 
-Not yet supported in `ExprSupportedCore`: inv (requires nonzero interval checks);
-use `evalInterval?` for expressions containing inv.
+Not yet supported in `ExprSupportedCore`: inv (requires nonzero interval checks),
+log (requires positive interval checks); use `evalInterval?` for these.
 -/
 
 namespace LeanBound.Numerics
@@ -65,7 +65,6 @@ inductive ExprSupportedCore : Expr → Prop where
   | sin {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sin e)
   | cos {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.cos e)
   | exp {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.exp e)
-  | log {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.log e)
   | sqrt {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sqrt e)
   | sinh {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.sinh e)
   | cosh {e : Expr} : ExprSupportedCore e → ExprSupportedCore (Expr.cosh e)
@@ -489,7 +488,7 @@ def evalIntervalCore (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : In
   | Expr.exp e => IntervalRat.expComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.sin e => IntervalRat.sinComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.cos e => IntervalRat.cosComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
-  | Expr.log e => IntervalRat.logComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
+  | Expr.log _ => default  -- Not in ExprSupportedCore; use evalInterval? for log
   | Expr.atan e => atanInterval (evalIntervalCore e ρ cfg)
   | Expr.arsinh e => arsinhInterval (evalIntervalCore e ρ cfg)
   | Expr.atanh _ => default  -- Not in ExprSupportedCore; use evalInterval? for atanh
@@ -592,9 +591,6 @@ theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | exp _ ih =>
     simp only [Expr.eval_exp, evalIntervalCore]
     exact IntervalRat.mem_expComputable ih cfg.taylorDepth
-  | log _ ih =>
-    simp only [Expr.eval_log, evalIntervalCore]
-    exact IntervalRat.mem_logComputable' ih cfg.taylorDepth
   | sqrt _ ih =>
     simp only [Expr.eval_sqrt, evalIntervalCore]
     exact IntervalRat.mem_sqrtIntervalTightPrec' ih

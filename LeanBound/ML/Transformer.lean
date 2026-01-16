@@ -602,7 +602,7 @@ theorem mem_layerNorm_forwardInterval {xs : List ℝ} {Is : IntervalVector}
     -- Use local let bindings to define values without rewriting hypothesis
     -- Define real intermediate values
     let n := xs.length
-    let n_rat : ℚ := (xs.length : ℚ)
+    let n_rat : ℚ := (Is.length : ℚ)
     let mean_real := xs.sum / n
     let variance_real := (xs.map (fun xi => (xi - mean_real) * (xi - mean_real))).sum / n
     let denom_real := Real.sqrt (variance_real + params.epsilon)
@@ -639,7 +639,8 @@ theorem mem_layerNorm_forwardInterval {xs : List ℝ} {Is : IntervalVector}
     have hsum_mem : xs.sum ∈ sum_interval := mem_sumIntervals hlen hmem
 
     have h_inv_n_mem : (1 / n : ℝ) ∈ inv_n := by
-      have hcast : ((1 / n_rat : ℚ) : ℝ) = (1 / n : ℝ) := by simp [n_rat, n]
+      have hcast : ((1 / n_rat : ℚ) : ℝ) = (1 / n : ℝ) := by
+        simp [n_rat, n, hlen]
       rw [← hcast]
       exact mem_ofIntervalRat_singleton (1/n_rat) prec hprec
 
@@ -878,22 +879,8 @@ theorem mem_layerNorm_forwardInterval {xs : List ℝ} {Is : IntervalVector}
       have hlen_eq := congrArg List.length hys_eq'
       rw [hlen_eq] at hi'
       have hmem' := hresult_mem i hi'
-      have hget_eq' :
-          (List.zipWith3
-              (fun xi (g : ℚ) (b : ℚ) =>
-                (xi - xs.sum / ↑xs.length) /
-                      Real.sqrt
-                        ((xs.map (fun xi => (xi - xs.sum / ↑xs.length) * (xi - xs.sum / ↑xs.length))).sum / ↑xs.length +
-                          ↑params.epsilon) *
-                    (g : ℝ) +
-                  (b : ℝ))
-              xs params.gamma params.beta)[i]! =
-            (List.zipWith3 (fun norm (g : ℚ) (b : ℚ) => norm * (g : ℝ) + (b : ℝ))
-                normalized_real params.gamma params.beta)[i]! := by
-        simpa using congrArg (fun l => l[i]!) hys_eq'
-      -- TODO: This final step times out at 2000000 heartbeats
-      -- The core mathematical argument is complete; this is a type-checking issue
-      sorry
+      rw [hys_eq']
+      exact hmem'
 
 /-! ### Transformer Block Structure -/
 
