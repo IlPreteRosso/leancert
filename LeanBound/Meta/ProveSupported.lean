@@ -155,45 +155,45 @@ partial def mkSupportedProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
 
   if fn.isConstOf ``LeanBound.Core.Expr.const then
     let q := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupported.const #[q]
+    mkAppM ``LeanBound.Core.ExprSupported.const #[q]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.var then
     let idx := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupported.var #[idx]
+    mkAppM ``LeanBound.Core.ExprSupported.var #[idx]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.add then
     let e₁ := args[0]!
     let e₂ := args[1]!
     let h₁ ← mkSupportedProof e₁
     let h₂ ← mkSupportedProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupported.add #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupported.add #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.mul then
     let e₁ := args[0]!
     let e₂ := args[1]!
     let h₁ ← mkSupportedProof e₁
     let h₂ ← mkSupportedProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupported.mul #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupported.mul #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.neg then
     let e := args[0]!
     let h ← mkSupportedProof e
-    mkAppM ``LeanBound.Numerics.ExprSupported.neg #[h]
+    mkAppM ``LeanBound.Core.ExprSupported.neg #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sin then
     let e := args[0]!
     let h ← mkSupportedProof e
-    mkAppM ``LeanBound.Numerics.ExprSupported.sin #[h]
+    mkAppM ``LeanBound.Core.ExprSupported.sin #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.cos then
     let e := args[0]!
     let h ← mkSupportedProof e
-    mkAppM ``LeanBound.Numerics.ExprSupported.cos #[h]
+    mkAppM ``LeanBound.Core.ExprSupported.cos #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.exp then
     let e := args[0]!
     let h ← mkSupportedProof e
-    mkAppM ``LeanBound.Numerics.ExprSupported.exp #[h]
+    mkAppM ``LeanBound.Core.ExprSupported.exp #[h]
 
   else
     throwError "Cannot generate ExprSupported proof for: {e_ast}\n\
@@ -223,12 +223,12 @@ partial def mkSupportedCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
   if fn.isConstOf ``LeanBound.Core.Expr.const then
     -- Expr.const q => ExprSupportedCore.const q
     let q := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.const #[q]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.const #[q]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.var then
     -- Expr.var idx => ExprSupportedCore.var idx
     let idx := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.var #[idx]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.var #[idx]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.add then
     -- Expr.add e₁ e₂ => ExprSupportedCore.add h₁ h₂
@@ -236,7 +236,7 @@ partial def mkSupportedCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
     let e₂ := args[1]!
     let h₁ ← mkSupportedCoreProof e₁
     let h₂ ← mkSupportedCoreProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.add #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.add #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.mul then
     -- Expr.mul e₁ e₂ => ExprSupportedCore.mul h₁ h₂
@@ -244,31 +244,31 @@ partial def mkSupportedCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
     let e₂ := args[1]!
     let h₁ ← mkSupportedCoreProof e₁
     let h₂ ← mkSupportedCoreProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.mul #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.mul #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.neg then
     -- Expr.neg e => ExprSupportedCore.neg h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.neg #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.neg #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sin then
     -- Expr.sin e => ExprSupportedCore.sin h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.sin #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.sin #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.cos then
     -- Expr.cos e => ExprSupportedCore.cos h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.cos #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.cos #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.exp then
     -- Expr.exp e => ExprSupportedCore.exp h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.exp #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.exp #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.log then
     throwError "Expr.log is not supported in ExprSupportedCore; use mkSupportedWithInvProof."
@@ -277,29 +277,29 @@ partial def mkSupportedCoreProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
     -- Expr.sqrt e => ExprSupportedCore.sqrt h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.sqrt #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.sqrt #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sinh then
     -- Expr.sinh e => ExprSupportedCore.sinh h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.sinh #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.sinh #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.cosh then
     -- Expr.cosh e => ExprSupportedCore.cosh h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.cosh #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.cosh #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.tanh then
     -- Expr.tanh e => ExprSupportedCore.tanh h
     let e := args[0]!
     let h ← mkSupportedCoreProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedCore.tanh #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedCore.tanh #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.pi then
     -- Expr.pi => ExprSupportedCore.pi
-    pure <| Lean.mkConst ``LeanBound.Numerics.ExprSupportedCore.pi
+    pure <| Lean.mkConst ``LeanBound.Core.ExprSupportedCore.pi
 
   else
     throwError "Cannot generate ExprSupportedCore proof for: {e_ast}\n\
@@ -323,89 +323,89 @@ partial def mkSupportedWithInvProof (e_ast : Lean.Expr) : MetaM Lean.Expr := do
   -- Match on AST constructors
   if fn.isConstOf ``LeanBound.Core.Expr.const then
     let q := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.const #[q]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.const #[q]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.var then
     let idx := args[0]!
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.var #[idx]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.var #[idx]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.add then
     let e₁ := args[0]!
     let e₂ := args[1]!
     let h₁ ← mkSupportedWithInvProof e₁
     let h₂ ← mkSupportedWithInvProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.add #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.add #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.mul then
     let e₁ := args[0]!
     let e₂ := args[1]!
     let h₁ ← mkSupportedWithInvProof e₁
     let h₂ ← mkSupportedWithInvProof e₂
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.mul #[h₁, h₂]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.mul #[h₁, h₂]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.neg then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.neg #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.neg #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.inv then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.inv #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.inv #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sin then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.sin #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.sin #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.cos then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.cos #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.cos #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.exp then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.exp #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.exp #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.log then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.log #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.log #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.atan then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.atan #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.atan #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.arsinh then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.arsinh #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.arsinh #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.atanh then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.atanh #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.atanh #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sinc then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.sinc #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.sinc #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.erf then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.erf #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.erf #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.sqrt then
     let e := args[0]!
     let h ← mkSupportedWithInvProof e
-    mkAppM ``LeanBound.Numerics.ExprSupportedWithInv.sqrt #[h]
+    mkAppM ``LeanBound.Core.ExprSupportedWithInv.sqrt #[h]
 
   else if fn.isConstOf ``LeanBound.Core.Expr.pi then
     -- Expr.pi => ExprSupportedWithInv.pi
-    pure <| Lean.mkConst ``LeanBound.Numerics.ExprSupportedWithInv.pi
+    pure <| Lean.mkConst ``LeanBound.Core.ExprSupportedWithInv.pi
 
   else
     throwError "Cannot generate ExprSupportedWithInv proof for: {e_ast}\n\
