@@ -333,9 +333,18 @@ where
       return some (← mkExprNeg ex)
 
     -- Division: HDiv.hDiv α β γ inst a b
-    -- Convert a / b to mul(a, inv(b))
+    -- If b is a nonzero constant, convert a / b to mul(a, const(1/b)) to avoid Expr.inv
+    -- Otherwise, convert a / b to mul(a, inv(b))
     | HDiv.hDiv _ _ _ _ a b =>
       let ea ← toLeanCertExpr a
+      -- Check if b is a constant rational
+      if let some qb ← toRat? b then
+        if qb ≠ 0 then
+          -- b is a nonzero constant: use a * (1/b) as Expr.const
+          let reciprocal := (1 : ℚ) / qb
+          let eRecip ← mkExprConst reciprocal
+          return some (← mkExprMul ea eRecip)
+      -- b is not a constant or is zero: fall back to a * inv(b)
       let eb ← toLeanCertExpr b
       let inv_b ← mkExprInv eb
       return some (← mkExprMul ea inv_b)
