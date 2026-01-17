@@ -157,7 +157,7 @@ def sq (a : AffineForm) : AffineForm :=
 def ofInterval (I : IntervalRat) (idx : Nat) (totalVars : Nat) : AffineForm :=
   let mid := (I.lo + I.hi) / 2
   let rad := (I.hi - I.lo) / 2
-  let coeffs := List.range totalVars |>.map (fun i => if i == idx then rad else 0)
+  let coeffs := List.ofFn (fun i : Fin totalVars => if i.val = idx then rad else 0)
   { c0 := mid, coeffs := coeffs, r := 0, r_nonneg := le_refl 0 }
 
 def toInterval (af : AffineForm) : IntervalRat :=
@@ -670,6 +670,72 @@ theorem mem_toInterval {af : AffineForm} {eps : NoiseAssignment} {v : ℝ}
     calc (af.c0 : ℝ) + linearSum af.coeffs eps + err
         ≤ (af.c0 : ℝ) + (af.r : ℝ) + (sumAbs af.coeffs : ℝ) := by linarith
       _ = (((af.c0 + (af.r + sumAbs af.coeffs)) : ℚ) : ℝ) := by push_cast; ring
+
+/-- If v is represented by af, then v ∈ toInterval af (no length assumption). -/
+theorem mem_toInterval_weak {af : AffineForm} {eps : NoiseAssignment} {v : ℝ}
+    (hvalid : validNoise eps)
+    (hmem : mem_affine af eps v) :
+    v ∈ af.toInterval := by
+  obtain ⟨err, herr_bound, hv⟩ := hmem
+  simp only [toInterval, IntervalRat.mem_def]
+  simp only [evalLinear] at hv
+  rw [hv]
+  have hlin_bound := linearSum_bounded_weak af.coeffs eps hvalid
+  have herr_abs : |err| ≤ (af.r : ℝ) := herr_bound
+  have hlin_abs : |linearSum af.coeffs eps| ≤ (sumAbs af.coeffs : ℝ) := hlin_bound
+  simp only [deviationBound]
+  have h_lin_lo : -(sumAbs af.coeffs : ℝ) ≤ linearSum af.coeffs eps := by
+    linarith [neg_abs_le (linearSum af.coeffs eps)]
+  have h_lin_hi : linearSum af.coeffs eps ≤ (sumAbs af.coeffs : ℝ) := by
+    linarith [le_abs_self (linearSum af.coeffs eps)]
+  have h_err_lo : -(af.r : ℝ) ≤ err := by
+    linarith [neg_abs_le err]
+  have h_err_hi : err ≤ (af.r : ℝ) := by
+    linarith [le_abs_self err]
+  constructor
+  · -- Lower bound: c0 - (r + sumAbs) ≤ c0 + linear + err
+    calc (((af.c0 - (af.r + sumAbs af.coeffs)) : ℚ) : ℝ)
+        = (af.c0 : ℝ) - (af.r : ℝ) - (sumAbs af.coeffs : ℝ) := by push_cast; ring
+      _ ≤ (af.c0 : ℝ) + linearSum af.coeffs eps + err := by linarith
+  · -- Upper bound: c0 + linear + err ≤ c0 + (r + sumAbs)
+    calc (af.c0 : ℝ) + linearSum af.coeffs eps + err
+        ≤ (af.c0 : ℝ) + (af.r : ℝ) + (sumAbs af.coeffs : ℝ) := by linarith
+      _ = (((af.c0 + (af.r + sumAbs af.coeffs)) : ℚ) : ℝ) := by push_cast; ring
+
+/-- If x is inside an interval, the midpoint/radius affine form contains x. -/
+theorem mem_affine_of_interval {I : IntervalRat} {eps : NoiseAssignment} {x : ℝ}
+    (hx : x ∈ I) :
+    mem_affine
+      { c0 := (I.lo + I.hi) / 2
+        coeffs := []
+        r := |(I.hi - I.lo) / 2|
+        r_nonneg := abs_nonneg _ } eps x := by
+  let mid : ℚ := (I.lo + I.hi) / 2
+  let rad : ℚ := (I.hi - I.lo) / 2
+  have hx' : (I.lo : ℝ) ≤ x ∧ x ≤ I.hi := by
+    simpa [IntervalRat.mem_def] using hx
+  have hrad_nonneg : 0 ≤ rad := by
+    simp [rad]
+    linarith [I.le]
+  have habs_eq : |rad| = rad := abs_of_nonneg hrad_nonneg
+  simp only [mem_affine, evalLinear, linearSum, List.zipWith, List.sum_nil, add_zero]
+  use x - (mid : ℝ)
+  constructor
+  · rw [habs_eq, abs_le]
+    have hmid_val : (mid : ℝ) = ((I.lo : ℝ) + I.hi) / 2 := by
+      simp only [mid]; push_cast; ring
+    constructor
+    · calc -((rad : ℚ) : ℝ)
+          = (I.lo : ℝ) - ((I.lo : ℝ) + I.hi) / 2 := by
+              simp only [rad]; push_cast; ring
+        _ = (I.lo : ℝ) - (mid : ℝ) := by rw [hmid_val]
+        _ ≤ x - (mid : ℝ) := by linarith [hx'.1]
+    · calc x - (mid : ℝ)
+          ≤ (I.hi : ℝ) - (mid : ℝ) := by linarith [hx'.2]
+        _ = (I.hi : ℝ) - ((I.lo : ℝ) + I.hi) / 2 := by rw [hmid_val]
+        _ = ((I.hi : ℝ) - I.lo) / 2 := by ring
+        _ = ((rad : ℚ) : ℝ) := by simp only [rad]; push_cast; ring
+  · ring
 
 end AffineForm
 

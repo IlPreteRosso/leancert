@@ -149,8 +149,10 @@ def evalIntervalAffine (e : Expr) (ρ : AffineEnv) (cfg : AffineConfig := {}) : 
       -- erf bounded in [-1, 1]
       { c0 := 0, coeffs := [], r := 1, r_nonneg := by norm_num }
   | Expr.pi =>
-      -- π ∈ [3.14159, 3.14160]
-      AffineForm.const (355 / 113)  -- Approximation
+      let I := piInterval
+      let mid := (I.lo + I.hi) / 2
+      let rad := (I.hi - I.lo) / 2
+      { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
 
 /-! ### Convenience Functions -/
 
@@ -204,16 +206,41 @@ theorem evalIntervalAffine_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | neg _ ih =>
     simp only [Expr.eval_neg, evalIntervalAffine]
     exact AffineForm.mem_neg ih
-  -- Transcendental functions need length tracking (eps.length = coeffs.length)
-  -- The proofs require threading this through the recursion
-  | exp _ _ => sorry  -- TODO: Thread length hypothesis
-  | tanh _ _ => sorry  -- TODO: Thread length hypothesis
-  | sqrt _ _ => sorry  -- TODO: Thread length hypothesis + nonnegativity
-  | sin _ _ => sorry   -- TODO: Interval fallback soundness
-  | cos _ _ => sorry   -- TODO: Interval fallback soundness
-  | sinh _ _ => sorry  -- TODO: Add mem_sinh theorem
-  | cosh _ _ => sorry  -- TODO: Add mem_cosh theorem
-  | pi => sorry        -- TODO: π approximation error
+  | exp _ ih =>
+    simp only [Expr.eval_exp, evalIntervalAffine]
+    exact AffineForm.mem_exp hvalid ih cfg.taylorDepth
+  | tanh _ ih =>
+    simp only [Expr.eval_tanh, evalIntervalAffine]
+    exact AffineForm.mem_tanh hvalid ih
+  | sqrt _ ih =>
+    simp only [Expr.eval_sqrt, evalIntervalAffine]
+    exact AffineForm.mem_sqrt' hvalid ih
+  | @sin arg _ ih =>
+    -- Interval fallback soundness
+    set af := evalIntervalAffine arg ρ_affine cfg
+    have hv_in_I : Expr.eval ρ_real arg ∈ af.toInterval :=
+      AffineForm.mem_toInterval_weak hvalid ih
+    have hsin_in :=
+      IntervalRat.mem_sinComputable hv_in_I cfg.taylorDepth
+    simpa [Expr.eval_sin, evalIntervalAffine, af] using
+      (AffineForm.mem_affine_of_interval (eps := eps) hsin_in)
+  | @cos arg _ ih =>
+    set af := evalIntervalAffine arg ρ_affine cfg
+    have hv_in_I : Expr.eval ρ_real arg ∈ af.toInterval :=
+      AffineForm.mem_toInterval_weak hvalid ih
+    have hcos_in :=
+      IntervalRat.mem_cosComputable hv_in_I cfg.taylorDepth
+    simpa [Expr.eval_cos, evalIntervalAffine, af] using
+      (AffineForm.mem_affine_of_interval (eps := eps) hcos_in)
+  | sinh _ ih =>
+    simp only [Expr.eval_sinh, evalIntervalAffine]
+    exact AffineForm.mem_sinh hvalid ih cfg.taylorDepth
+  | cosh _ ih =>
+    simp only [Expr.eval_cosh, evalIntervalAffine]
+    exact AffineForm.mem_cosh hvalid ih cfg.taylorDepth
+  | pi =>
+    simp only [Expr.eval_pi, evalIntervalAffine]
+    simpa using (AffineForm.mem_affine_of_interval (eps := eps) mem_piInterval)
 
 /-- Corollary: The interval produced by toInterval contains the true value.
 

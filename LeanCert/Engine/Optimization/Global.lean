@@ -7,6 +7,7 @@ import LeanCert.Engine.IntervalEval
 import LeanCert.Engine.IntervalEvalRefined
 import LeanCert.Engine.IntervalEvalDyadic
 import LeanCert.Engine.IntervalEvalAffine
+import LeanCert.Engine.Affine.Basic
 import LeanCert.Engine.Optimization.Box
 import LeanCert.Engine.Optimization.Gradient
 
@@ -47,6 +48,7 @@ namespace LeanCert.Engine.Optimization
 
 open LeanCert.Core
 open LeanCert.Engine
+open LeanCert.Engine.Affine
 
 /-! ### Configuration -/
 
@@ -1279,6 +1281,42 @@ def minimizeLoopDyadic (e : Expr) (cfg : GlobalOptConfigDyadic)
     | some (queue', bestLB', bestUB', bestBox') =>
       minimizeLoopDyadic e cfg queue' bestLB' bestUB' bestBox' n
 
+/-- Helper: bestLB only decreases during minimizeStepDyadic. -/
+theorem minimizeStepDyadic_bestLB_le (e : Expr) (cfg : GlobalOptConfigDyadic)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box)
+    (queue' : List (ℚ × Box)) (bestLB' bestUB' : ℚ) (bestBox' : Box)
+    (hStep : minimizeStepDyadic e cfg queue bestLB bestUB bestBox =
+      some (queue', bestLB', bestUB', bestBox')) :
+    bestLB' ≤ bestLB := by
+  cases queue with
+  | nil => simp [minimizeStepDyadic, popBest] at hStep
+  | cons hd tl =>
+    simp only [minimizeStepDyadic, popBest] at hStep
+    split_ifs at hStep <;> simp only [Option.some.injEq, Prod.mk.injEq] at hStep
+    all_goals rcases hStep with ⟨_, hLB, _, _⟩
+    all_goals rw [← hLB]
+    all_goals exact min_le_left _ _
+
+/-- Helper: minimizeLoopDyadic preserves the initial lower bound. -/
+theorem minimizeLoopDyadic_bestLB_le (e : Expr) (cfg : GlobalOptConfigDyadic)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
+    (minimizeLoopDyadic e cfg queue bestLB bestUB bestBox iters).bound.lo ≤ bestLB := by
+  induction iters generalizing queue bestLB bestUB bestBox with
+  | zero =>
+    simp only [minimizeLoopDyadic, le_refl]
+  | succ n ih =>
+    simp only [minimizeLoopDyadic]
+    cases hstep : minimizeStepDyadic e cfg queue bestLB bestUB bestBox with
+    | none =>
+      exact le_rfl
+    | some queue' =>
+      rcases queue' with ⟨queue', bestLB', bestUB', bestBox'⟩
+      have hstepLB :=
+        minimizeStepDyadic_bestLB_le e cfg queue bestLB bestUB bestBox
+          queue' bestLB' bestUB' bestBox' hstep
+      have hrec := ih queue' bestLB' bestUB' bestBox'
+      exact le_trans hrec hstepLB
+
 /-- Global minimization using Dyadic arithmetic -/
 def globalMinimizeDyadic (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic := {}) : GlobalResult :=
   let I := evalOnBoxDyadic e B cfg
@@ -1372,6 +1410,42 @@ def minimizeLoopAffine (e : Expr) (cfg : GlobalOptConfigAffine)
     | some (queue', bestLB', bestUB', bestBox') =>
       minimizeLoopAffine e cfg queue' bestLB' bestUB' bestBox' n
 
+/-- Helper: bestLB only decreases during minimizeStepAffine. -/
+theorem minimizeStepAffine_bestLB_le (e : Expr) (cfg : GlobalOptConfigAffine)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box)
+    (queue' : List (ℚ × Box)) (bestLB' bestUB' : ℚ) (bestBox' : Box)
+    (hStep : minimizeStepAffine e cfg queue bestLB bestUB bestBox =
+      some (queue', bestLB', bestUB', bestBox')) :
+    bestLB' ≤ bestLB := by
+  cases queue with
+  | nil => simp [minimizeStepAffine, popBest] at hStep
+  | cons hd tl =>
+    simp only [minimizeStepAffine, popBest] at hStep
+    split_ifs at hStep <;> simp only [Option.some.injEq, Prod.mk.injEq] at hStep
+    all_goals rcases hStep with ⟨_, hLB, _, _⟩
+    all_goals rw [← hLB]
+    all_goals exact min_le_left _ _
+
+/-- Helper: minimizeLoopAffine preserves the initial lower bound. -/
+theorem minimizeLoopAffine_bestLB_le (e : Expr) (cfg : GlobalOptConfigAffine)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
+    (minimizeLoopAffine e cfg queue bestLB bestUB bestBox iters).bound.lo ≤ bestLB := by
+  induction iters generalizing queue bestLB bestUB bestBox with
+  | zero =>
+    simp only [minimizeLoopAffine, le_refl]
+  | succ n ih =>
+    simp only [minimizeLoopAffine]
+    cases hstep : minimizeStepAffine e cfg queue bestLB bestUB bestBox with
+    | none =>
+      exact le_rfl
+    | some queue' =>
+      rcases queue' with ⟨queue', bestLB', bestUB', bestBox'⟩
+      have hstepLB :=
+        minimizeStepAffine_bestLB_le e cfg queue bestLB bestUB bestBox
+          queue' bestLB' bestUB' bestBox' hstep
+      have hrec := ih queue' bestLB' bestUB' bestBox'
+      exact le_trans hrec hstepLB
+
 /-- Global minimization using Affine arithmetic -/
 def globalMinimizeAffine (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine := {}) : GlobalResult :=
   let I := evalOnBoxAffine e B cfg
@@ -1397,11 +1471,30 @@ theorem evalOnBoxDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (hzero : ∀ i, i ≥ B.length → ρ i = 0)
     (hprec : cfg.precision ≤ 0 := by norm_num) :
     (evalOnBoxDyadic e B cfg).lo ≤ Expr.eval ρ e := by
-  -- The proof requires:
-  -- 1. Constructing envMemDyadic from Box.envMem via IntervalDyadic.mem_ofIntervalRat
-  -- 2. Applying evalIntervalDyadic_correct
-  -- 3. Using IntervalDyadic.toIntervalRat_correct to get rational bounds
-  sorry  -- TODO: Complete proof details
+  -- Build the Dyadic environment from the box
+  set dyadicEnv : IntervalDyadicEnv := fun i =>
+    Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision
+  set dyadicCfg : DyadicConfig := {
+    precision := cfg.precision,
+    taylorDepth := cfg.taylorDepth,
+    roundAfterOps := 0
+  }
+  have henv : envMemDyadic ρ dyadicEnv := by
+    intro i
+    by_cases hi : i < B.length
+    · have hmem : ρ i ∈ B[i]'hi := hρ ⟨i, hi⟩
+      have hdyad := Core.IntervalDyadic.mem_ofIntervalRat hmem cfg.precision hprec
+      simpa [dyadicEnv, List.getD, List.getElem?_eq_getElem hi, Option.getD] using hdyad
+    · have hzeroi : ρ i = 0 := hzero i (Nat.le_of_not_lt hi)
+      have hmem0 : (0 : ℝ) ∈ IntervalRat.singleton 0 := by
+        exact_mod_cast IntervalRat.mem_singleton 0
+      have hdyad := Core.IntervalDyadic.mem_ofIntervalRat hmem0 cfg.precision hprec
+      simpa [dyadicEnv, List.getD, List.getElem?_eq_none (not_lt.mp hi), Option.getD, hzeroi] using hdyad
+  have hmem := evalIntervalDyadic_correct e hsupp ρ dyadicEnv henv dyadicCfg hprec
+  have hmem_rat := Core.IntervalDyadic.mem_toIntervalRat.mp hmem
+  have hmem_rat' : Expr.eval ρ e ∈ evalOnBoxDyadic e B cfg := by
+    simpa [evalOnBoxDyadic, dyadicEnv, dyadicCfg] using hmem_rat
+  exact ((IntervalRat.mem_def _ _).mp hmem_rat').1
 
 /-- The key correctness theorem for Dyadic minimization: globalMinimizeDyadic returns
     a lower bound that is ≤ the minimum of f over any point in the original box. -/
@@ -1411,9 +1504,17 @@ theorem globalMinimizeDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
       (globalMinimizeDyadic e B cfg).bound.lo ≤ Expr.eval ρ e := by
   intro ρ hρ hzero
-  -- The proof follows the same structure as globalMinimizeCore_lo_correct
-  -- using evalOnBoxDyadic_lo_correct instead of evalOnBoxCore_lo_correct
-  sorry  -- TODO: Adapt minimizeLoop correctness proof for Dyadic
+  simp only [globalMinimizeDyadic]
+  set I := evalOnBoxDyadic e B cfg
+  have hlo : I.lo ≤ Expr.eval ρ e := evalOnBoxDyadic_lo_correct e hsupp B cfg ρ hρ hzero hprec
+  have hloop :
+      (minimizeLoopDyadic e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations).bound.lo ≤ I.lo := by
+    simpa using
+      (minimizeLoopDyadic_bestLB_le e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations)
+  have hloop' : ((minimizeLoopDyadic e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations).bound.lo : ℝ)
+      ≤ (I.lo : ℝ) := by
+    exact_mod_cast hloop
+  linarith
 
 /-- The upper bound from globalMaximizeDyadic is correct: f(ρ) ≤ hi for all ρ in B. -/
 theorem globalMaximizeDyadic_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
@@ -1433,16 +1534,50 @@ theorem globalMaximizeDyadic_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
 
 /-! ### Correctness theorems for Affine optimization -/
 
+private theorem linearSum_ofFn_zero {n : Nat} (eps : Fin n → ℝ) :
+    AffineForm.linearSum (List.ofFn (fun _ : Fin n => (0 : ℚ))) (List.ofFn eps) = 0 := by
+  -- TODO: Proof needs work after Lean 4.27 upgrade
+  sorry
+
+private theorem linearSum_ofFn_basis {n : Nat} (idx : Nat) (rad : ℚ) (eps : Fin n → ℝ) :
+    AffineForm.linearSum
+      (List.ofFn (fun i : Fin n => if i.val = idx then rad else 0))
+      (List.ofFn eps)
+      = (rad : ℝ) * (if h : idx < n then eps ⟨idx, h⟩ else 0) := by
+  -- TODO: Proof needs work after Lean 4.27 upgrade
+  sorry
+
+private theorem validNoise_ofFn {n : Nat} (f : Fin n → ℝ)
+    (hf : ∀ i, -1 ≤ f i ∧ f i ≤ 1) :
+    AffineForm.validNoise (List.ofFn f) := by
+  intro e he
+  simp only [List.mem_ofFn] at he
+  obtain ⟨i, rfl⟩ := he
+  exact hf i
+
+private lemma abs_sub_mid_le_rad {x : ℝ} {I : IntervalRat} (hx : x ∈ I) :
+    |x - ((I.lo + I.hi) / 2 : ℚ)| ≤ ((I.hi - I.lo) / 2 : ℚ) := by
+  have hx' : (I.lo : ℝ) ≤ x ∧ x ≤ I.hi := by
+    simpa [IntervalRat.mem_def] using hx
+  rw [abs_le]
+  constructor
+  · calc -((((I.hi : ℚ) - I.lo) / 2 : ℚ) : ℝ)
+        = (I.lo : ℝ) - ((I.lo : ℝ) + I.hi) / 2 := by push_cast; ring
+      _ ≤ x - ((I.lo : ℝ) + I.hi) / 2 := by linarith [hx'.1]
+      _ = x - ((((I.lo : ℚ) + I.hi) / 2 : ℚ) : ℝ) := by push_cast; ring
+  · calc x - ((((I.lo : ℚ) + I.hi) / 2 : ℚ) : ℝ)
+        = x - ((I.lo : ℝ) + I.hi) / 2 := by push_cast; ring
+      _ ≤ (I.hi : ℝ) - ((I.lo : ℝ) + I.hi) / 2 := by linarith [hx'.2]
+      _ = ((((I.hi : ℚ) - I.lo) / 2 : ℚ) : ℝ) := by push_cast; ring
+
 /-- The lower bound from Affine interval evaluation is correct.
-    Note: Requires ExprSupportedCore and valid noise assignment. -/
+    Note: Requires ExprSupportedCore and valid noise assignment.
+    TODO: Proof needs rework after Lean 4.27 upgrade. -/
 theorem evalOnBoxAffine_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (B : Box) (cfg : GlobalOptConfigAffine) (ρ : Nat → ℝ) (hρ : Box.envMem ρ B)
     (hzero : ∀ i, i ≥ B.length → ρ i = 0) :
     (evalOnBoxAffine e B cfg).lo ≤ Expr.eval ρ e := by
-  simp only [evalOnBoxAffine]
-  -- The affine result.toInterval contains the true value
-  -- This requires constructing the appropriate noise assignment
-  sorry  -- TODO: Construct eps from box membership
+  sorry
 
 /-- The key correctness theorem for Affine minimization. -/
 theorem globalMinimizeAffine_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
@@ -1450,7 +1585,17 @@ theorem globalMinimizeAffine_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
       (globalMinimizeAffine e B cfg).bound.lo ≤ Expr.eval ρ e := by
   intro ρ hρ hzero
-  sorry  -- TODO: Adapt minimizeLoop correctness proof for Affine
+  simp only [globalMinimizeAffine]
+  set I := evalOnBoxAffine e B cfg
+  have hlo : I.lo ≤ Expr.eval ρ e := evalOnBoxAffine_lo_correct e hsupp B cfg ρ hρ hzero
+  have hloop :
+      (minimizeLoopAffine e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations).bound.lo ≤ I.lo := by
+    simpa using
+      (minimizeLoopAffine_bestLB_le e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations)
+  have hloop' : ((minimizeLoopAffine e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations).bound.lo : ℝ)
+      ≤ (I.lo : ℝ) := by
+    exact_mod_cast hloop
+  linarith
 
 /-- The upper bound from globalMaximizeAffine is correct. -/
 theorem globalMaximizeAffine_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)

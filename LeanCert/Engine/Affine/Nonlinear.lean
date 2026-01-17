@@ -357,6 +357,63 @@ theorem mem_sqrt {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
       exact hsqrt_hi
     · simp
 
+/-- Square root is sound without a nonnegativity hypothesis. -/
+theorem mem_sqrt' {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
+    (hvalid : validNoise eps)
+    (hmem : mem_affine a eps v) :
+    mem_affine (sqrt a) eps (Real.sqrt v) := by
+  -- Get v ∈ a.toInterval
+  have hv_in_I := mem_toInterval_weak hvalid hmem
+  -- Use the general sqrt interval soundness
+  have hsqrt_in := IntervalRat.mem_sqrtInterval' hv_in_I
+  simp only [IntervalRat.sqrtInterval, IntervalRat.mem_def, Rat.cast_zero] at hsqrt_in
+  have hsqrt_hi : Real.sqrt v ≤ max (a.toInterval.hi : ℝ) 1 := by
+    have := hsqrt_in.2
+    simp only [Rat.cast_max, Rat.cast_one] at this
+    exact this
+
+  -- Case split on whether I.lo ≥ 0
+  simp only [sqrt, IntervalRat.sqrtInterval, mem_affine, evalLinear, linearSum]
+  split
+  · -- Non-negative interval case
+    rename_i h
+    simp only [List.zipWith, List.sum_nil, add_zero]
+    have hrad_nonneg : 0 ≤ (max a.toInterval.hi 1 - 0) / 2 := by
+      have h1 : (1 : ℚ) ≤ max a.toInterval.hi 1 := le_max_right _ _
+      linarith
+    have habs_rad : |((max a.toInterval.hi 1 - 0) / 2 : ℚ)| = (max a.toInterval.hi 1 - 0) / 2 :=
+      abs_of_nonneg hrad_nonneg
+    use Real.sqrt v - ((0 + max a.toInterval.hi 1) / 2 : ℚ)
+    constructor
+    · -- |sqrt v - mid| ≤ |rad|
+      rw [habs_rad, abs_le]
+      have hmid_real : (((0 + max a.toInterval.hi 1) / 2 : ℚ) : ℝ) =
+          max (a.toInterval.hi : ℝ) 1 / 2 := by
+        simp only [Rat.cast_div, Rat.cast_max, Rat.cast_one, zero_add]
+        ring
+      have hrad_real : (((max a.toInterval.hi 1 - 0) / 2 : ℚ) : ℝ) =
+          max (a.toInterval.hi : ℝ) 1 / 2 := by
+        simp only [Rat.cast_div, Rat.cast_max, Rat.cast_one, sub_zero]
+        ring
+      constructor
+      · rw [hmid_real, hrad_real]
+        linarith
+      · rw [hmid_real, hrad_real]
+        have : max (a.toInterval.hi : ℝ) 1 =
+            max (a.toInterval.hi : ℝ) 1 / 2 + max (a.toInterval.hi : ℝ) 1 / 2 := by ring
+        linarith
+    · ring
+  · -- Negative interval case: return wide bounds with dynamic r = max I.hi 1
+    rename_i h
+    simp only [List.zipWith, List.sum_nil, add_zero]
+    use Real.sqrt v
+    constructor
+    · -- |sqrt v| ≤ max I.hi 1
+      have hsqrt_nonneg := Real.sqrt_nonneg v
+      rw [abs_of_nonneg hsqrt_nonneg]
+      simp only [Rat.cast_max, Rat.cast_one]
+      exact hsqrt_hi
+    · simp
 end AffineForm
 
 end LeanCert.Engine.Affine

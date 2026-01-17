@@ -1,8 +1,8 @@
 site_name: LeanCert
 site_description: Certified numerical computation and bound verification for Lean 4.
-site_url: https://yale.github.io/leancert
-repo_url: https://github.com/yale/leancert
-repo_name: yale/leancert
+site_url: https://docs.leancert.io
+repo_url: https://github.com/alerad/leanbound
+repo_name: alerad/leanbound
 
 theme:
   name: material
@@ -66,6 +66,7 @@ nav:
     - Root Finding: architecture/root-finding.md
   - Python SDK:
     - Solver API: api/solver.md
+    - Configuration: api/config.md
     - Result Types: api/types.md
     - Expressions: api/expr.md
     - PyTorch Export: python/pytorch.md

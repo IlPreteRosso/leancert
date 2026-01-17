@@ -206,35 +206,25 @@ noncomputable def logChebyshev (a : AffineForm) (hpos : 0 < a.toInterval.lo) : A
 
 /-- Hyperbolic sine: sinh(x) = (e^x - e^{-x})/2
 
-    Computed via (exp(x) - exp(-x))/2.
+    Computed via interval sinh bounds (no correlation).
 -/
 def sinh (a : AffineForm) (taylorDepth : Nat := 8) : AffineForm :=
   let I := a.toInterval
-  let negI : IntervalRat := ⟨-I.hi, -I.lo, by linarith [I.le]⟩
-  let expI := IntervalRat.expComputable I taylorDepth
-  let expNegI := IntervalRat.expComputable negI taylorDepth
-  -- sinh = (exp - expNeg) / 2
-  let lo := (expI.lo - expNegI.hi) / 2
-  let hi := (expI.hi - expNegI.lo) / 2
-  let mid := (lo + hi) / 2
-  let rad := (hi - lo) / 2
+  let sinhI := IntervalRat.sinhComputable I taylorDepth
+  let mid := (sinhI.lo + sinhI.hi) / 2
+  let rad := (sinhI.hi - sinhI.lo) / 2
   -- Use error term (coeffs = []) for soundness proof compatibility
   { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
 
 /-- Hyperbolic cosine: cosh(x) = (e^x + e^{-x})/2
 
-    Computed via (exp(x) + exp(-x))/2. Always ≥ 1.
+    Computed via interval cosh bounds. Always ≥ 1.
 -/
 def cosh (a : AffineForm) (taylorDepth : Nat := 8) : AffineForm :=
   let I := a.toInterval
-  let negI : IntervalRat := ⟨-I.hi, -I.lo, by linarith [I.le]⟩
-  let expI := IntervalRat.expComputable I taylorDepth
-  let expNegI := IntervalRat.expComputable negI taylorDepth
-  -- cosh = (exp + expNeg) / 2
-  let lo := (expI.lo + expNegI.lo) / 2
-  let hi := (expI.hi + expNegI.hi) / 2
-  let mid := (lo + hi) / 2
-  let rad := (hi - lo) / 2
+  let coshI := IntervalRat.coshComputable I taylorDepth
+  let mid := (coshI.lo + coshI.hi) / 2
+  let rad := (coshI.hi - coshI.lo) / 2
   -- Use error term (coeffs = []) for soundness proof compatibility
   { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
 
@@ -243,12 +233,11 @@ def cosh (a : AffineForm) (taylorDepth : Nat := 8) : AffineForm :=
 /-- exp is sound -/
 theorem mem_exp {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
     (hvalid : validNoise eps)
-    (hlen : eps.length = a.coeffs.length)
     (hmem : mem_affine a eps v)
     (taylorDepth : Nat) :
     mem_affine (exp a taylorDepth) eps (Real.exp v) := by
   -- Get v ∈ a.toInterval
-  have hv_in_I := mem_toInterval hvalid hlen hmem
+  have hv_in_I := mem_toInterval_weak hvalid hmem
   -- Get Real.exp v ∈ expComputable I
   have hexp_in := IntervalRat.mem_expComputable hv_in_I taylorDepth
 
@@ -312,11 +301,10 @@ theorem mem_exp {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
 /-- tanh is sound -/
 theorem mem_tanh {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
     (hvalid : validNoise eps)
-    (hlen : eps.length = a.coeffs.length)
     (hmem : mem_affine a eps v) :
     mem_affine (tanh a) eps (Real.tanh v) := by
   -- Get v ∈ a.toInterval
-  have hv_in_I := mem_toInterval hvalid hlen hmem
+  have hv_in_I := mem_toInterval_weak hvalid hmem
   -- Get Real.tanh v ∈ tanhInterval I = [-1, 1]
   have htanh_in := LeanCert.Engine.mem_tanhInterval hv_in_I
 
@@ -358,17 +346,37 @@ theorem mem_tanh {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
         _ = (((tanhI.hi - tanhI.lo) / 2 : ℚ) : ℝ) := by push_cast; ring
   · ring
 
+/-- sinh is sound -/
+theorem mem_sinh {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
+    (hvalid : validNoise eps)
+    (hmem : mem_affine a eps v)
+    (taylorDepth : Nat) :
+    mem_affine (sinh a taylorDepth) eps (Real.sinh v) := by
+  have hv_in_I := mem_toInterval_weak hvalid hmem
+  have hsinh_in := IntervalRat.mem_sinhComputable hv_in_I taylorDepth
+  -- Match the interval-centered form produced by sinh
+  simpa [sinh] using (mem_affine_of_interval (eps := eps) hsinh_in)
+
+/-- cosh is sound -/
+theorem mem_cosh {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
+    (hvalid : validNoise eps)
+    (hmem : mem_affine a eps v)
+    (taylorDepth : Nat) :
+    mem_affine (cosh a taylorDepth) eps (Real.cosh v) := by
+  have hv_in_I := mem_toInterval_weak hvalid hmem
+  have hcosh_in := IntervalRat.mem_coshComputable hv_in_I taylorDepth
+  simpa [cosh] using (mem_affine_of_interval (eps := eps) hcosh_in)
+
 /-- log is sound for positive inputs -/
 theorem mem_log {a : AffineForm} {eps : NoiseAssignment} {v : ℝ}
     (hvalid : validNoise eps)
-    (hlen : eps.length = a.coeffs.length)
     (hmem : mem_affine a eps v)
     (_hv_pos : 0 < v)
     (hI_pos : 0 < a.toInterval.lo)
     (_taylorDepth : Nat) :
     mem_affine (log a taylorDepth) eps (Real.log v) := by
   -- Get v ∈ a.toInterval
-  have hv_in_I := mem_toInterval hvalid hlen hmem
+  have hv_in_I := mem_toInterval_weak hvalid hmem
 
   -- Construct the positive interval
   let I := a.toInterval
