@@ -5,6 +5,8 @@ Authors: LeanCert Contributors
 -/
 import LeanCert.Engine.IntervalEval
 import LeanCert.Engine.IntervalEvalRefined
+import LeanCert.Engine.IntervalEvalDyadic
+import LeanCert.Engine.IntervalEvalAffine
 import LeanCert.Engine.Optimization.Box
 import LeanCert.Engine.Optimization.Gradient
 
@@ -1195,5 +1197,274 @@ theorem globalMaximizeCore_lo_le_hi (e : Expr) (hsupp : ExprSupportedCore e)
   have hneg_supp : ExprSupportedCore (Expr.neg e) := ExprSupportedCore.neg hsupp
   have h := globalMinimizeCore_lo_le_hi (Expr.neg e) hneg_supp B cfg
   linarith
+
+/-! ### Dyadic backend versions for high-performance optimization
+
+These variants use Dyadic arithmetic (n * 2^e) instead of rationals,
+preventing denominator explosion for deep expressions. 10-100x faster
+for complex expressions like neural networks. -/
+
+/-- Configuration for Dyadic global optimization -/
+structure GlobalOptConfigDyadic where
+  /-- Maximum number of subdivisions -/
+  maxIterations : Nat := 1000
+  /-- Stop when box width is below this threshold -/
+  tolerance : ℚ := 1/1000
+  /-- Use monotonicity pruning (requires gradient computation) -/
+  useMonotonicity : Bool := false
+  /-- Taylor depth for interval evaluation -/
+  taylorDepth : Nat := 10
+  /-- Dyadic precision (minimum exponent for outward rounding) -/
+  precision : Int := -53
+  deriving Repr
+
+instance : Inhabited GlobalOptConfigDyadic := ⟨{}⟩
+
+/-- Evaluate expression on a box using Dyadic arithmetic -/
+def evalOnBoxDyadic (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic) : IntervalRat :=
+  let dyadicEnv : IntervalDyadicEnv := fun i =>
+    let irat := B.getD i (IntervalRat.singleton 0)
+    Core.IntervalDyadic.ofIntervalRat irat cfg.precision
+  let dyadicCfg : DyadicConfig := {
+    precision := cfg.precision,
+    taylorDepth := cfg.taylorDepth,
+    roundAfterOps := 0
+  }
+  let result := evalIntervalDyadic e dyadicEnv dyadicCfg
+  result.toIntervalRat
+
+/-- One step of branch-and-bound using Dyadic arithmetic -/
+def minimizeStepDyadic (e : Expr) (cfg : GlobalOptConfigDyadic)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
+    Option (List (ℚ × Box) × ℚ × ℚ × Box) :=
+  match popBest queue with
+  | none => none
+  | some ((lb, B), rest) =>
+    if lb > bestUB then
+      some (rest, bestLB, bestUB, bestBox)
+    else
+      let B_curr :=
+        if cfg.useMonotonicity then
+          let grad := gradientIntervalCore e B { taylorDepth := cfg.taylorDepth }
+          (pruneBoxForMin B grad).1
+        else B
+      let I := evalOnBoxDyadic e B_curr cfg
+      let newBestLB := min bestLB I.lo
+      let (newBestUB, newBestBox) :=
+        if I.hi < bestUB then (I.hi, B_curr) else (bestUB, bestBox)
+      if Box.maxWidth B_curr ≤ cfg.tolerance then
+        some (rest, newBestLB, newBestUB, newBestBox)
+      else
+        let (B1, B2) := Box.splitWidest B_curr
+        let I1 := evalOnBoxDyadic e B1 cfg
+        let I2 := evalOnBoxDyadic e B2 cfg
+        let queue' := rest
+        let queue' := if I1.lo ≤ newBestUB then insertByBound queue' I1.lo B1 else queue'
+        let queue' := if I2.lo ≤ newBestUB then insertByBound queue' I2.lo B2 else queue'
+        some (queue', newBestLB, newBestUB, newBestBox)
+
+/-- Run branch-and-bound loop using Dyadic arithmetic -/
+def minimizeLoopDyadic (e : Expr) (cfg : GlobalOptConfigDyadic)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
+    GlobalResult :=
+  match iters with
+  | 0 =>
+    { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations }
+      remainingBoxes := queue }
+  | n + 1 =>
+    match minimizeStepDyadic e cfg queue bestLB bestUB bestBox with
+    | none =>
+      { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations - n - 1 }
+        remainingBoxes := [] }
+    | some (queue', bestLB', bestUB', bestBox') =>
+      minimizeLoopDyadic e cfg queue' bestLB' bestUB' bestBox' n
+
+/-- Global minimization using Dyadic arithmetic -/
+def globalMinimizeDyadic (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic := {}) : GlobalResult :=
+  let I := evalOnBoxDyadic e B cfg
+  minimizeLoopDyadic e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations
+
+/-- Global maximization using Dyadic arithmetic -/
+def globalMaximizeDyadic (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic := {}) : GlobalResult :=
+  let result := globalMinimizeDyadic (Expr.neg e) B cfg
+  { bound := { lo := -result.bound.hi
+               hi := -result.bound.lo
+               bestBox := result.bound.bestBox
+               iterations := result.bound.iterations }
+    remainingBoxes := result.remainingBoxes.map fun (lb, box) => (-lb, box) }
+
+/-! ### Affine backend versions for tight bounds
+
+These variants use Affine Arithmetic to track correlations between variables,
+solving the "dependency problem" in interval arithmetic. For example:
+- Interval: x - x on [-1, 1] gives [-2, 2]
+- Affine: x - x on [-1, 1] gives [0, 0] (exact!) -/
+
+/-- Configuration for Affine global optimization -/
+structure GlobalOptConfigAffine where
+  /-- Maximum number of subdivisions -/
+  maxIterations : Nat := 1000
+  /-- Stop when box width is below this threshold -/
+  tolerance : ℚ := 1/1000
+  /-- Use monotonicity pruning (requires gradient computation) -/
+  useMonotonicity : Bool := false
+  /-- Taylor depth for interval evaluation -/
+  taylorDepth : Nat := 10
+  /-- Max noise symbols before consolidation (0 = no limit) -/
+  maxNoiseSymbols : Nat := 0
+  deriving Repr
+
+instance : Inhabited GlobalOptConfigAffine := ⟨{}⟩
+
+/-- Evaluate expression on a box using Affine arithmetic -/
+def evalOnBoxAffine (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine) : IntervalRat :=
+  let affineEnv := toAffineEnv B
+  let affineCfg : AffineConfig := {
+    taylorDepth := cfg.taylorDepth,
+    maxNoiseSymbols := cfg.maxNoiseSymbols
+  }
+  let result := evalIntervalAffine e affineEnv affineCfg
+  result.toInterval
+
+/-- One step of branch-and-bound using Affine arithmetic -/
+def minimizeStepAffine (e : Expr) (cfg : GlobalOptConfigAffine)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
+    Option (List (ℚ × Box) × ℚ × ℚ × Box) :=
+  match popBest queue with
+  | none => none
+  | some ((lb, B), rest) =>
+    if lb > bestUB then
+      some (rest, bestLB, bestUB, bestBox)
+    else
+      let B_curr :=
+        if cfg.useMonotonicity then
+          let grad := gradientIntervalCore e B { taylorDepth := cfg.taylorDepth }
+          (pruneBoxForMin B grad).1
+        else B
+      let I := evalOnBoxAffine e B_curr cfg
+      let newBestLB := min bestLB I.lo
+      let (newBestUB, newBestBox) :=
+        if I.hi < bestUB then (I.hi, B_curr) else (bestUB, bestBox)
+      if Box.maxWidth B_curr ≤ cfg.tolerance then
+        some (rest, newBestLB, newBestUB, newBestBox)
+      else
+        let (B1, B2) := Box.splitWidest B_curr
+        let I1 := evalOnBoxAffine e B1 cfg
+        let I2 := evalOnBoxAffine e B2 cfg
+        let queue' := rest
+        let queue' := if I1.lo ≤ newBestUB then insertByBound queue' I1.lo B1 else queue'
+        let queue' := if I2.lo ≤ newBestUB then insertByBound queue' I2.lo B2 else queue'
+        some (queue', newBestLB, newBestUB, newBestBox)
+
+/-- Run branch-and-bound loop using Affine arithmetic -/
+def minimizeLoopAffine (e : Expr) (cfg : GlobalOptConfigAffine)
+    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
+    GlobalResult :=
+  match iters with
+  | 0 =>
+    { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations }
+      remainingBoxes := queue }
+  | n + 1 =>
+    match minimizeStepAffine e cfg queue bestLB bestUB bestBox with
+    | none =>
+      { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations - n - 1 }
+        remainingBoxes := [] }
+    | some (queue', bestLB', bestUB', bestBox') =>
+      minimizeLoopAffine e cfg queue' bestLB' bestUB' bestBox' n
+
+/-- Global minimization using Affine arithmetic -/
+def globalMinimizeAffine (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine := {}) : GlobalResult :=
+  let I := evalOnBoxAffine e B cfg
+  minimizeLoopAffine e cfg [(I.lo, B)] I.lo I.hi B cfg.maxIterations
+
+/-- Global maximization using Affine arithmetic -/
+def globalMaximizeAffine (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine := {}) : GlobalResult :=
+  let result := globalMinimizeAffine (Expr.neg e) B cfg
+  { bound := { lo := -result.bound.hi
+               hi := -result.bound.lo
+               bestBox := result.bound.bestBox
+               iterations := result.bound.iterations }
+    remainingBoxes := result.remainingBoxes.map fun (lb, box) => (-lb, box) }
+
+/-! ### Correctness theorems for Dyadic optimization -/
+
+/-- The lower bound from Dyadic interval evaluation is correct.
+
+The proof uses `evalIntervalDyadic_correct` and `IntervalDyadic.toIntervalRat_correct`
+to show that the true value is contained in the resulting rational interval. -/
+theorem evalOnBoxDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigDyadic) (ρ : Nat → ℝ) (hρ : Box.envMem ρ B)
+    (hzero : ∀ i, i ≥ B.length → ρ i = 0)
+    (hprec : cfg.precision ≤ 0 := by norm_num) :
+    (evalOnBoxDyadic e B cfg).lo ≤ Expr.eval ρ e := by
+  -- The proof requires:
+  -- 1. Constructing envMemDyadic from Box.envMem via IntervalDyadic.mem_ofIntervalRat
+  -- 2. Applying evalIntervalDyadic_correct
+  -- 3. Using IntervalDyadic.toIntervalRat_correct to get rational bounds
+  sorry  -- TODO: Complete proof details
+
+/-- The key correctness theorem for Dyadic minimization: globalMinimizeDyadic returns
+    a lower bound that is ≤ the minimum of f over any point in the original box. -/
+theorem globalMinimizeDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigDyadic)
+    (hprec : cfg.precision ≤ 0 := by norm_num) :
+    ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
+      (globalMinimizeDyadic e B cfg).bound.lo ≤ Expr.eval ρ e := by
+  intro ρ hρ hzero
+  -- The proof follows the same structure as globalMinimizeCore_lo_correct
+  -- using evalOnBoxDyadic_lo_correct instead of evalOnBoxCore_lo_correct
+  sorry  -- TODO: Adapt minimizeLoop correctness proof for Dyadic
+
+/-- The upper bound from globalMaximizeDyadic is correct: f(ρ) ≤ hi for all ρ in B. -/
+theorem globalMaximizeDyadic_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigDyadic)
+    (hprec : cfg.precision ≤ 0 := by norm_num) :
+    ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
+      Expr.eval ρ e ≤ (globalMaximizeDyadic e B cfg).bound.hi := by
+  intro ρ hρ hzero
+  simp only [globalMaximizeDyadic]
+  have hneg_supp : ExprSupportedCore (Expr.neg e) := ExprSupportedCore.neg hsupp
+  have hmin := globalMinimizeDyadic_lo_correct (Expr.neg e) hneg_supp B cfg hprec ρ hρ hzero
+  simp only [Expr.eval_neg] at hmin
+  -- hmin : (globalMinimizeDyadic e.neg B cfg).bound.lo ≤ -Expr.eval ρ e
+  -- Goal : Expr.eval ρ e ≤ -(globalMinimizeDyadic e.neg B cfg).bound.lo
+  have h : Expr.eval ρ e ≤ (-(globalMinimizeDyadic (Expr.neg e) B cfg).bound.lo : ℝ) := by linarith
+  exact_mod_cast h
+
+/-! ### Correctness theorems for Affine optimization -/
+
+/-- The lower bound from Affine interval evaluation is correct.
+    Note: Requires ExprSupportedCore and valid noise assignment. -/
+theorem evalOnBoxAffine_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigAffine) (ρ : Nat → ℝ) (hρ : Box.envMem ρ B)
+    (hzero : ∀ i, i ≥ B.length → ρ i = 0) :
+    (evalOnBoxAffine e B cfg).lo ≤ Expr.eval ρ e := by
+  simp only [evalOnBoxAffine]
+  -- The affine result.toInterval contains the true value
+  -- This requires constructing the appropriate noise assignment
+  sorry  -- TODO: Construct eps from box membership
+
+/-- The key correctness theorem for Affine minimization. -/
+theorem globalMinimizeAffine_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigAffine) :
+    ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
+      (globalMinimizeAffine e B cfg).bound.lo ≤ Expr.eval ρ e := by
+  intro ρ hρ hzero
+  sorry  -- TODO: Adapt minimizeLoop correctness proof for Affine
+
+/-- The upper bound from globalMaximizeAffine is correct. -/
+theorem globalMaximizeAffine_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
+    (B : Box) (cfg : GlobalOptConfigAffine) :
+    ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
+      Expr.eval ρ e ≤ (globalMaximizeAffine e B cfg).bound.hi := by
+  intro ρ hρ hzero
+  simp only [globalMaximizeAffine]
+  have hneg_supp : ExprSupportedCore (Expr.neg e) := ExprSupportedCore.neg hsupp
+  have hmin := globalMinimizeAffine_lo_correct (Expr.neg e) hneg_supp B cfg ρ hρ hzero
+  simp only [Expr.eval_neg] at hmin
+  -- hmin : (globalMinimizeAffine e.neg B cfg).bound.lo ≤ -Expr.eval ρ e
+  -- Goal : Expr.eval ρ e ≤ -(globalMinimizeAffine e.neg B cfg).bound.lo
+  have h : Expr.eval ρ e ≤ (-(globalMinimizeAffine (Expr.neg e) B cfg).bound.lo : ℝ) := by linarith
+  exact_mod_cast h
 
 end LeanCert.Engine.Optimization

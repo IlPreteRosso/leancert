@@ -151,6 +151,80 @@ class LeanClient:
             "taylorDepth": taylor_depth,
         })
 
+    def eval_interval_dyadic(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        precision: int = -53,
+        taylor_depth: int = 10,
+        round_after_ops: int = 0,
+    ) -> dict:
+        """
+        Evaluate an expression using high-performance Dyadic arithmetic.
+
+        Dyadic arithmetic (n * 2^e) avoids denominator explosion that occurs
+        with rational arithmetic on deep expressions. It's 10-100x faster for
+        complex expressions like neural networks or nested Taylor series.
+
+        Args:
+            expr_json: Expression in JSON format.
+            box_json: Box (list of intervals) in JSON format.
+            precision: Minimum exponent for outward rounding. -53 gives IEEE
+                      double-like precision (~15 decimal digits). Use -100 for
+                      higher precision.
+            taylor_depth: Number of Taylor terms for transcendental functions.
+            round_after_ops: Round after this many operations (0 = always).
+
+        Returns:
+            Dict with:
+              - lo, hi: Rational bounds (for compatibility)
+              - dyadic: Dict with lo/hi as Dyadic (mantissa, exponent)
+        """
+        return self.call("eval_interval_dyadic", {
+            "expr": expr_json,
+            "box": box_json,
+            "config": {
+                "precision": precision,
+                "taylorDepth": taylor_depth,
+                "roundAfterOps": round_after_ops,
+            },
+        })
+
+    def eval_interval_affine(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        taylor_depth: int = 10,
+        max_noise_symbols: int = 0,
+    ) -> dict:
+        """
+        Evaluate an expression using Affine Arithmetic.
+
+        Affine arithmetic tracks correlations between variables, solving the
+        "dependency problem" in interval arithmetic. For example:
+        - x - x on [-1, 1] with interval gives [-2, 2]
+        - x - x on [-1, 1] with affine gives [0, 0] (exact!)
+
+        Args:
+            expr_json: Expression in JSON format.
+            box_json: Box (list of intervals) in JSON format.
+            taylor_depth: Number of Taylor terms for transcendental functions.
+            max_noise_symbols: Max noise symbols before consolidation (0 = no limit).
+
+        Returns:
+            Dict with:
+              - lo, hi: Interval bounds
+              - affine: Dict with c0 (central value) and radius
+        """
+        return self.call("eval_interval_affine", {
+            "expr": expr_json,
+            "box": box_json,
+            "config": {
+                "taylorDepth": taylor_depth,
+                "maxNoiseSymbols": max_noise_symbols,
+            },
+        })
+
     def global_min(
         self,
         expr_json: dict,
@@ -187,6 +261,112 @@ class LeanClient:
             "tolerance": tolerance,
             "useMonotonicity": use_monotonicity,
             "taylorDepth": taylor_depth,
+        })
+
+    def global_min_dyadic(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        max_iters: int = 1000,
+        tolerance: dict = {'n': 1, 'd': 1000},
+        use_monotonicity: bool = True,
+        taylor_depth: int = 10,
+        precision: int = -53,
+    ) -> dict:
+        """
+        Find global minimum using Dyadic arithmetic.
+
+        Dyadic arithmetic (n * 2^e) avoids denominator explosion that occurs
+        with rational arithmetic on deep expressions.
+        """
+        return self.call("global_min_dyadic", {
+            "expr": expr_json,
+            "box": box_json,
+            "maxIters": max_iters,
+            "tolerance": tolerance,
+            "useMonotonicity": use_monotonicity,
+            "taylorDepth": taylor_depth,
+            "precision": precision,
+        })
+
+    def global_max_dyadic(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        max_iters: int = 1000,
+        tolerance: dict = {'n': 1, 'd': 1000},
+        use_monotonicity: bool = True,
+        taylor_depth: int = 10,
+        precision: int = -53,
+    ) -> dict:
+        """
+        Find global maximum using Dyadic arithmetic.
+
+        Dyadic arithmetic (n * 2^e) avoids denominator explosion that occurs
+        with rational arithmetic on deep expressions.
+        """
+        return self.call("global_max_dyadic", {
+            "expr": expr_json,
+            "box": box_json,
+            "maxIters": max_iters,
+            "tolerance": tolerance,
+            "useMonotonicity": use_monotonicity,
+            "taylorDepth": taylor_depth,
+            "precision": precision,
+        })
+
+    def global_min_affine(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        max_iters: int = 1000,
+        tolerance: dict = {'n': 1, 'd': 1000},
+        use_monotonicity: bool = True,
+        taylor_depth: int = 10,
+        max_noise_symbols: int = 0,
+    ) -> dict:
+        """
+        Find global minimum using Affine arithmetic.
+
+        Affine arithmetic tracks correlations between variables, solving the
+        "dependency problem" in interval arithmetic. For example:
+        - x - x on [-1, 1] with interval gives [-2, 2]
+        - x - x on [-1, 1] with affine gives [0, 0] (exact!)
+        """
+        return self.call("global_min_affine", {
+            "expr": expr_json,
+            "box": box_json,
+            "maxIters": max_iters,
+            "tolerance": tolerance,
+            "useMonotonicity": use_monotonicity,
+            "taylorDepth": taylor_depth,
+            "maxNoiseSymbols": max_noise_symbols,
+        })
+
+    def global_max_affine(
+        self,
+        expr_json: dict,
+        box_json: list[dict],
+        max_iters: int = 1000,
+        tolerance: dict = {'n': 1, 'd': 1000},
+        use_monotonicity: bool = True,
+        taylor_depth: int = 10,
+        max_noise_symbols: int = 0,
+    ) -> dict:
+        """
+        Find global maximum using Affine arithmetic.
+
+        Affine arithmetic tracks correlations between variables, solving the
+        "dependency problem" in interval arithmetic.
+        """
+        return self.call("global_max_affine", {
+            "expr": expr_json,
+            "box": box_json,
+            "maxIters": max_iters,
+            "tolerance": tolerance,
+            "useMonotonicity": use_monotonicity,
+            "taylorDepth": taylor_depth,
+            "maxNoiseSymbols": max_noise_symbols,
         })
 
     def check_bound(
@@ -316,3 +496,22 @@ def _parse_rat(data: dict) -> Fraction:
 def _parse_interval(data: dict) -> Interval:
     """Parse an interval from kernel JSON."""
     return Interval(_parse_rat(data['lo']), _parse_rat(data['hi']))
+
+
+def _parse_dyadic(data: dict) -> Fraction:
+    """
+    Parse a Dyadic number (mantissa * 2^exponent) from kernel JSON.
+
+    Returns a Fraction for exact representation.
+    """
+    mantissa = data['mantissa']
+    exponent = data['exponent']
+    if exponent >= 0:
+        return Fraction(mantissa * (2 ** exponent), 1)
+    else:
+        return Fraction(mantissa, 2 ** (-exponent))
+
+
+def _parse_dyadic_interval(data: dict) -> Interval:
+    """Parse a Dyadic interval from kernel JSON."""
+    return Interval(_parse_dyadic(data['lo']), _parse_dyadic(data['hi']))

@@ -66,7 +66,7 @@ from .domain import (
 from .rational import to_fraction
 
 # Configuration
-from .config import Config
+from .config import Config, Backend, DyadicConfig, AffineConfig
 
 # Result types
 from .result import (
@@ -87,6 +87,7 @@ from .solver import (
     find_roots,
     find_unique_root,
     integrate,
+    eval_interval,
 )
 
 # Client (for advanced users)
@@ -176,6 +177,9 @@ __all__ = [
     "to_fraction",
     # Configuration
     "Config",
+    "Backend",
+    "DyadicConfig",
+    "AffineConfig",
     # Result types
     "BoundsResult",
     "RootsResult",
@@ -191,6 +195,7 @@ __all__ = [
     "find_roots",
     "find_unique_root",
     "integrate",
+    "eval_interval",
     # Client
     "LeanClient",
     # Simplification

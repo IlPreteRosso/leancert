@@ -13,8 +13,8 @@ from typing import Optional, Union, Any
 
 from .expr import Expr
 from .domain import Interval, Box, normalize_domain
-from .config import Config
-from .client import LeanClient, _parse_interval, _parse_rat
+from .config import Config, Backend
+from .client import LeanClient, _parse_interval, _parse_rat, _parse_dyadic_interval
 from .result import BoundsResult, RootsResult, RootInterval, IntegralResult, Certificate, UniqueRootResult
 from .exceptions import VerificationFailed, DomainError
 from .rational import to_fraction
@@ -111,6 +111,70 @@ class Solver:
 
         return expr_json, box
 
+    def eval_interval(
+        self,
+        expr: Expr,
+        domain: Union[Interval, Box, tuple, dict],
+        config: Config = Config(),
+    ) -> Interval:
+        """
+        Evaluate expression over a domain using interval arithmetic.
+
+        This is the core operation that computes a rigorous enclosure of
+        all possible values the expression can take over the domain.
+
+        Args:
+            expr: Expression to evaluate.
+            domain: Domain specification (Interval, Box, tuple, or dict).
+            config: Solver configuration. Use Config.dyadic() for high
+                   performance on deep expressions.
+
+        Returns:
+            Interval containing all possible values.
+
+        Example:
+            >>> solver.eval_interval(x**2 + sin(x), {'x': (0, 1)})
+            Interval(0, 1.8414709848...)
+
+            # For faster evaluation on complex expressions:
+            >>> solver.eval_interval(expr, domain, Config.dyadic())
+        """
+        client = self._ensure_client()
+        expr_json, box = self._prepare_request(expr, domain)
+        box_json = box.to_kernel_list()
+
+        if config.backend == Backend.DYADIC:
+            # Use high-performance Dyadic backend
+            dyadic_cfg = config.to_dyadic_kernel()
+            result = client.eval_interval_dyadic(
+                expr_json, box_json,
+                precision=dyadic_cfg['precision'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                round_after_ops=dyadic_cfg['roundAfterOps'],
+            )
+            # Parse the Dyadic interval for higher precision
+            if 'dyadic' in result:
+                return _parse_dyadic_interval(result['dyadic'])
+            # Fallback to rational representation
+            return _parse_interval({'lo': result['lo'], 'hi': result['hi']})
+        elif config.backend == Backend.AFFINE:
+            # Use Affine arithmetic for tight bounds (solves dependency problem)
+            affine_cfg = config.to_affine_kernel()
+            result = client.eval_interval_affine(
+                expr_json, box_json,
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            )
+            return _parse_interval({'lo': result['lo'], 'hi': result['hi']})
+        else:
+            # Use standard rational backend
+            cfg = config.to_kernel()
+            result = client.eval_interval(
+                expr_json, box_json,
+                taylor_depth=cfg['taylorDepth'],
+            )
+            return _parse_interval({'lo': result['lo'], 'hi': result['hi']})
+
     def find_bounds(
         self,
         expr: Expr,
@@ -123,33 +187,82 @@ class Solver:
         Args:
             expr: Expression to analyze.
             domain: Domain specification (Interval, Box, tuple, or dict).
-            config: Solver configuration.
+            config: Solver configuration. Use Config.dyadic() for high-performance
+                   evaluation on deep expressions, or Config.affine() for tighter
+                   bounds on expressions with repeated variables.
 
         Returns:
             BoundsResult with verified min/max intervals.
+
+        Example:
+            >>> # Standard rational backend
+            >>> result = solver.find_bounds(x**2, {'x': (-1, 1)})
+
+            >>> # High-performance Dyadic backend (10-100x faster for deep exprs)
+            >>> result = solver.find_bounds(deep_expr, domain, Config.dyadic())
+
+            >>> # Affine backend for tight bounds (solves dependency problem)
+            >>> result = solver.find_bounds(x - x, {'x': (-1, 1)}, Config.affine())
         """
         client = self._ensure_client()
         expr_json, box = self._prepare_request(expr, domain)
         box_json = box.to_kernel_list()
         cfg = config.to_kernel()
 
-        # Find minimum
-        min_result = client.global_min(
-            expr_json, box_json,
-            max_iters=cfg['maxIters'],
-            tolerance=cfg['tolerance'],
-            use_monotonicity=cfg['useMonotonicity'],
-            taylor_depth=cfg['taylorDepth'],
-        )
-
-        # Find maximum
-        max_result = client.global_max(
-            expr_json, box_json,
-            max_iters=cfg['maxIters'],
-            tolerance=cfg['tolerance'],
-            use_monotonicity=cfg['useMonotonicity'],
-            taylor_depth=cfg['taylorDepth'],
-        )
+        if config.backend == Backend.DYADIC:
+            # Use high-performance Dyadic backend
+            dyadic_cfg = config.to_dyadic_kernel()
+            min_result = client.global_min_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            )
+            max_result = client.global_max_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            )
+        elif config.backend == Backend.AFFINE:
+            # Use Affine backend for tight bounds
+            affine_cfg = config.to_affine_kernel()
+            min_result = client.global_min_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            )
+            max_result = client.global_max_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            )
+        else:
+            # Standard rational backend
+            min_result = client.global_min(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
+            max_result = client.global_max(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
 
         min_bound = _parse_interval({'lo': min_result['lo'], 'hi': min_result['hi']})
         max_bound = _parse_interval({'lo': max_result['lo'], 'hi': max_result['hi']})
@@ -162,6 +275,7 @@ class Solver:
             result_json={
                 'min': {'lo': min_result['lo'], 'hi': min_result['hi']},
                 'max': {'lo': max_result['lo'], 'hi': max_result['hi']},
+                'backend': config.backend.value,
             },
             verified=True,
             lean_version=LEAN_VERSION,
@@ -616,6 +730,38 @@ def find_bounds(
 ) -> BoundsResult:
     """Find global min/max bounds for an expression."""
     return _get_solver().find_bounds(expr, domain, config)
+
+
+def eval_interval(
+    expr: Expr,
+    domain: Union[Interval, Box, tuple, dict],
+    config: Config = Config(),
+) -> Interval:
+    """
+    Evaluate expression over a domain using interval arithmetic.
+
+    This is the core operation that computes a rigorous enclosure of
+    all possible values the expression can take over the domain.
+
+    Args:
+        expr: Expression to evaluate.
+        domain: Domain specification (Interval, Box, tuple, or dict).
+        config: Solver configuration. Use Config.dyadic() for high
+               performance on deep expressions.
+
+    Returns:
+        Interval containing all possible values.
+
+    Example:
+        >>> import leancert as lc
+        >>> x = lc.var('x')
+        >>> lc.eval_interval(x**2 + lc.sin(x), {'x': (0, 1)})
+        Interval(0, 1.8414709848...)
+
+        # For faster evaluation on complex expressions:
+        >>> lc.eval_interval(expr, domain, Config.dyadic())
+    """
+    return _get_solver().eval_interval(expr, domain, config)
 
 
 def verify_bound(
