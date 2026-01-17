@@ -11,6 +11,7 @@ import LeanCert.Engine.IntervalEvalAffine
 import LeanCert.Engine.Optimization.Global
 import LeanCert.Engine.Integrate
 import LeanCert.Validity.Bounds
+import LeanCert.ML.Distillation
 
 /-!
 # LeanBridge: JSON-RPC Bridge for Python Integration
@@ -45,6 +46,7 @@ We use a simplified JSON-RPC 2.0 style over line-delimited JSON.
 - `global_max`: Find global maximum using branch-and-bound optimization
 - `check_bound`: Verify a bound certificate
 - `integrate`: Compute rigorous bounds on a definite integral
+- `forward_interval`: Propagate intervals through a neural network (SequentialNet)
 -/
 
 open LeanCert.Core LeanCert.Engine LeanCert.Engine.Optimization
@@ -524,6 +526,39 @@ instance : FromJson OptimizeAffineRequest where
     let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
     return { expr, box := boxArr, maxIters, tolerance, useMonotonicity, taylorDepth, maxNoiseSymbols }
 
+/-! ### Neural Network Forward Interval Request -/
+
+/-- A raw layer for JSON deserialization -/
+structure RawLayer where
+  weights : Array (Array RawRat)
+  bias : Array RawRat
+  deriving Repr, Inhabited
+
+instance : FromJson RawLayer where
+  fromJson? j := do
+    let rawWeights ← j.getObjValAs? (Array (Array RawRat)) "weights"
+    let rawBias ← j.getObjValAs? (Array RawRat) "bias"
+    return { weights := rawWeights, bias := rawBias }
+
+/-- Convert RawLayer to ML.Layer -/
+def RawLayer.toLayer (r : RawLayer) : LeanCert.ML.Layer where
+  weights := r.weights.toList.map (fun row => row.toList.map RawRat.toRat)
+  bias := r.bias.toList.map RawRat.toRat
+
+/-- Request for neural network forward interval propagation -/
+structure ForwardIntervalRequest where
+  layers : Array RawLayer
+  input : Array RawInterval
+  precision : Int := -53
+  deriving Repr, Inhabited
+
+instance : FromJson ForwardIntervalRequest where
+  fromJson? j := do
+    let layers ← j.getObjValAs? (Array RawLayer) "layers"
+    let input ← j.getObjValAs? (Array RawInterval) "input"
+    let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
+    return { layers, input, precision }
+
 /-! ## 4. Request Handlers -/
 
 /-- Handle interval evaluation request -/
@@ -960,6 +995,42 @@ def handleVerifyAdaptive (req : VerifyAdaptiveRequest) : Json :=
     ("remainingBoxes", toJson result.remainingBoxes.length)
   ]
 
+/-- Handle neural network forward interval propagation request.
+
+This handler takes a sequential neural network (list of layers) and an input
+interval vector, then propagates the intervals through the network using
+verified interval arithmetic.
+
+Each layer performs: y = ReLU(W·x + b) (with ReLU for all but last layer)
+
+Returns: Array of output intervals -/
+def handleForwardInterval (req : ForwardIntervalRequest) : Json :=
+  -- Convert raw layers to ML.Layer
+  let layers : List LeanCert.ML.Layer := req.layers.toList.map RawLayer.toLayer
+
+  -- Convert raw input intervals to IntervalVector (using Dyadic)
+  let input : LeanCert.Engine.IntervalVector :=
+    req.input.toList.map (fun ri =>
+      let irat := ri.toInterval
+      Core.IntervalDyadic.ofIntervalRat irat req.precision)
+
+  -- Build SequentialNet and run forward propagation
+  let net : LeanCert.ML.Distillation.SequentialNet := { layers := layers }
+  let output := LeanCert.ML.Distillation.SequentialNet.forwardInterval net input req.precision
+
+  -- Serialize output intervals
+  let outputJson := output.map (fun I =>
+    Json.mkObj [
+      ("lo", toJson (toRawRat I.lo.toRat)),
+      ("hi", toJson (toRawRat I.hi.toRat))
+    ])
+
+  Json.mkObj [
+    ("output", Json.arr outputJson.toArray),
+    ("numLayers", toJson layers.length),
+    ("outputDim", toJson output.length)
+  ]
+
 /-! ## 5. Main Event Loop -/
 
 /-- Process a single JSON-RPC request -/
@@ -1052,6 +1123,11 @@ def processRequest (line : String) : IO Unit := do
           match fromJson? (α := VerifyAdaptiveRequest) args with
           | Except.ok req => Json.mkObj [("result", handleVerifyAdaptive req)]
           | Except.error e => Json.mkObj [("error", s!"Invalid verify_adaptive params: {e}")]
+
+        | "forward_interval" =>
+          match fromJson? (α := ForwardIntervalRequest) args with
+          | Except.ok req => Json.mkObj [("result", handleForwardInterval req)]
+          | Except.error e => Json.mkObj [("error", s!"Invalid forward_interval params: {e}")]
 
         | "ping" =>
           Json.mkObj [("result", "pong")]

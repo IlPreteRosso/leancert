@@ -1637,7 +1637,7 @@ unsafe def intervalUniqueRootCore (taylorDepth : Nat) : TacticM Unit := do
       let proofSyntax ← Term.exprToSyntax proof
       evalTactic (← `(tactic| refine (by
         have h := $proofSyntax (by native_decide)
-        simpa [IntervalRat.mem_iff_mem_Icc, sub_eq_add_neg] using h)))
+        simpa [IntervalRat.mem_iff_mem_Icc, sub_eq_add_neg, sq, pow_two] using h)))
   else
     -- Apply the proof (leaves one certificate check goal)
     let newGoals ← goal.apply proof

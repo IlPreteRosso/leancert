@@ -190,7 +190,7 @@ def intervalNormCore : TacticM Unit := do
   try
     evalTactic (← `(tactic|
       simp only [ge_iff_le, gt_iff_lt, sub_eq_add_neg, Rat.divInt_eq_div,
-        Set.mem_setOf] at *))
+        Set.mem_setOf, pow_two, sq] at *))
   catch _ =>
     pure ()
   -- Try to normalize the outermost variable to Set.Icc form.

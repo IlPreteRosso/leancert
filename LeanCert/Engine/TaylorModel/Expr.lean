@@ -175,6 +175,62 @@ noncomputable def log? (tm : TaylorModel) (degree : ℕ) : Option TaylorModel :=
            domain := tm.domain }
   | none => none
 
+/-- Check if an interval is safe for atanh: max(|lo|, |hi|) ≤ 99/100.
+    This ensures we're away from the singularities at ±1. -/
+def atanhSafe (I : IntervalRat) : Bool :=
+  max (|I.lo|) (|I.hi|) ≤ 99/100
+
+/-- Helper: absolute value is bounded by max of interval endpoints for values in interval. -/
+private theorem abs_le_interval_radius {z : ℝ} {I : IntervalRat} (hz : z ∈ I) :
+    |z| ≤ max (|(I.lo : ℝ)|) (|(I.hi : ℝ)|) := by
+  simp only [IntervalRat.mem_def] at hz
+  rcases hz with ⟨hlo, hhi⟩
+  by_cases hz_nn : 0 ≤ z
+  · -- z ≥ 0: |z| = z ≤ hi ≤ |hi|
+    rw [abs_of_nonneg hz_nn]
+    calc z ≤ (I.hi : ℝ) := hhi
+      _ ≤ |(I.hi : ℝ)| := le_abs_self _
+      _ ≤ max (|(I.lo : ℝ)|) (|(I.hi : ℝ)|) := le_max_right _ _
+  · -- z < 0: |z| = -z ≤ -lo ≤ |lo|
+    push_neg at hz_nn
+    rw [abs_of_neg hz_nn]
+    calc -z ≤ -(I.lo : ℝ) := by linarith
+      _ ≤ |(I.lo : ℝ)| := neg_le_abs _
+      _ ≤ max (|(I.lo : ℝ)|) (|(I.hi : ℝ)|) := le_max_left _ _
+
+/-- If an interval is atanh-safe, any value in the interval has |z| < 1. -/
+theorem abs_lt_one_of_atanhSafe {I : IntervalRat} (hsafe : atanhSafe I)
+    {z : ℝ} (hz : z ∈ I) : |z| < 1 := by
+  simp only [atanhSafe, decide_eq_true_eq] at hsafe
+  have hle : |z| ≤ max (|(I.lo : ℝ)|) (|(I.hi : ℝ)|) := abs_le_interval_radius hz
+  have hradius_le : max (|(I.lo : ℝ)|) (|(I.hi : ℝ)|) ≤ 99/100 := by
+    have hlo_q : |I.lo| ≤ 99/100 := le_trans (le_max_left _ _) hsafe
+    have hhi_q : |I.hi| ≤ 99/100 := le_trans (le_max_right _ _) hsafe
+    have hlo_le : |(I.lo : ℝ)| ≤ 99/100 := by
+      have h1 : |(I.lo : ℝ)| = ((|I.lo| : ℚ) : ℝ) := (Rat.cast_abs I.lo).symm
+      rw [h1]
+      calc (↑(|I.lo|) : ℝ) ≤ (↑(99/100 : ℚ) : ℝ) := by exact_mod_cast hlo_q
+        _ = 99/100 := by norm_num
+    have hhi_le : |(I.hi : ℝ)| ≤ 99/100 := by
+      have h1 : |(I.hi : ℝ)| = ((|I.hi| : ℚ) : ℝ) := (Rat.cast_abs I.hi).symm
+      rw [h1]
+      calc (↑(|I.hi|) : ℝ) ≤ (↑(99/100 : ℚ) : ℝ) := by exact_mod_cast hhi_q
+        _ = 99/100 := by norm_num
+    exact max_le hlo_le hhi_le
+  linarith
+
+/-- Interval-based atanh composition with domain check.
+    Given a TM for the argument, returns a TM that bounds atanh of the argument.
+    Returns none if the argument bound could be too close to ±1. -/
+noncomputable def atanh? (tm : TaylorModel) (degree : ℕ) : Option TaylorModel :=
+  if h : atanhSafe tm.bound then
+    some { poly := 0
+           remainder := (tmAtanh tm.bound degree).bound
+           center := tm.center
+           domain := tm.domain }
+  else
+    none
+
 /-! ### Building Taylor models from Expr -/
 
 /-- Convert an expression to a Taylor model (total builder used for examples). -/
@@ -255,7 +311,9 @@ noncomputable def fromExpr? (e : Expr) (domain : IntervalRat) (degree : ℕ) :
       log? tm degree
   | Expr.atan _ => none  -- Not supported: atan evalSet proof incomplete
   | Expr.arsinh _ => none  -- Not supported: arsinh evalSet proof incomplete
-  | Expr.atanh _ => none  -- Not supported: atanh evalSet proof incomplete
+  | Expr.atanh e => do
+      let tm ← fromExpr? e domain degree
+      atanh? tm degree
   | Expr.sinc _ => none  -- Not supported: sinc evalSet proof incomplete
   | Expr.erf _ => none  -- Not supported: erf evalSet proof incomplete
   | Expr.sinh e => do
@@ -369,9 +427,16 @@ theorem fromExpr?_center (e : Expr) (domain : IntervalRat) (degree : ℕ)
   | arsinh _ _ =>
       intro tm h
       simp [TaylorModel.fromExpr?] at h
-  | atanh _ _ =>
+  | atanh e ih =>
       intro tm h
-      simp [TaylorModel.fromExpr?] at h
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp only [TaylorModel.fromExpr?, h0, bind, Option.bind_some] at h
+        unfold TaylorModel.atanh? at h
+        split at h
+        · simp only [Option.some.injEq] at h; subst h; exact ih degree tm0 h0
+        · simp_all
   | sinc _ _ =>
       intro tm h
       simp [TaylorModel.fromExpr?] at h
@@ -622,6 +687,36 @@ theorem tanh_evalSet_correct
         (f x) hfbound
   · simp only [Polynomial.aeval_zero]; ring
 
+/-- atanh preserves evalSet membership when atanh? succeeds. -/
+theorem atanh_evalSet_correct'
+    (f : ℝ → ℝ) (tm result : TaylorModel) (degree : ℕ)
+    (hf : ∀ x ∈ tm.domain, f x ∈ tm.evalSet x)
+    (hatanh : atanh? tm degree = some result) :
+    ∀ x ∈ tm.domain, Real.atanh (f x) ∈ result.evalSet x := by
+  intro x hx
+  -- Extract that the domain is safe from the fact that atanh? succeeded
+  unfold atanh? at hatanh
+  split at hatanh
+  · rename_i hsafe
+    simp only [Option.some.injEq] at hatanh
+    subst hatanh
+    simp only [evalSet, Set.mem_setOf_eq]
+    refine ⟨Real.atanh (f x), ?_, ?_⟩
+    · have hfbound : f x ∈ tm.bound := taylorModel_correct tm f hf x hx
+      have hsafe_bound : max (|tm.bound.lo|) (|tm.bound.hi|) ≤ 99/100 := by
+        simp only [atanhSafe, decide_eq_true_eq] at hsafe
+        exact_mod_cast hsafe
+      have habs : |f x| < 1 := abs_lt_one_of_atanhSafe hsafe hfbound
+      have hdomain : (tmAtanh tm.bound degree).domain = tm.bound := rfl
+      have hfx_in_dom : f x ∈ (tmAtanh tm.bound degree).domain := hdomain ▸ hfbound
+      have hatanh_bound : Real.atanh (f x) ∈ (tmAtanh tm.bound degree).bound := by
+        apply taylorModel_correct (tmAtanh tm.bound degree) Real.atanh
+          (fun z hz => tmAtanh_correct tm.bound degree hsafe_bound z hz
+            (abs_lt_one_of_atanhSafe hsafe hz)) (f x) hfx_in_dom
+      exact hatanh_bound
+    · simp only [Polynomial.aeval_zero]; ring
+  · simp at hatanh
+
 end TaylorModel
 
 /-! ### Main fromExpr correctness -/
@@ -706,9 +801,16 @@ theorem fromExpr?_domain (e : Expr) (domain : IntervalRat) (degree : ℕ)
   | arsinh _ _ =>
       intro tm h
       simp [TaylorModel.fromExpr?] at h
-  | atanh _ _ =>
+  | atanh e ih =>
       intro tm h
-      simp [TaylorModel.fromExpr?] at h
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp only [TaylorModel.fromExpr?, h0, bind, Option.bind_some] at h
+        unfold TaylorModel.atanh? at h
+        split at h
+        · simp only [Option.some.injEq] at h; subst h; exact ih degree tm0 h0
+        · simp_all
   | sinc _ _ =>
       intro tm h
       simp [TaylorModel.fromExpr?] at h
@@ -883,8 +985,22 @@ theorem fromExpr_evalSet_correct (e : Expr) (domain : IntervalRat) (degree : ℕ
       simp [TaylorModel.fromExpr?] at h
   | arsinh _ _ =>
       simp [TaylorModel.fromExpr?] at h
-  | atanh _ _ =>
-      simp [TaylorModel.fromExpr?] at h
+  | atanh e ih =>
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp only [TaylorModel.fromExpr?, h0, bind, Option.bind_some] at h
+        cases hatanh : TaylorModel.atanh? tm0 degree with
+        | none => simp [hatanh] at h
+        | some result =>
+          simp only [hatanh, Option.some.injEq] at h
+          subst h
+          have hd0 := fromExpr?_domain e domain degree tm0 h0
+          intro x hx
+          simp only [Expr.eval_atanh]
+          have hx0 : x ∈ tm0.domain := hd0 ▸ hx
+          exact TaylorModel.atanh_evalSet_correct' (fun y => Expr.eval (fun _ => y) e) tm0 result degree
+            (hd0.symm ▸ ih degree tm0 h0) hatanh x hx0
   | sinc _ _ =>
       simp [TaylorModel.fromExpr?] at h
   | erf _ _ =>
