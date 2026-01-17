@@ -6,6 +6,9 @@ Authors: LeanCert Contributors
 import LeanCert.Engine.TaylorModel.Core
 import LeanCert.Contrib.Sinc
 import Mathlib.Analysis.Complex.ExponentialBounds
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.Series
+import Mathlib.Analysis.Calculus.IteratedDeriv.Defs
+import Mathlib.Analysis.Analytic.Uniqueness
 
 /-!
 # Taylor Models - Trigonometric Functions
@@ -462,22 +465,130 @@ theorem contDiff_sinc : ContDiff ℝ ⊤ Real.sinc := Real.contDiff_sinc
     - For odd n: 0 (sinc is even, so odd derivatives at 0 vanish)
     - For even n = 2k: (-1)^k * (2k)! / (2k+1)!  = (-1)^k / (2k+1)
 
-    This matches the coefficients in sincTaylorCoeffs times n!. -/
+    This matches the coefficients in sincTaylorCoeffs times n!.
+
+    The proof uses the recurrence: (n+1) * sinc^{(n)}(0) = sin^{(n+1)}(0),
+    which follows from differentiating x * sinc(x) = sin(x). -/
 theorem iteratedDeriv_sinc_zero (n : ℕ) :
     iteratedDeriv n Real.sinc 0 = if n % 2 = 0 then
       let k := n / 2
       ((-1 : ℝ) ^ k) / ((2 * k + 1) : ℕ)
     else 0 := by
-  -- The proof uses the fact that sinc is an even function, so odd derivatives at 0 vanish.
-  -- The even derivative pattern comes from differentiating the power series term by term.
-  induction n with
-  | zero =>
-    simp only [iteratedDeriv_zero, Real.sinc_zero, Nat.zero_mod, ↓reduceIte, Nat.zero_div,
-      pow_zero, Nat.mul_zero, Nat.zero_add, Nat.cast_one, div_one]
-  | succ n _ =>
-    -- This requires explicit computation of iterated derivatives.
-    -- sinc^(n)(0) follows the pattern from the Taylor series.
-    sorry
+  -- The recurrence: (n+1) * sinc^{(n)}(0) = sin^{(n+1)}(0)
+  -- This follows from: d^{n+1}/dx^{n+1}(x * sinc(x))|_0 = (n+1) * sinc^{(n)}(0) by Leibniz
+  -- And x * sinc(x) = sin(x)
+  have h_recurrence : ∀ m : ℕ, ((m : ℝ) + 1) * iteratedDeriv m Real.sinc 0 = iteratedDeriv (m + 1) Real.sin 0 := by
+    intro m
+    have h_eq : ∀ x, x * Real.sinc x = Real.sin x := fun x => by
+      by_cases hx : x = 0
+      · simp [hx, Real.sinc_zero]
+      · rw [Real.sinc_of_ne_zero hx]; field_simp
+    have h_deriv_eq : ∀ k x, iteratedDeriv k (fun y => y * Real.sinc y) x = iteratedDeriv k Real.sin x := by
+      intro k x; congr 1; exact funext h_eq
+    -- Prove: iteratedDeriv (m+1) (x * sinc) 0 = (m+1) * sinc^{(m)}(0) by induction
+    suffices h : iteratedDeriv (m + 1) (fun y => y * Real.sinc y) 0 = (m + 1 : ℝ) * iteratedDeriv m Real.sinc 0 by
+      rw [← h_deriv_eq (m + 1) 0, h]
+    induction m with
+    | zero =>
+      simp only [iteratedDeriv_zero, zero_add]
+      rw [iteratedDeriv_one]
+      have hd : HasDerivAt (fun y => y * Real.sinc y) (Real.sinc (0:ℝ) + (0:ℝ) * deriv Real.sinc (0:ℝ)) (0:ℝ) := by
+        have h1 : HasDerivAt (fun y : ℝ => y) 1 (0:ℝ) := hasDerivAt_id (0:ℝ)
+        have h2 : HasDerivAt Real.sinc (deriv Real.sinc (0:ℝ)) (0:ℝ) :=
+          Real.differentiable_sinc.differentiableAt.hasDerivAt
+        convert h1.mul h2 using 1; ring
+      simp only [zero_mul, add_zero] at hd
+      rw [hd.deriv]
+      simp only [Real.sinc_zero]; ring
+    | succ m ihm =>
+      have hcd : ContDiff ℝ ⊤ Real.sinc := Real.contDiff_sinc
+      -- Prove: iteratedDeriv (k+1) (x*sinc) x = x * sinc^{(k+1)}(x) + (k+1) * sinc^{(k)}(x)
+      have h_formula : ∀ k : ℕ, ∀ x : ℝ,
+          iteratedDeriv (k + 1) (fun y => y * Real.sinc y) x =
+          x * iteratedDeriv (k + 1) Real.sinc x + (k + 1 : ℝ) * iteratedDeriv k Real.sinc x := by
+        intro k
+        induction k with
+        | zero =>
+          intro x
+          rw [iteratedDeriv_one, iteratedDeriv_zero]
+          have hd : deriv (fun y => y * Real.sinc y) x = Real.sinc x + x * deriv Real.sinc x := by
+            have h1 : HasDerivAt (fun y : ℝ => y) 1 x := hasDerivAt_id x
+            have h2 : HasDerivAt Real.sinc (deriv Real.sinc x) x :=
+              Real.differentiable_sinc.differentiableAt.hasDerivAt
+            have := (h1.mul h2).deriv
+            simp only [one_mul] at this
+            exact this
+          rw [hd, iteratedDeriv_one]
+          ring
+        | succ k ihk =>
+          intro x
+          rw [iteratedDeriv_succ]
+          have hfunc : iteratedDeriv (k + 1) (fun y => y * Real.sinc y) =
+              fun y => y * iteratedDeriv (k + 1) Real.sinc y + (k + 1 : ℝ) * iteratedDeriv k Real.sinc y :=
+            funext ihk
+          rw [hfunc]
+          -- Need: deriv (y * f(y) + c * g(y)) = f + y * f' + c * g'
+          have hdiff1 : DifferentiableAt ℝ (fun y => y * iteratedDeriv (k + 1) Real.sinc y) x :=
+            differentiableAt_id.mul (hcd.differentiable_iteratedDeriv (k + 1) (by simp)).differentiableAt
+          have hdiff2 : DifferentiableAt ℝ (fun y => (k + 1 : ℝ) * iteratedDeriv k Real.sinc y) x :=
+            (hcd.differentiable_iteratedDeriv k (by simp)).differentiableAt.const_mul _
+          have hd1 : deriv (fun y => y * iteratedDeriv (k + 1) Real.sinc y) x =
+              iteratedDeriv (k + 1) Real.sinc x + x * deriv (iteratedDeriv (k + 1) Real.sinc) x := by
+            have h1 : HasDerivAt (fun y : ℝ => y) 1 x := hasDerivAt_id x
+            have h2 : HasDerivAt (iteratedDeriv (k + 1) Real.sinc) _ x :=
+              (hcd.differentiable_iteratedDeriv (k + 1) (by simp)).differentiableAt.hasDerivAt
+            have := (h1.mul h2).deriv
+            simp only [one_mul] at this
+            exact this
+          have hd2 : deriv (fun y => (k + 1 : ℝ) * iteratedDeriv k Real.sinc y) x =
+              (k + 1 : ℝ) * deriv (iteratedDeriv k Real.sinc) x := by
+            have h : HasDerivAt (iteratedDeriv k Real.sinc) _ x :=
+              (hcd.differentiable_iteratedDeriv k (by simp)).differentiableAt.hasDerivAt
+            exact (h.const_mul (k + 1 : ℝ)).deriv
+          calc deriv (fun y => y * iteratedDeriv (k + 1) Real.sinc y +
+                        (k + 1 : ℝ) * iteratedDeriv k Real.sinc y) x
+              = deriv (fun y => y * iteratedDeriv (k + 1) Real.sinc y) x +
+                deriv (fun y => (k + 1 : ℝ) * iteratedDeriv k Real.sinc y) x := by
+                apply deriv_add hdiff1 hdiff2
+            _ = (iteratedDeriv (k + 1) Real.sinc x + x * deriv (iteratedDeriv (k + 1) Real.sinc) x) +
+                (k + 1 : ℝ) * deriv (iteratedDeriv k Real.sinc) x := by
+                rw [hd1, hd2]
+            _ = (iteratedDeriv (k + 1) Real.sinc x + x * iteratedDeriv (k + 2) Real.sinc x) +
+                (k + 1 : ℝ) * iteratedDeriv (k + 1) Real.sinc x := by
+                simp only [← iteratedDeriv_succ]
+            _ = x * iteratedDeriv (k + 1 + 1) Real.sinc x + (↑(k + 1) + 1) * iteratedDeriv (k + 1) Real.sinc x := by
+                push_cast; ring
+      -- Use h_formula at 0 for m+1
+      have hkey := h_formula (m + 1) 0
+      simp only [zero_mul, zero_add] at hkey
+      exact hkey
+  -- Now use the recurrence
+  by_cases hn : n % 2 = 0
+  · -- n is even
+    simp only [hn, ↓reduceIte]
+    obtain ⟨k, hk⟩ : ∃ k, n = 2 * k := ⟨n / 2, by omega⟩
+    subst hk
+    simp only [Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+    have hr := h_recurrence (2 * k)
+    have hodd : (2 * k + 1) % 2 = 1 := by omega
+    rw [iteratedDeriv_sin_zero_odd hodd] at hr
+    have hexp : ((2 * k + 1 - 1) / 2) = k := by omega
+    rw [hexp] at hr
+    -- hr : (↑(2 * k) + 1) * iteratedDeriv (2 * k) Real.sinc 0 = (-1) ^ k
+    -- Goal: iteratedDeriv (2 * k) Real.sinc 0 = (-1) ^ k / ↑(2 * k + 1)
+    have h2k1_ne : ((2 * k + 1 : ℕ) : ℝ) ≠ 0 := by positivity
+    have hcast : ((2 * k : ℕ) : ℝ) + 1 = ((2 * k + 1 : ℕ) : ℝ) := by push_cast; ring
+    rw [hcast] at hr
+    field_simp [h2k1_ne] at hr ⊢
+    linarith
+  · -- n is odd
+    simp only [hn, ↓reduceIte]
+    have hr := h_recurrence n
+    have heven : (n + 1) % 2 = 0 := by omega
+    rw [iteratedDeriv_sin_zero_even heven] at hr
+    -- hr : (↑n + 1) * iteratedDeriv n Real.sinc 0 = 0
+    have hn_ne : ((n : ℝ) + 1) ≠ 0 := by positivity
+    exact mul_eq_zero.mp hr |>.resolve_left hn_ne
 
 /-- The sincTaylorCoeffs match the Taylor coefficients for sinc at 0 -/
 theorem sincTaylorCoeffs_eq_iteratedDeriv (n i : ℕ) (hi : i ≤ n) :
@@ -488,7 +599,22 @@ theorem sincTaylorCoeffs_eq_iteratedDeriv (n i : ℕ) (hi : i ≤ n) :
     rw [iteratedDeriv_sinc_zero]
     simp only [heven, ↓reduceIte]
     -- The coefficients match: (-1)^k / (2k+1)! = ((-1)^k / (2k+1)) / (2k)!
-    sorry
+    -- This follows from (2k+1)! = (2k+1) * (2k)!
+    obtain ⟨k, hk⟩ : ∃ k, i = 2 * k := ⟨i / 2, by omega⟩
+    subst hk
+    simp only [Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+    -- LHS: ↑((-1)^k / (2k+1)! : ℚ)  RHS: ((-1)^k / (2k+1)) / (2k)!
+    have hfact : (2 * k + 1).factorial = (2 * k + 1) * (2 * k).factorial := Nat.factorial_succ (2 * k)
+    -- Simplify LHS in ℚ first: (-1)^k / (2k+1)! = (-1)^k / ((2k+1) * (2k)!)
+    have lhs_eq : ((-1 : ℚ) ^ k / ((2 * k + 1).factorial : ℕ) : ℚ) =
+        (-1 : ℚ) ^ k / ((2 * k + 1 : ℕ) * (2 * k).factorial) := by
+      rw [hfact]; push_cast; rfl
+    rw [lhs_eq]
+    -- Now both sides are in similar form, convert to ℝ and simplify
+    have h2k_fact_ne : ((2 * k).factorial : ℝ) ≠ 0 := by positivity
+    have h2k1_ne : ((2 * k + 1 : ℕ) : ℝ) ≠ 0 := by positivity
+    push_cast
+    field_simp
   · have hodd : i % 2 = 1 := by omega
     simp only [heven]; norm_num
     rw [iteratedDeriv_sinc_zero]
@@ -514,20 +640,32 @@ theorem sincTaylorPoly_aeval_eq (n : ℕ) (z : ℝ) :
     Mathematical justification:
     - For n = 0: |sinc x| ≤ 1 (proven in Mathlib as abs_sinc_le_one)
     - For n = 1: |sinc' x| ≤ 1 (proven in LeanCert.Contrib.Sinc as abs_deriv_sinc_le_one)
-    - For n ≥ 2: The pattern continues; the derivatives of sinc involve
-      bounded combinations of sin and cos divided by powers of x, and the
-      limiting behavior at x = 0 is well-behaved due to analyticity.
+    - For n ≥ 2: Using the integral representation sinc(x) = ∫ t in 0..1, cos(t*x) dt,
+      the n-th derivative is sinc^(n)(x) = ∫ t in 0..1, t^n * d^n cos(t*x)/dx^n dt.
+      Since |d^n cos(t*x)/dx^n| ≤ t^n, we have |sinc^(n)(x)| ≤ ∫ t^n dt = 1/(n+1) ≤ 1.
 
     The uniform bound of 1 is conservative for higher derivatives but sufficient
     for the Taylor remainder estimate. -/
 theorem sinc_deriv_bound (n : ℕ) :
     ∀ x : ℝ, ‖iteratedDeriv n Real.sinc x‖ ≤ 1 := by
   intro x
-  -- Base cases are proven:
-  -- n = 0: Real.abs_sinc_le_one
-  -- n = 1: Real.abs_deriv_sinc_le_one
-  -- Higher derivatives require more detailed analysis of the sinc derivative structure.
-  sorry
+  match n with
+  | 0 =>
+    -- |sinc x| ≤ 1
+    simp only [iteratedDeriv_zero, Real.norm_eq_abs]
+    exact Real.abs_sinc_le_one x
+  | 1 =>
+    -- |sinc' x| ≤ 1
+    simp only [iteratedDeriv_one, Real.norm_eq_abs]
+    exact Real.abs_deriv_sinc_le_one x
+  | n + 2 =>
+    -- For n ≥ 2: The bound follows from the integral representation of sinc.
+    -- sinc(x) = ∫ t in 0..1, cos(t*x) dt
+    -- sinc^(k)(x) = ∫ t in 0..1, t^k * d^k cos(t*x)/dx^k dt
+    -- Since |d^k cos(t*x)/dx^k| = t^k |cos/sin(t*x + kπ/2)| ≤ t^k, we get:
+    -- |sinc^(k)(x)| ≤ ∫ t in 0..1, t^k dt = 1/(k+1) ≤ 1
+    -- Full formal proof requires Leibniz rule under integral, deferred for now.
+    sorry
 
 /-- sinc z ∈ (tmSinc J n).evalSet z for all z in J.
     Uses taylor_remainder_bound with f = Real.sinc, c = 0, M = 1. -/
