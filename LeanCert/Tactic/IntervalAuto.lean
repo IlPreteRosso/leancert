@@ -1148,6 +1148,10 @@ where
               if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
               -- Handle power expansion (x^2 = x*x, x^3 = x*x*x, etc.)
               if ← tryClose (evalTactic (← `(tactic| simp only [sq, pow_two, pow_succ, pow_zero, pow_one, one_mul, mul_one]))) then continue
+              -- Handle Expr.eval unfolding - unfolds Expr.eval to raw arithmetic, then uses ring to close
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              -- Same but with push_cast for rational coercion issues
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
               -- Handle decimal bounds (2.72 = ↑(Rat.divInt 68 25))
               -- norm_num converts 2.72 to 68/25, then simp+push_cast closes the equality
               if ← tryClose (evalTactic (← `(tactic| norm_num; simp only [Rat.divInt_eq_div]; push_cast; rfl))) then continue
@@ -1164,11 +1168,45 @@ where
             mkAppM ``verify_upper_bound_withInv #[ast, supportProof, intervalInfo.intervalRat, boundRat]
           else
             mkAppM ``verify_upper_bound #[ast, supportProof, intervalInfo.intervalRat, boundRat, cfgExpr]
-          let newGoals ← goal.apply proof
-          setGoals newGoals
-          for g in newGoals do
-            setGoals [g]
+          -- Try direct apply first
+          setGoals [goal]
+          try
+            let newGoals ← goal.apply proof
+            setGoals newGoals
+            for g in newGoals do
+              setGoals [g]
+              evalTactic (← `(tactic| native_decide))
+          catch _ =>
+            -- Apply failed, use convert
+            setGoals [goal]
+            let checkExpr ← if useWithInv then
+              mkAppM ``LeanCert.Validity.checkUpperBoundWithInv #[ast, intervalInfo.intervalRat, boundRat]
+            else
+              mkAppM ``LeanCert.Validity.checkUpperBound #[ast, intervalInfo.intervalRat, boundRat, cfgExpr]
+            let certTy ← mkAppM ``Eq #[checkExpr, mkConst ``Bool.true]
+            let certGoal ← mkFreshExprMVar certTy
+            let certGoalId := certGoal.mvarId!
+            setGoals [certGoalId]
             evalTactic (← `(tactic| native_decide))
+            let certProof := certGoal
+            let conclusionProof ← mkAppM' proof #[certProof]
+            let conclusionTerm ← Lean.Elab.Term.exprToSyntax conclusionProof
+            setGoals [goal]
+            evalTactic (← `(tactic| convert ($conclusionTerm) using 3))
+            let goals ← getGoals
+            for g in goals do
+              setGoals [g]
+              let tryClose (tac : TacticM Unit) : TacticM Bool := do
+                try
+                  tac
+                  return (← getGoals).isEmpty
+                catch _ => return false
+              if ← tryClose (evalTactic (← `(tactic| rfl))) then continue
+              if ← tryClose (evalTactic (← `(tactic| norm_cast))) then continue
+              if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
+              logWarning m!"interval_bound: Could not close side goal: {← g.getType}"
 
   /-- Prove ∀ x ∈ I, c ≤ f x -/
   proveForallGe (goal : MVarId) (intervalInfo : IntervalInfo) (func bound : Lean.Expr)
@@ -1253,6 +1291,10 @@ where
               if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
               -- Handle power expansion (x^2 = x*x, x^3 = x*x*x, etc.)
               if ← tryClose (evalTactic (← `(tactic| simp only [sq, pow_two, pow_succ, pow_zero, pow_one, one_mul, mul_one]))) then continue
+              -- Handle Expr.eval unfolding - unfolds Expr.eval to raw arithmetic, then uses ring to close
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              -- Same but with push_cast for rational coercion issues
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
               -- Handle decimal bounds (2.72 = ↑(Rat.divInt 68 25)) - fallback tactics
               if ← tryClose (evalTactic (← `(tactic| simp only [Rat.divInt_eq_div]; push_cast; rfl))) then continue
               if ← tryClose (evalTactic (← `(tactic| simp [Rat.divInt_eq_div]))) then continue
@@ -1266,11 +1308,45 @@ where
             mkAppM ``verify_lower_bound_withInv #[ast, supportProof, intervalInfo.intervalRat, boundRat]
           else
             mkAppM ``verify_lower_bound #[ast, supportProof, intervalInfo.intervalRat, boundRat, cfgExpr]
-          let newGoals ← goal.apply proof
-          setGoals newGoals
-          for g in newGoals do
-            setGoals [g]
+          -- Try direct apply first
+          setGoals [goal]
+          try
+            let newGoals ← goal.apply proof
+            setGoals newGoals
+            for g in newGoals do
+              setGoals [g]
+              evalTactic (← `(tactic| native_decide))
+          catch _ =>
+            -- Apply failed, use convert
+            setGoals [goal]
+            let checkExpr ← if useWithInv then
+              mkAppM ``LeanCert.Validity.checkLowerBoundWithInv #[ast, intervalInfo.intervalRat, boundRat]
+            else
+              mkAppM ``LeanCert.Validity.checkLowerBound #[ast, intervalInfo.intervalRat, boundRat, cfgExpr]
+            let certTy ← mkAppM ``Eq #[checkExpr, mkConst ``Bool.true]
+            let certGoal ← mkFreshExprMVar certTy
+            let certGoalId := certGoal.mvarId!
+            setGoals [certGoalId]
             evalTactic (← `(tactic| native_decide))
+            let certProof := certGoal
+            let conclusionProof ← mkAppM' proof #[certProof]
+            let conclusionTerm ← Lean.Elab.Term.exprToSyntax conclusionProof
+            setGoals [goal]
+            evalTactic (← `(tactic| convert ($conclusionTerm) using 3))
+            let goals ← getGoals
+            for g in goals do
+              setGoals [g]
+              let tryClose (tac : TacticM Unit) : TacticM Bool := do
+                try
+                  tac
+                  return (← getGoals).isEmpty
+                catch _ => return false
+              if ← tryClose (evalTactic (← `(tactic| rfl))) then continue
+              if ← tryClose (evalTactic (← `(tactic| norm_cast))) then continue
+              if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
+              logWarning m!"interval_bound: Could not close side goal: {← g.getType}"
 
   /-- Prove ∀ x ∈ I, f x < c -/
   proveForallLt (goal : MVarId) (intervalInfo : IntervalInfo) (func bound : Lean.Expr)
@@ -1355,6 +1431,10 @@ where
               if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
               -- Handle power expansion (x^2 = x*x, x^3 = x*x*x, etc.)
               if ← tryClose (evalTactic (← `(tactic| simp only [sq, pow_two, pow_succ, pow_zero, pow_one, one_mul, mul_one]))) then continue
+              -- Handle Expr.eval unfolding - unfolds Expr.eval to raw arithmetic, then uses ring to close
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              -- Same but with push_cast for rational coercion issues
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
               -- Handle decimal bounds - fallback tactics
               if ← tryClose (evalTactic (← `(tactic| simp only [Rat.divInt_eq_div]; push_cast; rfl))) then continue
               if ← tryClose (evalTactic (← `(tactic| simp [Rat.divInt_eq_div]))) then continue
@@ -1463,6 +1543,10 @@ where
               if ← tryClose (evalTactic (← `(tactic| norm_num))) then continue
               -- Handle power expansion (x^2 = x*x, x^3 = x*x*x, etc.)
               if ← tryClose (evalTactic (← `(tactic| simp only [sq, pow_two, pow_succ, pow_zero, pow_one, one_mul, mul_one]))) then continue
+              -- Handle Expr.eval unfolding - unfolds Expr.eval to raw arithmetic, then uses ring to close
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; ring))) then continue
+              -- Same but with push_cast for rational coercion issues
+              if ← tryClose (evalTactic (← `(tactic| simp only [LeanCert.Core.Expr.eval_add, LeanCert.Core.Expr.eval_mul, LeanCert.Core.Expr.eval_neg, LeanCert.Core.Expr.eval_const, LeanCert.Core.Expr.eval_var, LeanCert.Core.Expr.eval_sin, LeanCert.Core.Expr.eval_cos, LeanCert.Core.Expr.eval_exp, LeanCert.Core.Expr.eval_sub]; push_cast; ring))) then continue
               -- Handle decimal bounds - fallback tactics
               if ← tryClose (evalTactic (← `(tactic| simp only [Rat.divInt_eq_div]; push_cast; rfl))) then continue
               if ← tryClose (evalTactic (← `(tactic| simp [Rat.divInt_eq_div]))) then continue
