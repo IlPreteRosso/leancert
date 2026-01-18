@@ -3143,10 +3143,29 @@ def intervalDecideCore (taylorDepth : Nat) : TacticM Unit := do
     with a variable `x` in the expression.
 -/
 elab "interval_decide" depth:(num)? : tactic => do
-  let taylorDepth := match depth with
-    | some n => n.getNat
-    | none => 10
-  intervalDecideCore taylorDepth
+  match depth with
+  | some n =>
+    -- Fixed depth specified by user
+    intervalDecideCore n.getNat
+  | none =>
+    -- Adaptive: try increasing depths until success
+    let depths := [10, 15, 20, 25, 30]
+    let goalState ← saveState
+    let mut lastError : Option Exception := none
+    for d in depths do
+      try
+        restoreState goalState
+        trace[interval_decide] "Trying Taylor depth {d}..."
+        intervalDecideCore d
+        trace[interval_decide] "Success with Taylor depth {d}"
+        return  -- Success!
+      catch e =>
+        lastError := some e
+        continue
+    -- All depths failed
+    match lastError with
+    | some e => throw e
+    | none => throwError "interval_decide: failed at all depth levels"
 
 /-! ## Subdivision-aware bound proving
 
