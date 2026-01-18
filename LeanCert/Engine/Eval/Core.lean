@@ -94,6 +94,17 @@ theorem mem_atanInterval {x : ℝ} {I : IntervalRat} (_hx : x ∈ I) :
   have hpi_hi : Real.pi / 2 < (2 : ℝ) := by linarith
   constructor <;> linarith
 
+/-- Simple interval bound for erf.
+    Since erf x ∈ (-1, 1) for all x, we use the global bound [-1, 1]. -/
+def erfInterval (_I : IntervalRat) : IntervalRat :=
+  ⟨-1, 1, by norm_num⟩
+
+/-- Correctness of erf interval: erf x ∈ [-1, 1] for all x -/
+theorem mem_erfInterval {x : ℝ} {I : IntervalRat} (_hx : x ∈ I) :
+    Real.erf x ∈ erfInterval I := by
+  simp only [IntervalRat.mem_def, erfInterval, Rat.cast_neg, Rat.cast_one]
+  exact ⟨Real.neg_one_le_erf x, Real.erf_le_one x⟩
+
 /-- Simple interval bound for arsinh.
     arsinh is unbounded, so we use a very rough linear bound.
     We use max(|lo|, |hi|) + 1 as a safe bound that always works. -/

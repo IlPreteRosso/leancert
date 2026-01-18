@@ -193,6 +193,15 @@ noncomputable def atan? (tm : TaylorModel) : Option TaylorModel :=
          center := tm.center
          domain := tm.domain }
 
+/-- Interval-based erf composition.
+    Given a TM for the argument, returns a TM that bounds erf of the argument.
+    Uses erfInterval for the interval bound ([-1, 1]). -/
+noncomputable def erf? (tm : TaylorModel) : Option TaylorModel :=
+  some { poly := 0
+         remainder := erfInterval tm.bound
+         center := tm.center
+         domain := tm.domain }
+
 /-- Check if an interval is safe for atanh: max(|lo|, |hi|) ≤ 99/100.
     This ensures we're away from the singularities at ±1. -/
 def atanhSafe (I : IntervalRat) : Bool :=
@@ -341,7 +350,9 @@ noncomputable def fromExpr? (e : Expr) (domain : IntervalRat) (degree : ℕ) :
   | Expr.sinc e => do
       let tm ← fromExpr? e domain degree
       pure <| sinc tm degree
-  | Expr.erf _ => none  -- Not supported: erf evalSet proof incomplete
+  | Expr.erf e => do
+      let tm ← fromExpr? e domain degree
+      erf? tm
   | Expr.sinh e => do
       let tm ← fromExpr? e domain degree
       pure <| sinh tm degree
@@ -485,9 +496,16 @@ theorem fromExpr?_center (e : Expr) (domain : IntervalRat) (degree : ℕ)
         simp [TaylorModel.fromExpr?, h0] at h
         cases h
         simp [TaylorModel.sinc, ih degree tm0 h0]
-  | erf _ _ =>
+  | erf e ih =>
       intro tm h
-      simp [TaylorModel.fromExpr?] at h
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp [TaylorModel.fromExpr?, h0] at h
+        unfold TaylorModel.erf? at h
+        simp only [Option.some.injEq] at h
+        cases h
+        exact ih degree tm0 h0
   | sinh e ih =>
       intro tm h
       cases h0 : TaylorModel.fromExpr? e domain degree with
@@ -917,9 +935,16 @@ theorem fromExpr?_domain (e : Expr) (domain : IntervalRat) (degree : ℕ)
         simp [TaylorModel.fromExpr?, h0] at h
         cases h
         simp [TaylorModel.sinc, ih degree tm0 h0]
-  | erf _ _ =>
+  | erf e ih =>
       intro tm h
-      simp [TaylorModel.fromExpr?] at h
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp [TaylorModel.fromExpr?, h0] at h
+        unfold TaylorModel.erf? at h
+        simp only [Option.some.injEq] at h
+        cases h
+        exact ih degree tm0 h0
   | sinh e ih =>
       intro tm h
       cases h0 : TaylorModel.fromExpr? e domain degree with
@@ -1148,8 +1173,25 @@ theorem fromExpr_evalSet_correct (e : Expr) (domain : IntervalRat) (degree : ℕ
         have hx0 : x ∈ tm0.domain := hd0 ▸ hx
         exact TaylorModel.sinc_evalSet_correct (fun y => Expr.eval (fun _ => y) e) tm0 degree
           (hd0.symm ▸ ih degree tm0 h0) x hx0
-  | erf _ _ =>
-      simp [TaylorModel.fromExpr?] at h
+  | erf e ih =>
+      cases h0 : TaylorModel.fromExpr? e domain degree with
+      | none => simp [TaylorModel.fromExpr?, h0] at h
+      | some tm0 =>
+        simp [TaylorModel.fromExpr?, h0] at h
+        unfold TaylorModel.erf? at h
+        simp only [Option.some.injEq] at h
+        subst h
+        have hd0 := fromExpr?_domain e domain degree tm0 h0
+        intro x hx
+        simp only [Expr.eval_erf]
+        have hx0 : x ∈ tm0.domain := hd0 ▸ hx
+        have h_arg_in_bound : Expr.eval (fun _ => x) e ∈ tm0.bound :=
+          taylorModel_correct tm0 (fun y => Expr.eval (fun _ => y) e) (hd0.symm ▸ ih degree tm0 h0) x hx0
+        simp only [TaylorModel.evalSet, Set.mem_setOf_eq]
+        refine ⟨Real.erf (Expr.eval (fun _ => x) e), ?_, ?_⟩
+        · -- erf of argument is in erfInterval
+          exact mem_erfInterval h_arg_in_bound
+        · simp only [Polynomial.aeval_zero]; ring
   | sinh e ih =>
       cases h0 : TaylorModel.fromExpr? e domain degree with
       | none => simp [TaylorModel.fromExpr?, h0] at h
