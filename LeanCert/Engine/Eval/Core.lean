@@ -146,10 +146,8 @@ theorem Real.strictMono_erf : StrictMono Real.erf := by
 private theorem mem_erfScaled (q : ℚ) (n : ℕ) :
     Real.erf q ∈ IntervalRat.mul IntervalRat.two_div_sqrt_pi
       (IntervalRat.add (IntervalRat.evalTaylorSeries (IntervalRat.erfTaylorCoeffs n) (IntervalRat.singleton q))
-                       (IntervalRat.erfRemainderBoundComputable (IntervalRat.singleton q) n)) := by
-  -- This requires proving the Taylor series with remainder contains erf(q)/(2/√π),
-  -- then using mem_mul with two_div_sqrt_pi_mem
-  sorry
+                       (IntervalRat.erfRemainderBoundComputable (IntervalRat.singleton q) n)) :=
+  IntervalRat.mem_erfScaled' q n
 
 /-- Correctness of erfPointComputable via Taylor series.
     For any rational q, erf(q) is contained in the interval erfPointComputable(q, n).
