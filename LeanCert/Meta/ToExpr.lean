@@ -232,6 +232,22 @@ where
       | some qnum, some qden => return some (qnum / qden)
       | _, _ => return none
 
+    -- OfScientific.ofScientific α inst mantissa exponentSign decimalExponent
+    -- Represents: mantissa * 10^(if exponentSign then -decimalExponent else decimalExponent)
+    -- E.g., 2.5 = 25 * 10^(-1) → mantissa=25, exponentSign=true, decimalExponent=1
+    | OfScientific.ofScientific _ _ mantissa exponentSign decimalExponent =>
+      let some m := mantissa.rawNatLit?
+        | return none
+      let some exp := decimalExponent.rawNatLit?
+        | return none
+      -- Check exponentSign: true means negative exponent (like 2.5 = 25e-1)
+      let isNegExp := exponentSign.constName? == some ``Bool.true
+      let base10 : ℚ := (10 : ℚ) ^ exp
+      if isNegExp then
+        return some ((m : ℚ) / base10)  -- e.g., 25 / 10 = 2.5
+      else
+        return some ((m : ℚ) * base10)  -- e.g., 25 * 10 = 250
+
     | _ => return none
 
 /-! ## Main Reification Loop

@@ -3205,32 +3205,12 @@ def intervalDecideCore (taylorDepth : Nat) : TacticM Unit := do
               ```\n\
               Replace `f x` with your expression (using `x` instead of `{cStr}`)."
 
-/-- The interval_decide tactic.
-
-    Attempts to prove point inequalities involving transcendental functions.
-
-    Usage:
-    - `interval_decide` - uses default Taylor depth of 10
-    - `interval_decide 20` - uses Taylor depth of 20
-
-    The tactic first tries `norm_num` for simple cases like `Real.exp 0 ≤ 2`.
-
-    For more complex cases involving non-zero constants (like `Real.exp 1 ≤ 3`),
-    use the manual workaround pattern:
-    ```lean
-    example : Real.exp 1 ≤ 3 := by
-      have h : ∀ x ∈ Set.Icc (1:ℝ) 1, Real.exp x ≤ 3 := by interval_bound
-      exact h 1 ⟨le_refl 1, le_refl 1⟩
-    ```
-
-    The key is to use a singleton interval `[c, c]` and replace the constant `c`
-    with a variable `x` in the expression.
--/
-elab "interval_decide" depth:(num)? : tactic => do
+/-- Run interval_decide on a single goal (non-conjunction) -/
+private def intervalDecideSingle (depth : Option Nat) : TacticM Unit := do
   match depth with
   | some n =>
     -- Fixed depth specified by user
-    intervalDecideCore n.getNat
+    intervalDecideCore n
   | none =>
     -- Adaptive: try increasing depths until success
     let depths := [10, 15, 20, 25, 30]
@@ -3250,6 +3230,41 @@ elab "interval_decide" depth:(num)? : tactic => do
     match lastError with
     | some e => throw e
     | none => throwError "interval_decide: failed at all depth levels"
+
+/-- Recursively handle conjunctions, then apply intervalDecideSingle -/
+private partial def intervalDecideWithAnd (depth : Option Nat) : TacticM Unit := do
+  let goal ← getMainTarget
+  -- Check if goal is P ∧ Q
+  if goal.isAppOfArity ``And 2 then
+    -- Split the conjunction
+    evalTactic (← `(tactic| constructor))
+    -- Handle each subgoal with focus to prevent tactics from affecting other goals
+    -- After constructor, we have [goal1, goal2, ...rest]
+    -- Use focus to work on goal1 alone, then goal2 alone
+    let goals ← getGoals
+    match goals with
+    | g1 :: g2 :: rest =>
+      -- Focus on first goal
+      setGoals [g1]
+      intervalDecideWithAnd depth
+      -- Focus on second goal
+      setGoals [g2]
+      intervalDecideWithAnd depth
+      -- Restore any remaining goals
+      setGoals rest
+    | [g1] =>
+      -- Only one goal (shouldn't happen after constructor, but handle it)
+      setGoals [g1]
+      intervalDecideWithAnd depth
+    | [] =>
+      -- No goals (constructor may have closed something trivially)
+      pure ()
+  else
+    -- Not a conjunction, use the core logic
+    intervalDecideSingle depth
+
+elab "interval_decide" depth:(num)? : tactic => do
+  intervalDecideWithAnd (depth.map (·.getNat))
 
 /-! ## Subdivision-aware bound proving
 
@@ -3939,5 +3954,63 @@ elab "interval_bound_subdiv" depth:(num)? subdivDepth:(num)? : tactic => do
     catch e =>
       lastErr := some e.toMessageData
   throwError m!"interval_bound_subdiv: All precision levels failed\n{lastErr.getD ""}"
+
+/-! ## Unified Interval Tactic
+
+The `interval_auto` tactic automatically routes to the appropriate tactic based on goal structure:
+- Point inequalities (e.g., `Real.pi ≤ 4`) → `interval_decide`
+- Quantified bounds (e.g., `∀ x ∈ I, f x ≤ c`) → `interval_bound`
+-/
+
+/-- Check if goal looks like a point inequality or conjunction of point inequalities (not quantified) -/
+private partial def isPointInequality (goal : Lean.Expr) : MetaM Bool := do
+  -- A point inequality is ≤, <, ≥, > without a leading ∀
+  if goal.isForall then
+    return false
+  -- Check if it's a conjunction - recursively check both sides
+  if goal.isAppOfArity ``And 2 then
+    let args := goal.getAppArgs
+    let left ← isPointInequality args[0]!
+    let right ← isPointInequality args[1]!
+    return left && right
+  -- Check if it's a comparison
+  let some (_, _, _, _) ← parsePointIneq goal
+    | return false
+  return true
+
+/-- Unified tactic that handles both point inequalities and quantified bounds.
+    - `interval_auto` - uses adaptive precision
+    - `interval_auto 20` - uses fixed Taylor depth of 20
+
+    This is the recommended entry point for interval arithmetic proofs.
+-/
+elab "interval_auto" depth:(num)? : tactic => do
+  let goal ← getMainGoal
+  let goalType ← goal.getType
+  let isPoint ← isPointInequality goalType
+  if isPoint then
+    trace[interval_decide] "interval_auto: detected point inequality, using interval_decide"
+    intervalDecideWithAnd (depth.map (·.getNat))
+  else
+    trace[interval_decide] "interval_auto: detected quantified goal, using interval_bound"
+    match depth with
+    | some n => intervalBoundCore n.getNat
+    | none =>
+      let depths := [10, 15, 20, 25, 30]
+      let goalState ← saveState
+      let mut lastError : Option Exception := none
+      for d in depths do
+        try
+          restoreState goalState
+          trace[interval_decide] "Trying Taylor depth {d}..."
+          intervalBoundCore d
+          trace[interval_decide] "Success with Taylor depth {d}"
+          return
+        catch e =>
+          lastError := some e
+          continue
+      match lastError with
+      | some e => throw e
+      | none => throwError "interval_auto: All precision levels failed"
 
 end LeanCert.Tactic.Auto
