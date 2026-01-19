@@ -56,13 +56,13 @@ class Interval:
             hi: Upper bound (converted to Fraction).
 
         Raises:
-            ValueError: If lo > hi.
+            DomainError: If lo > hi (empty interval).
         """
         lo_frac = _to_fraction(lo)
         hi_frac = _to_fraction(hi)
 
         if lo_frac > hi_frac:
-            raise ValueError(f"Invalid interval: lo={lo_frac} > hi={hi_frac}")
+            raise DomainError(f"Invalid interval: lo={lo_frac} > hi={hi_frac}")
 
         # Bypass frozen dataclass __setattr__
         object.__setattr__(self, 'lo', lo_frac)
@@ -130,10 +130,10 @@ class Box:
                        Values can be Interval objects or (lo, hi) tuples.
 
         Raises:
-            ValueError: If the dict is empty.
+            DomainError: If the dict is empty.
         """
         if not intervals:
-            raise ValueError("Box cannot be empty")
+            raise DomainError("Box cannot be empty")
 
         self._intervals = {}
         for name, val in intervals.items():

@@ -28,7 +28,8 @@ class TestInterval:
 
     def test_invalid_interval_raises(self):
         from leancert.domain import Interval
-        with pytest.raises(ValueError, match="Invalid interval"):
+        from leancert.exceptions import DomainError
+        with pytest.raises(DomainError, match="Invalid interval"):
             Interval(1, 0)  # lo > hi
 
     def test_singleton(self):
@@ -139,7 +140,8 @@ class TestBox:
 
     def test_empty_box_raises(self):
         from leancert.domain import Box
-        with pytest.raises(ValueError, match="Box cannot be empty"):
+        from leancert.exceptions import DomainError
+        with pytest.raises(DomainError, match="Box cannot be empty"):
             Box({})
 
 

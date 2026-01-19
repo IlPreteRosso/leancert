@@ -102,15 +102,27 @@ class Config:
         backend: Interval arithmetic backend (RATIONAL, DYADIC, or AFFINE).
         dyadic_config: Configuration for Dyadic backend (if backend is DYADIC).
         affine_config: Configuration for Affine backend (if backend is AFFINE).
+        race_strategies: If True, race multiple backends in parallel and use
+                        the first to succeed. Useful for unknown expressions.
+        incremental_refinement: If True, iteratively refine bounds to find the
+                               tightest provable bound.
+        target_bound: Optional target bound for incremental refinement. If set,
+                     refinement stops when this bound is proven or exceeded.
+        timeout_ms: Timeout in milliseconds for racing/refinement operations.
     """
     taylor_depth: int = 10
     max_iters: int = 1000
     tolerance: Fraction = Fraction(1, 1000)
     use_monotonicity: bool = True
     timeout_sec: float = 60.0
-    backend: Backend = Backend.RATIONAL
+    backend: Backend = Backend.DYADIC
     dyadic_config: Optional[DyadicConfig] = None
     affine_config: Optional[AffineConfig] = None
+    # Witness synthesis options
+    race_strategies: bool = False
+    incremental_refinement: bool = False
+    target_bound: Optional[float] = None
+    timeout_ms: int = 30000
 
     def __post_init__(self):
         # Convert tolerance to Fraction if given as float
@@ -237,7 +249,7 @@ class Config:
         }
 
     def __repr__(self) -> str:
-        backend_str = f", backend={self.backend.value}" if self.backend != Backend.RATIONAL else ""
+        backend_str = f", backend={self.backend.value}" if self.backend != Backend.DYADIC else ""
         return (
             f"Config(taylor_depth={self.taylor_depth}, "
             f"max_iters={self.max_iters}, "

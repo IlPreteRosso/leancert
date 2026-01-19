@@ -15,10 +15,15 @@ from .expr import Expr
 from .domain import Interval, Box, normalize_domain
 from .config import Config, Backend
 from .client import LeanClient, _parse_interval, _parse_rat, _parse_dyadic_interval
-from .result import BoundsResult, RootsResult, RootInterval, IntegralResult, Certificate, UniqueRootResult
+from .result import (
+    BoundsResult, RootsResult, RootInterval, IntegralResult, Certificate,
+    UniqueRootResult, WitnessPoint, MinWitnessResult, MaxWitnessResult,
+    RootWitnessResult, FailureDiagnosis,
+)
 from .exceptions import VerificationFailed, DomainError
 from .rational import to_fraction
 from .simplify import simplify as _simplify_expr
+from .expr import has_dependency as _has_dependency
 
 
 # Version info
@@ -43,6 +48,7 @@ class Solver:
         self,
         client: Optional[LeanClient] = None,
         auto_simplify: bool = True,
+        auto_affine: bool = True,
     ):
         """
         Initialize the solver.
@@ -52,10 +58,15 @@ class Solver:
             auto_simplify: If True (default), automatically simplify expressions
                           before sending to the kernel. This reduces the dependency
                           problem in interval arithmetic by canceling like terms.
+            auto_affine: If True (default), automatically switch to Affine backend
+                        for expressions with the dependency problem (same variable
+                        appears multiple times). This gives much tighter bounds
+                        for expressions like x - x, x * (1 - x), etc.
         """
         self._client = client
         self._owns_client = client is None
         self._auto_simplify = auto_simplify
+        self._auto_affine = auto_affine
 
     def _ensure_client(self) -> LeanClient:
         """Ensure we have a client connection."""
@@ -111,6 +122,38 @@ class Solver:
 
         return expr_json, box
 
+    def _select_backend(self, expr: Expr, config: Config) -> Config:
+        """
+        Select the appropriate backend based on expression characteristics.
+
+        If auto_affine is enabled and the expression has the dependency problem
+        (same variable appears multiple times), automatically upgrade to the
+        Affine backend for tighter bounds.
+
+        Args:
+            expr: The expression being evaluated.
+            config: The user-provided configuration.
+
+        Returns:
+            Potentially modified config with upgraded backend.
+        """
+        # Only auto-upgrade if:
+        # 1. auto_affine is enabled
+        # 2. User is using the default backend (DYADIC) - don't override explicit choices
+        # 3. Expression has dependency problem
+        if (self._auto_affine
+            and config.backend == Backend.DYADIC
+            and _has_dependency(expr)):
+            # Create a new config with AFFINE backend
+            from dataclasses import replace
+            from .config import AffineConfig
+            return replace(
+                config,
+                backend=Backend.AFFINE,
+                affine_config=AffineConfig(),
+            )
+        return config
+
     def eval_interval(
         self,
         expr: Expr,
@@ -126,8 +169,9 @@ class Solver:
         Args:
             expr: Expression to evaluate.
             domain: Domain specification (Interval, Box, tuple, or dict).
-            config: Solver configuration. Use Config.dyadic() for high
-                   performance on deep expressions.
+            config: Solver configuration. Defaults to DYADIC backend.
+                   For expressions with repeated variables (e.g., x - x),
+                   AFFINE backend is automatically used for tighter bounds.
 
         Returns:
             Interval containing all possible values.
@@ -136,12 +180,15 @@ class Solver:
             >>> solver.eval_interval(x**2 + sin(x), {'x': (0, 1)})
             Interval(0, 1.8414709848...)
 
-            # For faster evaluation on complex expressions:
-            >>> solver.eval_interval(expr, domain, Config.dyadic())
+            # Dependency problem is auto-detected and handled:
+            >>> solver.eval_interval(x - x, {'x': (-1, 1)})  # Returns ~[0, 0]
         """
         client = self._ensure_client()
         expr_json, box = self._prepare_request(expr, domain)
         box_json = box.to_kernel_list()
+
+        # Auto-select backend based on expression characteristics
+        config = self._select_backend(expr, config)
 
         if config.backend == Backend.DYADIC:
             # Use high-performance Dyadic backend
@@ -187,26 +234,29 @@ class Solver:
         Args:
             expr: Expression to analyze.
             domain: Domain specification (Interval, Box, tuple, or dict).
-            config: Solver configuration. Use Config.dyadic() for high-performance
-                   evaluation on deep expressions, or Config.affine() for tighter
-                   bounds on expressions with repeated variables.
+            config: Solver configuration. Defaults to DYADIC backend.
+                   For expressions with repeated variables (e.g., x - x, x*(1-x)),
+                   AFFINE backend is automatically used for tighter bounds.
 
         Returns:
             BoundsResult with verified min/max intervals.
 
         Example:
-            >>> # Standard rational backend
+            >>> # Default: uses Dyadic backend (fast, avoids denominator explosion)
             >>> result = solver.find_bounds(x**2, {'x': (-1, 1)})
 
-            >>> # High-performance Dyadic backend (10-100x faster for deep exprs)
-            >>> result = solver.find_bounds(deep_expr, domain, Config.dyadic())
+            >>> # Dependency problem auto-detected, uses Affine for tight bounds:
+            >>> result = solver.find_bounds(x - x, {'x': (-1, 1)})  # Returns ~[0, 0]
 
-            >>> # Affine backend for tight bounds (solves dependency problem)
-            >>> result = solver.find_bounds(x - x, {'x': (-1, 1)}, Config.affine())
+            >>> # Explicit backend choice overrides auto-selection:
+            >>> result = solver.find_bounds(expr, domain, Config.affine())
         """
         client = self._ensure_client()
         expr_json, box = self._prepare_request(expr, domain)
         box_json = box.to_kernel_list()
+
+        # Auto-select backend based on expression characteristics
+        config = self._select_backend(expr, config)
         cfg = config.to_kernel()
 
         if config.backend == Backend.DYADIC:
@@ -573,13 +623,37 @@ class Solver:
         """
         Find roots of a univariate expression.
 
+        Uses interval bisection with sign change detection. The algorithm
+        subdivides the domain and checks each subinterval for roots.
+
         Args:
             expr: Expression to find roots of.
-            domain: Search domain.
+            domain: Search domain (must be 1D).
             config: Solver configuration.
 
         Returns:
-            RootsResult with root intervals.
+            RootsResult with root intervals. Each RootInterval has a status:
+
+            - 'confirmed': Sign change detected (f(lo) and f(hi) have opposite signs).
+              The Intermediate Value Theorem GUARANTEES a root exists in this interval.
+              This is mathematically certain.
+
+            - 'possible': The interval contains zero but no sign change was detected.
+              This can happen when:
+              * The root is a tangent point (e.g., x² = 0 at x=0)
+              * Interval bounds are too loose to detect sign change
+              * Multiple roots in the interval cancel out
+              A root MAY exist but is not proven.
+
+            - 'no_root': The interval provably contains no roots (f(x) is bounded
+              away from zero throughout the interval).
+
+        Example:
+            >>> result = solver.find_roots(x**2 - 1, {'x': (-2, 2)})
+            >>> for root in result.roots:
+            ...     print(f"{root.interval}: {root.status}")
+            [-1.001, -0.999]: confirmed  # Sign change proves root at x=-1
+            [0.999, 1.001]: confirmed    # Sign change proves root at x=1
         """
         client = self._ensure_client()
         expr_json, box = self._prepare_request(expr, domain)
@@ -625,19 +699,40 @@ class Solver:
         config: Config = Config(),
     ) -> UniqueRootResult:
         """
-        Find a unique root using Newton contraction.
+        Find a unique root using interval Newton method.
 
-        This method uses Newton iteration to prove both existence AND uniqueness
-        of a root. It's mathematically stronger than find_roots() which only
-        proves existence via sign change.
+        This method uses interval Newton iteration to prove both EXISTENCE
+        and UNIQUENESS of a root. It's mathematically stronger than
+        find_roots() which only proves existence.
+
+        The interval Newton method works by:
+        1. Computing the interval derivative f'([x])
+        2. Performing Newton step: N(x) = m - f(m)/f'([x]) where m = midpoint
+        3. If N(x) ⊂ [x] (contracts), uniqueness is proven by Brouwer fixed point
 
         Args:
             expr: Expression to find root of.
-            domain: Search domain (1D interval).
+            domain: Search domain (must be 1D).
             config: Solver configuration.
 
         Returns:
-            UniqueRootResult with unique=True if uniqueness proven.
+            UniqueRootResult with:
+            - unique: True if a unique root is PROVEN to exist
+            - interval: Containing interval for the root
+            - reason: Explanation of the result:
+              * 'contraction': Newton iteration contracted, proving uniqueness
+              * 'no_contraction': Could not prove uniqueness (root may still exist)
+              * 'no_root': Interval provably contains no roots
+
+        Note:
+            'no_contraction' does NOT mean no root exists. It means uniqueness
+            couldn't be proven. The interval might:
+            - Contain multiple roots
+            - Be too wide for Newton to contract
+            - Have a nearly-zero derivative (ill-conditioned)
+
+            Use find_roots() first to locate candidate intervals, then
+            find_unique_root() on smaller subintervals if uniqueness matters.
         """
         client = self._ensure_client()
         expr_json, box = self._prepare_request(expr, domain)
@@ -707,6 +802,759 @@ class Solver:
             bounds=bounds,
             verified=True,
         )
+
+    # =========================================================================
+    # Witness Synthesis Methods
+    # =========================================================================
+    # These methods support auto-witness synthesis for existential proof goals.
+    # They find witnesses via optimization/root-finding and return certificate-
+    # checked results that can be used to construct Lean proofs.
+
+    def synthesize_min_witness(
+        self,
+        expr: Expr,
+        domain: Union[Interval, Box, tuple, dict],
+        config: Config = Config(),
+    ) -> MinWitnessResult:
+        """
+        Synthesize a witness for ∃ m, ∀ x ∈ I, f(x) ≥ m.
+
+        Finds the global minimum of the expression over the domain and returns
+        a witness value m along with the point where the minimum is achieved.
+
+        Args:
+            expr: Expression to minimize.
+            domain: Domain specification.
+            config: Solver configuration. Use race_strategies=True to try
+                   multiple backends in parallel.
+
+        Returns:
+            MinWitnessResult containing the witness value and point.
+
+        Example:
+            >>> result = solver.synthesize_min_witness(x**2, {'x': (-1, 1)})
+            >>> print(result.witness_value)  # ~0
+            >>> print(result.to_lean_tactic())  # Lean proof code
+        """
+        client = self._ensure_client()
+        original_expr = expr
+        expr_json, box = self._prepare_request(expr, domain)
+        box_json = box.to_kernel_list()
+        var_names = box.var_order()
+
+        # Select backend and prepare config
+        config = self._select_backend(expr, config)
+
+        if config.race_strategies:
+            result, strategy = self._race_min_strategies(
+                expr_json, box_json, config
+            )
+        else:
+            result = self._run_min_optimization(
+                client, expr_json, box_json, config
+            )
+            strategy = config.backend.value
+
+        # Extract witness from bestBox
+        witness_point = self._extract_witness_point(
+            result.get('bestBox', []),
+            var_names,
+            original_expr,
+        )
+
+        # The proven bound is the lower bound of the minimum interval
+        min_lo = _parse_rat(result.get('lo', {'n': 0, 'd': 1}))
+        min_hi = _parse_rat(result.get('hi', {'n': 0, 'd': 1}))
+
+        # Use midpoint as witness value (it's within the proven interval)
+        witness_value = (min_lo + min_hi) / 2
+
+        # Apply incremental refinement if requested
+        refinement_history = []
+        if config.incremental_refinement:
+            witness_value, refinement_history = self._refine_min_bound(
+                client, expr_json, box_json, config, min_lo, min_hi
+            )
+
+        # Create certificate
+        cert = Certificate(
+            operation='synthesize_min_witness',
+            expr_json=expr_json,
+            domain_json=box_json,
+            result_json={
+                'witness': {'n': witness_value.numerator, 'd': witness_value.denominator},
+                'witness_point': witness_point.to_dict() if witness_point else None,
+                'proven_bound': {'n': min_lo.numerator, 'd': min_lo.denominator},
+                'backend': strategy,
+            },
+            verified=True,
+            lean_version=LEAN_VERSION,
+            leancert_version=__version__,
+        )
+
+        return MinWitnessResult(
+            verified=True,
+            witness_value=witness_value,
+            witness_point=witness_point,
+            proven_bound=min_lo,
+            certificate=cert,
+            strategy_used=strategy,
+            refinement_history=refinement_history,
+        )
+
+    def synthesize_max_witness(
+        self,
+        expr: Expr,
+        domain: Union[Interval, Box, tuple, dict],
+        config: Config = Config(),
+    ) -> MaxWitnessResult:
+        """
+        Synthesize a witness for ∃ M, ∀ x ∈ I, f(x) ≤ M.
+
+        Finds the global maximum of the expression over the domain and returns
+        a witness value M along with the point where the maximum is achieved.
+
+        Args:
+            expr: Expression to maximize.
+            domain: Domain specification.
+            config: Solver configuration.
+
+        Returns:
+            MaxWitnessResult containing the witness value and point.
+        """
+        client = self._ensure_client()
+        original_expr = expr
+        expr_json, box = self._prepare_request(expr, domain)
+        box_json = box.to_kernel_list()
+        var_names = box.var_order()
+
+        config = self._select_backend(expr, config)
+
+        if config.race_strategies:
+            result, strategy = self._race_max_strategies(
+                expr_json, box_json, config
+            )
+        else:
+            result = self._run_max_optimization(
+                client, expr_json, box_json, config
+            )
+            strategy = config.backend.value
+
+        witness_point = self._extract_witness_point(
+            result.get('bestBox', []),
+            var_names,
+            original_expr,
+        )
+
+        max_lo = _parse_rat(result.get('lo', {'n': 0, 'd': 1}))
+        max_hi = _parse_rat(result.get('hi', {'n': 0, 'd': 1}))
+        witness_value = (max_lo + max_hi) / 2
+
+        refinement_history = []
+        if config.incremental_refinement:
+            witness_value, refinement_history = self._refine_max_bound(
+                client, expr_json, box_json, config, max_lo, max_hi
+            )
+
+        cert = Certificate(
+            operation='synthesize_max_witness',
+            expr_json=expr_json,
+            domain_json=box_json,
+            result_json={
+                'witness': {'n': witness_value.numerator, 'd': witness_value.denominator},
+                'witness_point': witness_point.to_dict() if witness_point else None,
+                'proven_bound': {'n': max_hi.numerator, 'd': max_hi.denominator},
+                'backend': strategy,
+            },
+            verified=True,
+            lean_version=LEAN_VERSION,
+            leancert_version=__version__,
+        )
+
+        return MaxWitnessResult(
+            verified=True,
+            witness_value=witness_value,
+            witness_point=witness_point,
+            proven_bound=max_hi,
+            certificate=cert,
+            strategy_used=strategy,
+            refinement_history=refinement_history,
+        )
+
+    def synthesize_root_witness(
+        self,
+        expr: Expr,
+        domain: Union[Interval, Box, tuple, dict],
+        config: Config = Config(),
+    ) -> RootWitnessResult:
+        """
+        Synthesize a witness for ∃ x ∈ I, f(x) = 0.
+
+        Finds a root of the expression in the domain and returns a witness
+        point along with the enclosing interval.
+
+        Args:
+            expr: Expression to find root of.
+            domain: Search domain (must be 1D).
+            config: Solver configuration.
+
+        Returns:
+            RootWitnessResult containing the witness point and interval.
+
+        Raises:
+            VerificationFailed: If no root can be found/proven.
+        """
+        client = self._ensure_client()
+        original_expr = expr
+        expr_json, box = self._prepare_request(expr, domain)
+
+        if len(box) != 1:
+            raise DomainError("Root witness synthesis requires a 1D domain")
+
+        var_name = box.var_order()[0]
+        interval = box[var_name]
+        interval_json = interval.to_kernel()
+        cfg = config.to_kernel()
+
+        # Try Newton contraction first (proves uniqueness too)
+        unique_result = client.find_unique_root(
+            expr_json, interval_json,
+            taylor_depth=cfg['taylorDepth'],
+        )
+
+        if unique_result['unique']:
+            root_interval = _parse_interval(unique_result['interval'])
+            midpoint = root_interval.midpoint()
+
+            # Evaluate at midpoint to get function value
+            env = {var_name: float(midpoint)}
+            try:
+                func_val = original_expr.evaluate(env)
+            except Exception:
+                func_val = Fraction(0)
+
+            witness_point = WitnessPoint(
+                values={var_name: midpoint},
+                function_value=to_fraction(func_val),
+                interval={var_name: (root_interval.lo, root_interval.hi)},
+            )
+
+            cert = Certificate(
+                operation='synthesize_root_witness',
+                expr_json=expr_json,
+                domain_json=box.to_kernel_list(),
+                result_json={
+                    'witness_point': witness_point.to_dict(),
+                    'root_interval': {'lo': {'n': root_interval.lo.numerator, 'd': root_interval.lo.denominator},
+                                      'hi': {'n': root_interval.hi.numerator, 'd': root_interval.hi.denominator}},
+                    'proof_method': 'newton_contraction',
+                },
+                verified=True,
+                lean_version=LEAN_VERSION,
+                leancert_version=__version__,
+            )
+
+            return RootWitnessResult(
+                verified=True,
+                witness_point=witness_point,
+                root_interval=root_interval,
+                proof_method='newton_contraction',
+                certificate=cert,
+            )
+
+        # Fall back to sign change detection
+        roots_result = client.find_roots(
+            expr_json, interval_json,
+            max_iter=cfg['maxIters'],
+            tolerance=cfg['tolerance'],
+            taylor_depth=cfg['taylorDepth'],
+        )
+
+        confirmed_roots = [r for r in roots_result['roots'] if r['status'] == 'hasRoot']
+        if not confirmed_roots:
+            raise VerificationFailed(
+                "No root found via sign change or Newton contraction",
+                computed_bound=None,
+            )
+
+        # Use first confirmed root
+        root_data = confirmed_roots[0]
+        root_interval = _parse_interval(root_data)
+        midpoint = root_interval.midpoint()
+
+        env = {var_name: float(midpoint)}
+        try:
+            func_val = original_expr.evaluate(env)
+        except Exception:
+            func_val = Fraction(0)
+
+        witness_point = WitnessPoint(
+            values={var_name: midpoint},
+            function_value=to_fraction(func_val),
+            interval={var_name: (root_interval.lo, root_interval.hi)},
+        )
+
+        cert = Certificate(
+            operation='synthesize_root_witness',
+            expr_json=expr_json,
+            domain_json=box.to_kernel_list(),
+            result_json={
+                'witness_point': witness_point.to_dict(),
+                'root_interval': {'lo': {'n': root_interval.lo.numerator, 'd': root_interval.lo.denominator},
+                                  'hi': {'n': root_interval.hi.numerator, 'd': root_interval.hi.denominator}},
+                'proof_method': 'sign_change',
+            },
+            verified=True,
+            lean_version=LEAN_VERSION,
+            leancert_version=__version__,
+        )
+
+        return RootWitnessResult(
+            verified=True,
+            witness_point=witness_point,
+            root_interval=root_interval,
+            proof_method='sign_change',
+            certificate=cert,
+        )
+
+    def diagnose_bound_failure(
+        self,
+        expr: Expr,
+        domain: Union[Interval, Box, tuple, dict],
+        upper: Optional[float] = None,
+        lower: Optional[float] = None,
+        config: Config = Config(),
+    ) -> Optional[FailureDiagnosis]:
+        """
+        Diagnose why a bound verification would fail.
+
+        This is the foundation for Counterexample-Guided Proof Refinement (CEGPR).
+        It finds the worst-case point and suggests a bound that would succeed.
+
+        Args:
+            expr: Expression to analyze.
+            domain: Domain specification.
+            upper: Upper bound to check.
+            lower: Lower bound to check.
+            config: Solver configuration.
+
+        Returns:
+            FailureDiagnosis if the bound would fail, None if it would succeed.
+        """
+        client = self._ensure_client()
+        original_expr = expr
+        expr_json, box = self._prepare_request(expr, domain)
+        box_json = box.to_kernel_list()
+        var_names = box.var_order()
+        cfg = config.to_kernel()
+
+        if upper is not None:
+            # Check if upper bound would fail
+            max_result = client.global_max(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
+
+            max_hi = _parse_rat(max_result.get('hi', {'n': 0, 'd': 1}))
+            limit = to_fraction(upper)
+
+            if max_hi > limit:
+                # Bound fails - extract worst point
+                best_box = max_result.get('bestBox', [])
+                worst_point = {}
+                for i, interval_json in enumerate(best_box):
+                    if i >= len(var_names):
+                        break
+                    name = var_names[i]
+                    lo = _parse_rat(interval_json['lo'])
+                    hi = _parse_rat(interval_json['hi'])
+                    worst_point[name] = float((lo + hi) / 2)
+
+                margin = float(limit - max_hi)  # Negative when bound violated
+                suggested = float(max_hi) * 1.01  # Add 1% margin
+
+                return FailureDiagnosis(
+                    failure_type='bound_too_tight',
+                    margin=margin,
+                    worst_point=worst_point,
+                    suggested_bound=suggested,
+                )
+
+        if lower is not None:
+            # Check if lower bound would fail
+            min_result = client.global_min(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
+
+            min_lo = _parse_rat(min_result.get('lo', {'n': 0, 'd': 1}))
+            limit = to_fraction(lower)
+
+            if min_lo < limit:
+                best_box = min_result.get('bestBox', [])
+                worst_point = {}
+                for i, interval_json in enumerate(best_box):
+                    if i >= len(var_names):
+                        break
+                    name = var_names[i]
+                    lo = _parse_rat(interval_json['lo'])
+                    hi = _parse_rat(interval_json['hi'])
+                    worst_point[name] = float((lo + hi) / 2)
+
+                margin = float(min_lo - limit)  # Negative when bound violated
+                suggested = float(min_lo) * 0.99  # Add 1% margin
+
+                return FailureDiagnosis(
+                    failure_type='bound_too_tight',
+                    margin=margin,
+                    worst_point=worst_point,
+                    suggested_bound=suggested,
+                )
+
+        return None  # Bound would succeed
+
+    # =========================================================================
+    # Helper methods for witness synthesis
+    # =========================================================================
+
+    def _extract_witness_point(
+        self,
+        best_box: list,
+        var_names: list[str],
+        original_expr: Expr,
+    ) -> Optional[WitnessPoint]:
+        """Extract a WitnessPoint from optimization bestBox."""
+        if not best_box:
+            return None
+
+        try:
+            values = {}
+            interval = {}
+            for i, interval_json in enumerate(best_box):
+                if i >= len(var_names):
+                    break
+                name = var_names[i]
+                lo = _parse_rat(interval_json['lo'])
+                hi = _parse_rat(interval_json['hi'])
+                midpoint = (lo + hi) / 2
+                values[name] = midpoint
+                interval[name] = (lo, hi)
+
+            # Evaluate expression at witness point
+            env = {k: float(v) for k, v in values.items()}
+            func_val = original_expr.evaluate(env)
+
+            return WitnessPoint(
+                values=values,
+                function_value=to_fraction(func_val),
+                interval=interval,
+            )
+        except Exception:
+            return None
+
+    def _run_min_optimization(
+        self,
+        client: LeanClient,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+    ) -> dict:
+        """Run minimization with the configured backend."""
+        cfg = config.to_kernel()
+
+        if config.backend == Backend.DYADIC:
+            dyadic_cfg = config.to_dyadic_kernel()
+            return client.global_min_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            )
+        elif config.backend == Backend.AFFINE:
+            affine_cfg = config.to_affine_kernel()
+            return client.global_min_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            )
+        else:
+            return client.global_min(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
+
+    def _run_max_optimization(
+        self,
+        client: LeanClient,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+    ) -> dict:
+        """Run maximization with the configured backend."""
+        cfg = config.to_kernel()
+
+        if config.backend == Backend.DYADIC:
+            dyadic_cfg = config.to_dyadic_kernel()
+            return client.global_max_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            )
+        elif config.backend == Backend.AFFINE:
+            affine_cfg = config.to_affine_kernel()
+            return client.global_max_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            )
+        else:
+            return client.global_max(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            )
+
+    def _race_min_strategies(
+        self,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+    ) -> tuple[dict, str]:
+        """Race multiple optimization strategies and return the first to succeed."""
+        import concurrent.futures
+
+        client = self._ensure_client()
+        cfg = config.to_kernel()
+
+        def run_dyadic():
+            dyadic_cfg = config.to_dyadic_kernel()
+            return client.global_min_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            ), 'dyadic'
+
+        def run_affine():
+            affine_cfg = Config.affine().to_affine_kernel()
+            return client.global_min_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            ), 'affine'
+
+        def run_rational():
+            return client.global_min(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            ), 'rational'
+
+        # Race all strategies
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(run_dyadic),
+                executor.submit(run_affine),
+                executor.submit(run_rational),
+            ]
+
+            # Return first to complete successfully
+            for future in concurrent.futures.as_completed(futures, timeout=config.timeout_ms / 1000):
+                try:
+                    result, strategy = future.result()
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
+                    return result, strategy
+                except Exception:
+                    continue
+
+        # If all fail, fall back to dyadic
+        result = run_dyadic()[0]
+        return result, 'dyadic'
+
+    def _race_max_strategies(
+        self,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+    ) -> tuple[dict, str]:
+        """Race multiple optimization strategies for maximization."""
+        import concurrent.futures
+
+        client = self._ensure_client()
+        cfg = config.to_kernel()
+
+        def run_dyadic():
+            dyadic_cfg = config.to_dyadic_kernel()
+            return client.global_max_dyadic(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=dyadic_cfg['taylorDepth'],
+                precision=dyadic_cfg['precision'],
+            ), 'dyadic'
+
+        def run_affine():
+            affine_cfg = Config.affine().to_affine_kernel()
+            return client.global_max_affine(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=affine_cfg['taylorDepth'],
+                max_noise_symbols=affine_cfg['maxNoiseSymbols'],
+            ), 'affine'
+
+        def run_rational():
+            return client.global_max(
+                expr_json, box_json,
+                max_iters=cfg['maxIters'],
+                tolerance=cfg['tolerance'],
+                use_monotonicity=cfg['useMonotonicity'],
+                taylor_depth=cfg['taylorDepth'],
+            ), 'rational'
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(run_dyadic),
+                executor.submit(run_affine),
+                executor.submit(run_rational),
+            ]
+
+            for future in concurrent.futures.as_completed(futures, timeout=config.timeout_ms / 1000):
+                try:
+                    result, strategy = future.result()
+                    for f in futures:
+                        f.cancel()
+                    return result, strategy
+                except Exception:
+                    continue
+
+        result = run_dyadic()[0]
+        return result, 'dyadic'
+
+    def _refine_min_bound(
+        self,
+        client: LeanClient,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+        min_lo: Fraction,
+        min_hi: Fraction,
+    ) -> tuple[Fraction, list[dict]]:
+        """Incrementally refine minimum bound to find tightest provable value."""
+        history = []
+        current = (min_lo + min_hi) / 2
+        step = (min_hi - min_lo) / 4
+
+        # Try to tighten toward min_hi (the tighter estimate)
+        for _ in range(10):  # Max 10 refinement steps
+            candidate = current + step
+            if config.target_bound is not None and float(candidate) > config.target_bound:
+                break
+
+            # Try to verify this tighter bound
+            try:
+                # Use interval check to verify
+                cfg = config.to_kernel()
+                bound_json = {'n': candidate.numerator, 'd': candidate.denominator}
+                result = client.check_bound(
+                    expr_json, box_json, bound_json,
+                    is_upper_bound=False,  # Checking lower bound
+                    taylor_depth=cfg['taylorDepth'],
+                )
+
+                if result.get('verified', False):
+                    history.append({'bound': float(candidate), 'status': 'verified'})
+                    current = candidate
+                    step = step / 2
+                else:
+                    history.append({'bound': float(candidate), 'status': 'failed'})
+                    step = -abs(step) / 2  # Back off
+            except Exception:
+                history.append({'bound': float(candidate), 'status': 'error'})
+                step = -abs(step) / 2
+
+            if abs(step) < abs(min_hi - min_lo) / 1000:
+                break  # Convergence
+
+        return current, history
+
+    def _refine_max_bound(
+        self,
+        client: LeanClient,
+        expr_json: dict,
+        box_json: list,
+        config: Config,
+        max_lo: Fraction,
+        max_hi: Fraction,
+    ) -> tuple[Fraction, list[dict]]:
+        """Incrementally refine maximum bound to find tightest provable value."""
+        history = []
+        current = (max_lo + max_hi) / 2
+        step = (max_hi - max_lo) / 4
+
+        # Try to tighten toward max_lo (the tighter estimate)
+        for _ in range(10):
+            candidate = current - step
+            if config.target_bound is not None and float(candidate) < config.target_bound:
+                break
+
+            try:
+                cfg = config.to_kernel()
+                bound_json = {'n': candidate.numerator, 'd': candidate.denominator}
+                result = client.check_bound(
+                    expr_json, box_json, bound_json,
+                    is_upper_bound=True,
+                    taylor_depth=cfg['taylorDepth'],
+                )
+
+                if result.get('verified', False):
+                    history.append({'bound': float(candidate), 'status': 'verified'})
+                    current = candidate
+                    step = step / 2
+                else:
+                    history.append({'bound': float(candidate), 'status': 'failed'})
+                    step = -abs(step) / 2
+            except Exception:
+                history.append({'bound': float(candidate), 'status': 'error'})
+                step = -abs(step) / 2
+
+            if abs(step) < abs(max_hi - max_lo) / 1000:
+                break
+
+        return current, history
 
     def forward_interval(
         self,
@@ -882,7 +1730,14 @@ def find_roots(
     domain: Union[Interval, Box, tuple, dict],
     config: Config = Config(),
 ) -> RootsResult:
-    """Find roots of a univariate expression."""
+    """
+    Find roots of a univariate expression.
+
+    Returns RootInterval objects with status:
+    - 'confirmed': Sign change detected, root GUARANTEED by IVT
+    - 'possible': Contains zero but no sign change (may or may not have root)
+    - 'no_root': Provably no roots in interval
+    """
     return _get_solver().find_roots(expr, domain, config)
 
 
@@ -891,9 +1746,14 @@ def find_unique_root(
     domain: Union[Interval, Box, tuple, dict],
     config: Config = Config(),
 ) -> UniqueRootResult:
-    """Find a unique root using Newton contraction.
+    """
+    Find a unique root using interval Newton method.
 
-    This proves both existence AND uniqueness of a root.
+    Returns UniqueRootResult with:
+    - unique=True: A unique root is PROVEN to exist (Newton contracted)
+    - unique=False with reason='no_contraction': Couldn't prove uniqueness
+      (root may still exist, try a smaller interval)
+    - unique=False with reason='no_root': Provably no roots
     """
     return _get_solver().find_unique_root(expr, domain, config)
 

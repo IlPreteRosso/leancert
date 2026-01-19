@@ -593,3 +593,225 @@ class VerifyResult:
     def __repr__(self) -> str:
         status = "VERIFIED" if self.verified else "FAILED"
         return f"VerifyResult({status}, computed={self.computed_bound})"
+
+
+# =============================================================================
+# Witness Synthesis Results
+# =============================================================================
+# These types support auto-witness synthesis for existential proof goals.
+# Lean can delegate existential witness construction to Python, which finds
+# witnesses via optimization/root-finding and returns certificate-checked results.
+
+
+@dataclass
+class WitnessPoint:
+    """
+    A concrete witness point with variable values and function value.
+
+    This represents a specific point in the domain along with the function
+    value at that point. Used for existential proofs where we need to
+    exhibit a concrete witness.
+
+    Attributes:
+        values: Dictionary mapping variable names to their witness values (exact Fractions)
+        function_value: The function value at the witness point (exact Fraction)
+        interval: Dictionary mapping variable names to (lo, hi) tuples representing
+                  the enclosing interval from which this witness was derived
+    """
+    values: dict[str, Fraction]
+    function_value: Fraction
+    interval: dict[str, tuple[Fraction, Fraction]]
+
+    def value_at(self, var_name: str) -> float:
+        """Get the float value of a variable at this witness point."""
+        return float(self.values.get(var_name, 0))
+
+    @property
+    def function_value_float(self) -> float:
+        """Get the function value as a float."""
+        return float(self.function_value)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to JSON-serializable dictionary."""
+        return {
+            'values': {k: {'n': v.numerator, 'd': v.denominator} for k, v in self.values.items()},
+            'function_value': {'n': self.function_value.numerator, 'd': self.function_value.denominator},
+            'interval': {
+                k: {'lo': {'n': lo.numerator, 'd': lo.denominator},
+                    'hi': {'n': hi.numerator, 'd': hi.denominator}}
+                for k, (lo, hi) in self.interval.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'WitnessPoint':
+        """Create from JSON dictionary."""
+        values = {k: Fraction(v['n'], v['d']) for k, v in data['values'].items()}
+        function_value = Fraction(data['function_value']['n'], data['function_value']['d'])
+        interval = {
+            k: (Fraction(v['lo']['n'], v['lo']['d']), Fraction(v['hi']['n'], v['hi']['d']))
+            for k, v in data['interval'].items()
+        }
+        return cls(values=values, function_value=function_value, interval=interval)
+
+    def __repr__(self) -> str:
+        vals = ', '.join(f'{k}={float(v):.6f}' for k, v in self.values.items())
+        return f"WitnessPoint({vals}, f={self.function_value_float:.6f})"
+
+
+@dataclass
+class WitnessResult:
+    """Base class for witness synthesis results."""
+    verified: bool
+    certificate: Optional[Certificate] = None
+    strategy_used: str = 'dyadic'
+    refinement_history: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class MinWitnessResult(WitnessResult):
+    """
+    Result of synthesizing a minimum witness.
+
+    Proves: ∃ m, ∀ x ∈ I, f(x) ≥ m
+
+    Attributes:
+        witness_value: The witness value m (exact Fraction)
+        witness_point: The point where the minimum is achieved
+        proven_bound: The rigorous lower bound from interval arithmetic
+        verified: Whether the witness was verified
+    """
+    witness_value: Fraction = field(default_factory=lambda: Fraction(0))
+    witness_point: Optional[WitnessPoint] = None
+    proven_bound: Fraction = field(default_factory=lambda: Fraction(0))
+
+    def to_lean_tactic(self) -> str:
+        """Generate Lean tactic code for this minimum witness proof."""
+        lines = []
+        lines.append("-- Auto-synthesized minimum witness")
+        lines.append(f"-- Witness value: {float(self.witness_value):.10f}")
+        if self.witness_point:
+            vals = ', '.join(f'{k} = {float(v):.6f}' for k, v in self.witness_point.values.items())
+            lines.append(f"-- Achieved at: {vals}")
+        lines.append(f"-- Proven bound: {float(self.proven_bound):.10f}")
+        lines.append("")
+        lines.append("-- Proof: ∃ m, ∀ x ∈ I, f(x) ≥ m")
+        lines.append(f"use {self._fraction_to_lean(self.witness_value)}")
+        lines.append("intro x hx")
+        lines.append("interval_min_witness")
+        return '\n'.join(lines)
+
+    def _fraction_to_lean(self, f: Fraction) -> str:
+        """Convert fraction to Lean rational literal."""
+        if f.denominator == 1:
+            return str(f.numerator)
+        return f"({f.numerator} / {f.denominator})"
+
+    def __repr__(self) -> str:
+        status = "VERIFIED" if self.verified else "UNVERIFIED"
+        return f"MinWitnessResult({status}, m={float(self.witness_value):.6f})"
+
+
+@dataclass
+class MaxWitnessResult(WitnessResult):
+    """
+    Result of synthesizing a maximum witness.
+
+    Proves: ∃ M, ∀ x ∈ I, f(x) ≤ M
+
+    Attributes:
+        witness_value: The witness value M (exact Fraction)
+        witness_point: The point where the maximum is achieved
+        proven_bound: The rigorous upper bound from interval arithmetic
+        verified: Whether the witness was verified
+    """
+    witness_value: Fraction = field(default_factory=lambda: Fraction(0))
+    witness_point: Optional[WitnessPoint] = None
+    proven_bound: Fraction = field(default_factory=lambda: Fraction(0))
+
+    def to_lean_tactic(self) -> str:
+        """Generate Lean tactic code for this maximum witness proof."""
+        lines = []
+        lines.append("-- Auto-synthesized maximum witness")
+        lines.append(f"-- Witness value: {float(self.witness_value):.10f}")
+        if self.witness_point:
+            vals = ', '.join(f'{k} = {float(v):.6f}' for k, v in self.witness_point.values.items())
+            lines.append(f"-- Achieved at: {vals}")
+        lines.append(f"-- Proven bound: {float(self.proven_bound):.10f}")
+        lines.append("")
+        lines.append("-- Proof: ∃ M, ∀ x ∈ I, f(x) ≤ M")
+        lines.append(f"use {self._fraction_to_lean(self.witness_value)}")
+        lines.append("intro x hx")
+        lines.append("interval_max_witness")
+        return '\n'.join(lines)
+
+    def _fraction_to_lean(self, f: Fraction) -> str:
+        """Convert fraction to Lean rational literal."""
+        if f.denominator == 1:
+            return str(f.numerator)
+        return f"({f.numerator} / {f.denominator})"
+
+    def __repr__(self) -> str:
+        status = "VERIFIED" if self.verified else "UNVERIFIED"
+        return f"MaxWitnessResult({status}, M={float(self.witness_value):.6f})"
+
+
+@dataclass
+class RootWitnessResult(WitnessResult):
+    """
+    Result of synthesizing a root witness.
+
+    Proves: ∃ x ∈ I, f(x) = 0
+
+    Attributes:
+        witness_point: The point where f(x) ≈ 0
+        root_interval: The interval guaranteed to contain the root
+        verified: Whether the witness was verified (via sign change or Newton)
+    """
+    witness_point: Optional[WitnessPoint] = None
+    root_interval: Optional[Interval] = None
+    proof_method: str = 'sign_change'  # 'sign_change' or 'newton_contraction'
+
+    def to_lean_tactic(self) -> str:
+        """Generate Lean tactic code for this root witness proof."""
+        lines = []
+        lines.append("-- Auto-synthesized root witness")
+        if self.witness_point:
+            vals = ', '.join(f'{k} = {float(v):.6f}' for k, v in self.witness_point.values.items())
+            lines.append(f"-- Witness point: {vals}")
+        if self.root_interval:
+            lines.append(f"-- Root interval: [{float(self.root_interval.lo):.10f}, {float(self.root_interval.hi):.10f}]")
+        lines.append(f"-- Proof method: {self.proof_method}")
+        lines.append("")
+        lines.append("-- Proof: ∃ x ∈ I, f(x) = 0")
+        lines.append("interval_root_witness")
+        return '\n'.join(lines)
+
+    def __repr__(self) -> str:
+        status = "VERIFIED" if self.verified else "UNVERIFIED"
+        if self.witness_point:
+            x_val = list(self.witness_point.values.values())[0] if self.witness_point.values else 0
+            return f"RootWitnessResult({status}, x≈{float(x_val):.6f})"
+        return f"RootWitnessResult({status})"
+
+
+@dataclass
+class FailureDiagnosis:
+    """
+    Diagnosis of why a bound verification failed.
+
+    Used for Counterexample-Guided Proof Refinement (CEGPR).
+
+    Attributes:
+        failure_type: Type of failure ('bound_too_tight', 'no_root', etc.)
+        margin: How much the bound was missed by (negative = violated)
+        worst_point: Dictionary of variable values at the worst point
+        suggested_bound: A suggested bound that would succeed
+    """
+    failure_type: str
+    margin: float
+    worst_point: dict[str, float]
+    suggested_bound: float
+
+    def __repr__(self) -> str:
+        return f"FailureDiagnosis({self.failure_type}, margin={self.margin:.6f}, suggested={self.suggested_bound:.6f})"

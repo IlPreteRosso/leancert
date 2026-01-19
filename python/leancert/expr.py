@@ -843,3 +843,54 @@ def clamp(x: ExprLike, lo: ExprLike, hi: ExprLike) -> Expr:
     consider restricting the domain of x to [lo, hi] directly.
     """
     return Min(Max(x, lo), hi)
+
+
+def count_var_occurrences(expr: Expr) -> dict[str, int]:
+    """
+    Count how many times each variable appears in an expression.
+
+    Used to detect the "dependency problem" where a variable appears
+    multiple times (e.g., x - x, x * (1 - x)).
+
+    Returns:
+        Dictionary mapping variable names to occurrence counts.
+    """
+    counts: dict[str, int] = {}
+
+    def visit(e: Expr) -> None:
+        if isinstance(e, Variable):
+            counts[e.name] = counts.get(e.name, 0) + 1
+        elif isinstance(e, Const):
+            pass
+        elif isinstance(e, (Add, Sub, Mul, Div, MinExpr, MaxExpr)):
+            visit(e.e1)
+            visit(e.e2)
+        elif isinstance(e, Pow):
+            visit(e.base)
+        elif isinstance(e, (Neg, Sin, Cos, Exp, Log, Sqrt, Tan, Atan, Inv,
+                           Sinh, Cosh, Tanh, Arsinh, Atanh, Sinc, Erf, Abs)):
+            visit(e.e)
+        # Unknown types are ignored (no variables)
+
+    visit(expr)
+    return counts
+
+
+def has_dependency(expr: Expr) -> bool:
+    """
+    Check if an expression has the "dependency problem".
+
+    The dependency problem occurs when a variable appears more than once
+    in an expression. In standard interval arithmetic, this causes
+    over-approximation. For example:
+
+    - x - x on [-1, 1]: Standard IA gives [-2, 2], but correct is [0, 0]
+    - x * (1 - x) on [0, 1]: Standard IA gives [-1, 1], but correct is [0, 0.25]
+
+    Affine arithmetic solves this by tracking correlations between variables.
+
+    Returns:
+        True if any variable appears more than once.
+    """
+    counts = count_var_occurrences(expr)
+    return any(c > 1 for c in counts.values())

@@ -62,6 +62,50 @@ Returned by `verify_bound()`.
     options:
       show_root_heading: true
 
+## Witness Synthesis Results
+
+These types support auto-witness synthesis for existential proof goals.
+
+### WitnessPoint
+
+A concrete witness point with variable values and function value.
+
+::: leancert.result.WitnessPoint
+    options:
+      show_root_heading: true
+
+### MinWitnessResult
+
+Returned by `synthesize_min_witness()`. Proves: `∃ m, ∀ x ∈ I, f(x) ≥ m`
+
+::: leancert.result.MinWitnessResult
+    options:
+      show_root_heading: true
+
+### MaxWitnessResult
+
+Returned by `synthesize_max_witness()`. Proves: `∃ M, ∀ x ∈ I, f(x) ≤ M`
+
+::: leancert.result.MaxWitnessResult
+    options:
+      show_root_heading: true
+
+### RootWitnessResult
+
+Returned by `synthesize_root_witness()`. Proves: `∃ x ∈ I, f(x) = 0`
+
+::: leancert.result.RootWitnessResult
+    options:
+      show_root_heading: true
+
+### FailureDiagnosis
+
+Returned by `diagnose_bound_failure()`. Used for CEGPR support.
+
+::: leancert.result.FailureDiagnosis
+    options:
+      show_root_heading: true
+
 ## Discovery Results (Lean)
 
 The Lean side provides structured result types for discovery operations.

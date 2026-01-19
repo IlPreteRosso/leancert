@@ -7,14 +7,17 @@ LeanCert supports multiple arithmetic backends for different performance/precisi
 ```python
 import leancert as lc
 
-# Default: Exact rational arithmetic
+# Default: Dyadic arithmetic (fast, ~15 decimal digits)
 result = lc.find_bounds(expr, domain)
 
-# Dyadic: 10-100x faster for deep expressions
-result = lc.find_bounds(expr, domain, config=lc.Config.dyadic())
+# Explicit Dyadic with custom precision
+result = lc.find_bounds(expr, domain, config=lc.Config.dyadic(precision=-100))
 
 # Affine: 50-90% tighter bounds for correlated variables
 result = lc.find_bounds(expr, domain, config=lc.Config.affine())
+
+# Rational: Exact arithmetic (slower, use when precision matters)
+result = lc.find_bounds(expr, domain, config=lc.Config(backend=lc.Backend.RATIONAL))
 ```
 
 ## Backend Enum
@@ -27,9 +30,9 @@ result = lc.find_bounds(expr, domain, config=lc.Config.affine())
 
 | Backend | Speed | Precision | Best For |
 |---------|-------|-----------|----------|
-| `RATIONAL` | Baseline | Exact | Small expressions, proofs |
-| `DYADIC` | 10-100x faster | ~15 decimal digits | Neural networks, deep expressions |
+| `DYADIC` (default) | 10-100x faster | ~15 decimal digits | Neural networks, deep expressions |
 | `AFFINE` | Similar to Rational | Tighter bounds | Repeated variables, LayerNorm |
+| `RATIONAL` | Baseline | Exact | When exact precision is required |
 
 ## Config Class
 
@@ -45,6 +48,10 @@ result = lc.find_bounds(expr, domain, config=lc.Config.affine())
         - backend
         - dyadic_config
         - affine_config
+        - race_strategies
+        - incremental_refinement
+        - target_bound
+        - timeout_ms
         - low_precision
         - medium_precision
         - high_precision
@@ -129,6 +136,48 @@ config = lc.Config(
 )
 ```
 
+## Witness Synthesis Options
+
+These options control the behavior of `synthesize_*_witness` methods.
+
+### race_strategies
+
+When `True`, races multiple backends (dyadic, affine, rational) in parallel and uses the first to complete successfully. Useful for unknown expressions where you don't know which backend will perform best.
+
+```python
+config = lc.Config(race_strategies=True, timeout_ms=5000)
+result = solver.synthesize_min_witness(expr, domain, config=config)
+print(result.strategy_used)  # Which backend won
+```
+
+### incremental_refinement
+
+When `True`, iteratively refines the bound using binary search to find the tightest provable value. Returns a history of refinement attempts.
+
+```python
+config = lc.Config(incremental_refinement=True)
+result = solver.synthesize_max_witness(expr, domain, config=config)
+print(result.refinement_history)
+# [{'bound': 2.8, 'status': 'verified'}, {'bound': 2.75, 'status': 'verified'}, ...]
+```
+
+### target_bound
+
+Sets a target bound for incremental refinement. Refinement stops when this bound is proven or exceeded.
+
+```python
+config = lc.Config(incremental_refinement=True, target_bound=2.72)
+result = solver.synthesize_max_witness(lc.exp(x), {'x': (0, 1)}, config=config)
+```
+
+### timeout_ms
+
+Timeout in milliseconds for racing and refinement operations (default: 30000).
+
+```python
+config = lc.Config(race_strategies=True, timeout_ms=10000)  # 10 second timeout
+```
+
 ## Examples
 
 ### Neural Network Verification
@@ -192,4 +241,44 @@ config = lc.Config(
 )
 
 result = lc.find_bounds(expr, domain, config=config)
+```
+
+### Witness Synthesis with Racing
+
+For complex expressions where you don't know the best backend:
+
+```python
+import leancert as lc
+
+x = lc.var('x')
+expr = lc.exp(x) * lc.sin(x)  # Unknown which backend is best
+
+with lc.Solver() as solver:
+    # Race all backends, use first to succeed
+    config = lc.Config(race_strategies=True, timeout_ms=10000)
+    result = solver.synthesize_min_witness(expr, {'x': (0, 3)}, config=config)
+
+    print(f"Winner: {result.strategy_used}")
+    print(f"Minimum witness: {result.witness_value}")
+    print(result.to_lean_tactic())
+```
+
+### Incremental Refinement for Tight Bounds
+
+Find the tightest provable bound through iterative refinement:
+
+```python
+import leancert as lc
+
+x = lc.var('x')
+
+with lc.Solver() as solver:
+    # Find tightest provable upper bound for exp(x) on [0, 1]
+    config = lc.Config(incremental_refinement=True)
+    result = solver.synthesize_max_witness(lc.exp(x), {'x': (0, 1)}, config=config)
+
+    print(f"Tightest bound: {float(result.witness_value):.6f}")
+    print(f"Refinement steps: {len(result.refinement_history)}")
+    for step in result.refinement_history:
+        print(f"  {step['bound']:.6f} -> {step['status']}")
 ```

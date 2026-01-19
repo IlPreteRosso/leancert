@@ -98,8 +98,8 @@ class TestConfig:
         assert cfg.tolerance == Fraction(1, 1000)
         assert cfg.use_monotonicity is True
         assert cfg.timeout_sec == 60.0
-        assert cfg.backend == Backend.RATIONAL
-        assert cfg.dyadic_config is None
+        assert cfg.backend == Backend.DYADIC  # DYADIC is the new default
+        assert cfg.dyadic_config is not None  # Auto-created for default DYADIC backend
         assert cfg.affine_config is None
 
     def test_custom_values(self):
@@ -261,10 +261,11 @@ class TestConfigRepr:
         assert "backend" not in repr_str  # Not shown for default
 
     def test_repr_dyadic(self):
-        """Test repr for dyadic backend."""
+        """Test repr for dyadic backend (which is now the default)."""
         cfg = Config.dyadic()
         repr_str = repr(cfg)
-        assert "backend=dyadic" in repr_str
+        # DYADIC is now the default, so it's not shown in repr
+        assert "Config(" in repr_str
 
     def test_repr_affine(self):
         """Test repr for affine backend."""
