@@ -2107,15 +2107,15 @@ where
       -- 3. Extract rational bound
       let boundRat ← extractRatBound bound
 
-      -- 4. Generate support proof
-      let supportProof ← mkSupportedCoreProof ast
+      -- 4. Generate support proof (ExprSupported for automatic domain validity)
+      let supportProof ← mkSupportedProof ast
 
       -- 5. Build config expression
       let cfgExpr ← mkAppM ``GlobalOptConfig.mk #[toExpr maxIters, toExpr tolerance, toExpr useMonotonicity, toExpr taylorDepth]
 
       -- 6. Apply verify_global_upper_bound theorem
       -- The theorem has signature:
-      -- verify_global_upper_bound (e : Expr) (hsupp : ExprSupportedCore e) (B : Box) (c : ℚ) (cfg : GlobalOptConfig)
+      -- verify_global_upper_bound (e : Expr) (hsupp : ExprSupported e) (B : Box) (c : ℚ) (cfg : GlobalOptConfig)
       --   (h_cert : checkGlobalUpperBound e B c cfg = true) :
       --   ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) → Expr.eval ρ e ≤ c
       let proof ← mkAppM ``verify_global_upper_bound #[ast, supportProof, boxExpr, boundRat, cfgExpr]
@@ -2190,7 +2190,7 @@ where
       let boxExpr ← mkBoxExpr vars
       let ast ← reify func
       let boundRat ← extractRatBound bound
-      let supportProof ← mkSupportedCoreProof ast
+      let supportProof ← mkSupportedProof ast
       let cfgExpr ← mkAppM ``GlobalOptConfig.mk #[toExpr maxIters, toExpr tolerance, toExpr useMonotonicity, toExpr taylorDepth]
 
       let proof ← mkAppM ``verify_global_lower_bound #[ast, supportProof, boxExpr, boundRat, cfgExpr]
@@ -3241,10 +3241,12 @@ private def intervalDecideSingle (depth : Option Nat) : TacticM Unit := do
     | some e => throw e
     | none => throwError "interval_decide: failed at all depth levels"
 
-/-- Recursively handle conjunctions, then apply intervalDecideSingle -/
-private partial def intervalDecideWithAnd (depth : Option Nat) : TacticM Unit := do
+/-- Recursively handle conjunctions and disjunctions, then apply intervalDecideSingle -/
+private partial def intervalDecideWithConnectives (depth : Option Nat) : TacticM Unit := do
+  -- Normalize goal first (handles ≥ → ≤, pushes negations, etc.)
+  intervalNormCore
   let goal ← getMainTarget
-  -- Check if goal is P ∧ Q
+  -- Check if goal is P ∧ Q (conjunction - must prove both)
   if goal.isAppOfArity ``And 2 then
     -- Split the conjunction
     evalTactic (← `(tactic| constructor))
@@ -3256,25 +3258,37 @@ private partial def intervalDecideWithAnd (depth : Option Nat) : TacticM Unit :=
     | g1 :: g2 :: rest =>
       -- Focus on first goal
       setGoals [g1]
-      intervalDecideWithAnd depth
+      intervalDecideWithConnectives depth
       -- Focus on second goal
       setGoals [g2]
-      intervalDecideWithAnd depth
+      intervalDecideWithConnectives depth
       -- Restore any remaining goals
       setGoals rest
     | [g1] =>
       -- Only one goal (shouldn't happen after constructor, but handle it)
       setGoals [g1]
-      intervalDecideWithAnd depth
+      intervalDecideWithConnectives depth
     | [] =>
       -- No goals (constructor may have closed something trivially)
       pure ()
+  -- Check if goal is P ∨ Q (disjunction - prove at least one)
+  else if goal.isAppOfArity ``Or 2 then
+    -- Try proving the left side first
+    let savedState ← saveState
+    try
+      evalTactic (← `(tactic| left))
+      intervalDecideWithConnectives depth
+    catch _ =>
+      -- Left side failed, restore state and try right side
+      savedState.restore
+      evalTactic (← `(tactic| right))
+      intervalDecideWithConnectives depth
   else
-    -- Not a conjunction, use the core logic
+    -- Not a connective, use the core logic
     intervalDecideSingle depth
 
 elab "interval_decide" depth:(num)? : tactic => do
-  intervalDecideWithAnd (depth.map (·.getNat))
+  intervalDecideWithConnectives (depth.map (·.getNat))
 
 /-! ## Subdivision-aware bound proving
 
@@ -3972,7 +3986,7 @@ The `interval_auto` tactic automatically routes to the appropriate tactic based 
 - Quantified bounds (e.g., `∀ x ∈ I, f x ≤ c`) → `interval_bound`
 -/
 
-/-- Check if goal looks like a point inequality or conjunction of point inequalities (not quantified) -/
+/-- Check if goal looks like a point inequality or connective of point inequalities (not quantified) -/
 private partial def isPointInequality (goal : Lean.Expr) : MetaM Bool := do
   -- A point inequality is ≤, <, ≥, > without a leading ∀
   if goal.isForall then
@@ -3983,6 +3997,12 @@ private partial def isPointInequality (goal : Lean.Expr) : MetaM Bool := do
     let left ← isPointInequality args[0]!
     let right ← isPointInequality args[1]!
     return left && right
+  -- Check if it's a disjunction - recursively check both sides
+  if goal.isAppOfArity ``Or 2 then
+    let args := goal.getAppArgs
+    let left ← isPointInequality args[0]!
+    let right ← isPointInequality args[1]!
+    return left || right  -- For OR, at least one side needs to be provable
   -- Check if it's a comparison
   let some (_, _, _, _) ← parsePointIneq goal
     | return false
@@ -4000,7 +4020,7 @@ elab "interval_auto" depth:(num)? : tactic => do
   let isPoint ← isPointInequality goalType
   if isPoint then
     trace[interval_decide] "interval_auto: detected point inequality, using interval_decide"
-    intervalDecideWithAnd (depth.map (·.getNat))
+    intervalDecideWithConnectives (depth.map (·.getNat))
   else
     trace[interval_decide] "interval_auto: detected quantified goal, using interval_bound"
     match depth with
