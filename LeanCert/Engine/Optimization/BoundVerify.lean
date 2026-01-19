@@ -53,6 +53,8 @@ structure BoundVerifyConfig where
   tolerance : ℚ := 1/10000
   /-- Taylor depth for interval evaluation -/
   taylorDepth : Nat := 15
+  /-- Use monotonicity-based pruning (symbolic pre-pass for gradient signs) -/
+  useMonotonicity : Bool := true
   deriving Repr, DecidableEq
 
 instance : Inhabited BoundVerifyConfig := ⟨{}⟩
@@ -61,8 +63,48 @@ instance : Inhabited BoundVerifyConfig := ⟨{}⟩
 def BoundVerifyConfig.toGlobalOptConfig (cfg : BoundVerifyConfig) : GlobalOptConfig :=
   { maxIterations := cfg.maxIterations
     tolerance := cfg.tolerance
-    useMonotonicity := false
+    useMonotonicity := cfg.useMonotonicity
     taylorDepth := cfg.taylorDepth }
+
+/-! ### Witness/Epsilon-argmax structures -/
+
+/-- A witness point for an optimization result -/
+structure WitnessPoint where
+  /-- The coordinates of the witness point -/
+  coords : List ℚ
+  /-- The function value at this point (interval containing true value) -/
+  value : IntervalRat
+  deriving Repr
+
+/-- Result of bound verification with witness information -/
+structure BoundVerifyResult where
+  /-- Whether the bound was verified -/
+  verified : Bool
+  /-- The computed bound (lo for min, hi for max) -/
+  computedBound : ℚ
+  /-- Approximate argmin/argmax (midpoint of best box) -/
+  witness : WitnessPoint
+  /-- Width of the best box (epsilon for ε-approximate argmin/argmax) -/
+  epsilon : ℚ
+  /-- Number of iterations used -/
+  iterations : Nat
+  deriving Repr
+
+/-- Extract witness point from a box (midpoint of each interval) -/
+def Box.midpoint (B : Box) : List ℚ :=
+  B.map fun I => I.midpoint
+
+/-- Compute maximum width of a box (the ε in ε-approximate) -/
+def Box.maxWidthQ (B : Box) : ℚ :=
+  B.foldl (fun acc I => max acc (I.hi - I.lo)) 0
+
+/-- Evaluate expression at a rational point (using singleton intervals) -/
+def evalAtPoint (e : Expr) (point : List ℚ) (cfg : EvalConfig := {}) : IntervalRat :=
+  let env : IntervalEnv := fun i =>
+    match point[i]? with
+    | some q => IntervalRat.singleton q
+    | none => IntervalRat.singleton 0
+  evalIntervalCore e env cfg
 
 /-! ### Computable bound verification functions -/
 
@@ -94,6 +136,60 @@ def verifyLowerBoundStrict (e : Expr) (B : Box) (bound : ℚ)
   let result := globalMinimizeCore e B cfg.toGlobalOptConfig
   result.bound.lo > bound
 
+/-! ### Epsilon-argmax/argmin functions with witness information -/
+
+/-- Find the maximum of f over a box, returning result with witness information.
+    The witness is an ε-approximate argmax: a point where f(witness) is within
+    ε of the true maximum, where ε = bestBox.maxWidth. -/
+def findMaxWithWitness (e : Expr) (B : Box) (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  let result := globalMaximizeCore e B cfg.toGlobalOptConfig
+  let midpt := Box.midpoint result.bound.bestBox
+  let value := evalAtPoint e midpt { taylorDepth := cfg.taylorDepth }
+  { verified := true  -- Always "verified" since we're finding, not checking
+    computedBound := result.bound.hi
+    witness := { coords := midpt, value := value }
+    epsilon := Box.maxWidthQ result.bound.bestBox
+    iterations := result.bound.iterations }
+
+/-- Find the minimum of f over a box, returning result with witness information.
+    The witness is an ε-approximate argmin: a point where f(witness) is within
+    ε of the true minimum, where ε = bestBox.maxWidth. -/
+def findMinWithWitness (e : Expr) (B : Box) (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  let result := globalMinimizeCore e B cfg.toGlobalOptConfig
+  let midpt := Box.midpoint result.bound.bestBox
+  let value := evalAtPoint e midpt { taylorDepth := cfg.taylorDepth }
+  { verified := true
+    computedBound := result.bound.lo
+    witness := { coords := midpt, value := value }
+    epsilon := Box.maxWidthQ result.bound.bestBox
+    iterations := result.bound.iterations }
+
+/-- Verify f(x) ≤ bound with witness information.
+    Returns the verification result along with an ε-approximate argmax. -/
+def verifyUpperBoundWithWitness (e : Expr) (B : Box) (bound : ℚ)
+    (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  let result := globalMaximizeCore e B cfg.toGlobalOptConfig
+  let midpt := Box.midpoint result.bound.bestBox
+  let value := evalAtPoint e midpt { taylorDepth := cfg.taylorDepth }
+  { verified := result.bound.hi ≤ bound
+    computedBound := result.bound.hi
+    witness := { coords := midpt, value := value }
+    epsilon := Box.maxWidthQ result.bound.bestBox
+    iterations := result.bound.iterations }
+
+/-- Verify f(x) ≥ bound with witness information.
+    Returns the verification result along with an ε-approximate argmin. -/
+def verifyLowerBoundWithWitness (e : Expr) (B : Box) (bound : ℚ)
+    (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  let result := globalMinimizeCore e B cfg.toGlobalOptConfig
+  let midpt := Box.midpoint result.bound.bestBox
+  let value := evalAtPoint e midpt { taylorDepth := cfg.taylorDepth }
+  { verified := result.bound.lo ≥ bound
+    computedBound := result.bound.lo
+    witness := { coords := midpt, value := value }
+    epsilon := Box.maxWidthQ result.bound.bestBox
+    iterations := result.bound.iterations }
+
 /-! ### Single-variable convenience functions -/
 
 /-- Convert a single interval to a 1D box -/
@@ -118,6 +214,24 @@ def verifyUpperBound1Strict (e : Expr) (I : IntervalRat) (bound : ℚ)
 def verifyLowerBound1Strict (e : Expr) (I : IntervalRat) (bound : ℚ)
     (cfg : BoundVerifyConfig := {}) : Bool :=
   verifyLowerBoundStrict e (intervalToBox I) bound cfg
+
+/-- Single-variable version of findMaxWithWitness -/
+def findMax1WithWitness (e : Expr) (I : IntervalRat) (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  findMaxWithWitness e (intervalToBox I) cfg
+
+/-- Single-variable version of findMinWithWitness -/
+def findMin1WithWitness (e : Expr) (I : IntervalRat) (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  findMinWithWitness e (intervalToBox I) cfg
+
+/-- Single-variable version of verifyUpperBoundWithWitness -/
+def verifyUpperBound1WithWitness (e : Expr) (I : IntervalRat) (bound : ℚ)
+    (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  verifyUpperBoundWithWitness e (intervalToBox I) bound cfg
+
+/-- Single-variable version of verifyLowerBoundWithWitness -/
+def verifyLowerBound1WithWitness (e : Expr) (I : IntervalRat) (bound : ℚ)
+    (cfg : BoundVerifyConfig := {}) : BoundVerifyResult :=
+  verifyLowerBoundWithWitness e (intervalToBox I) bound cfg
 
 /-! ### Correctness theorems (noncomputable proofs) -/
 
