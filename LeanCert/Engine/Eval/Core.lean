@@ -7,6 +7,7 @@ import LeanCert.Core.Expr
 import LeanCert.Core.Support
 import LeanCert.Core.IntervalReal
 import LeanCert.Core.IntervalRealEndpoints
+import LeanCert.Core.IntervalRat.TrigReduced
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Bounds
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Sinc
@@ -560,8 +561,8 @@ def evalIntervalCore (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : In
   | Expr.neg e => IntervalRat.neg (evalIntervalCore e ρ cfg)
   | Expr.inv e => invInterval (evalIntervalCore e ρ cfg)
   | Expr.exp e => IntervalRat.expComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
-  | Expr.sin e => IntervalRat.sinComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
-  | Expr.cos e => IntervalRat.cosComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
+  | Expr.sin e => IntervalRat.sinComputableReduced (evalIntervalCore e ρ cfg) cfg.taylorDepth
+  | Expr.cos e => IntervalRat.cosComputableReduced (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.log e => IntervalRat.logComputable (evalIntervalCore e ρ cfg) cfg.taylorDepth
   | Expr.atan e => atanInterval (evalIntervalCore e ρ cfg)
   | Expr.arsinh e => arsinhInterval (evalIntervalCore e ρ cfg)
@@ -610,8 +611,8 @@ def evalIntervalCoreWithDiv (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {
         -- Interval contains zero: return wide bounds (sound but imprecise)
         ⟨-1000000000000000000000000000000, 1000000000000000000000000000000, by norm_num⟩
   | Expr.exp e => IntervalRat.expComputable (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.sin e => IntervalRat.sinComputable (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.cos e => IntervalRat.cosComputable (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
+  | Expr.sin e => IntervalRat.sinComputableReduced (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
+  | Expr.cos e => IntervalRat.cosComputableReduced (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
   | Expr.log e =>
       -- Computable log using Taylor series via atanh reduction
       let arg := evalIntervalCoreWithDiv e ρ cfg
@@ -916,11 +917,11 @@ theorem evalIntervalCore_correct (e : Expr) (hsupp : ExprSupportedCore e)
   | sin _ ih =>
     simp only [evalDomainValid] at hdom
     simp only [Expr.eval_sin, evalIntervalCore]
-    exact IntervalRat.mem_sinComputable (ih hdom) cfg.taylorDepth
+    exact IntervalRat.mem_sinComputableReduced (ih hdom) cfg.taylorDepth
   | cos _ ih =>
     simp only [evalDomainValid] at hdom
     simp only [Expr.eval_cos, evalIntervalCore]
-    exact IntervalRat.mem_cosComputable (ih hdom) cfg.taylorDepth
+    exact IntervalRat.mem_cosComputableReduced (ih hdom) cfg.taylorDepth
   | exp _ ih =>
     simp only [evalDomainValid] at hdom
     simp only [Expr.eval_exp, evalIntervalCore]
