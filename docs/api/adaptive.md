@@ -8,22 +8,21 @@ When interval arithmetic over a large domain produces bounds that are too loose,
 
 ```python
 import leancert as lc
-from leancert.adaptive import AdaptiveVerifier
+from leancert.adaptive import verify_bound_adaptive
 
 x = lc.var('x')
 with lc.Solver() as solver:
-    verifier = AdaptiveVerifier(solver)
-
     # May need splitting to prove tight bound
-    result = verifier.verify_bound(
+    result = verify_bound_adaptive(
+        solver,
         lc.sin(x) * lc.cos(x),
         {'x': (0, 6.28)},
         upper=0.5
     )
 
-    print(result.verified)          # True
-    print(result.num_subdivisions)  # 4
-    print(result.proof_tree)        # Hierarchical proof structure
+    print(result.verified)      # True
+    print(result.total_splits)  # Number of domain splits needed
+    print(result.lean_proof)    # Combined Lean proof
 ```
 
 ## When to Use Adaptive Verification
@@ -35,79 +34,69 @@ Use adaptive verification when:
 3. **Oscillating functions** - Functions like `sin`, `cos` need subdivision to capture behavior
 4. **Near-boundary behavior** - Values approach the bound only in small regions
 
+## Function API
+
+```python
+from leancert.adaptive import verify_bound_adaptive, AdaptiveConfig, SplitStrategy
+
+result = verify_bound_adaptive(
+    solver,           # lc.Solver instance
+    expr,             # Expression to verify
+    domain,           # {'x': (lo, hi)} or Box
+    upper=None,       # Upper bound to prove
+    lower=None,       # Lower bound to prove
+    adaptive_config=AdaptiveConfig(),  # Splitting configuration
+    solver_config=lc.Config()          # Interval arithmetic config
+)
+```
+
 ## Splitting Strategies
 
-### Bisection (Default)
-
-Recursively splits the domain in half along each dimension:
+Configure the splitting strategy via `AdaptiveConfig`:
 
 ```python
-result = verifier.verify_bound(
-    expr, domain, upper=bound,
-    strategy='bisection',
-    max_depth=10
-)
-```
+from leancert.adaptive import AdaptiveConfig, SplitStrategy
 
-### Algebraic Splitting
+# Bisection - splits domain in half
+config = AdaptiveConfig(strategy=SplitStrategy.BISECT)
 
-Splits at algebraically significant points (roots, critical points):
+# Worst-point guided (default) - splits where bound is nearly violated
+config = AdaptiveConfig(strategy=SplitStrategy.WORST_POINT)
 
-```python
-result = verifier.verify_bound(
-    expr, domain, upper=bound,
-    strategy='algebraic'
-)
-# Automatically finds roots of derivatives to split at extrema
-```
+# Gradient-guided - uses derivative info to guide splits
+config = AdaptiveConfig(strategy=SplitStrategy.GRADIENT_GUIDED)
 
-### Adaptive Heuristics
+# Largest-first - splits largest subdomain first
+config = AdaptiveConfig(strategy=SplitStrategy.LARGEST_FIRST)
 
-Automatically chooses split points based on where verification fails:
+# Algebraic - splits at roots/critical points
+config = AdaptiveConfig(strategy=SplitStrategy.ALGEBRAIC)
 
-```python
-result = verifier.verify_bound(
-    expr, domain, upper=bound,
-    strategy='adaptive'
-)
-# Concentrates subdivisions where the bound is nearly violated
-```
-
-## Proof Assembly
-
-After verifying all subdomains, the proofs are assembled into a single certificate:
-
-```python
-result = verifier.verify_bound(expr, domain, upper=bound)
-
-# Access the proof tree
-for node in result.proof_tree.leaves():
-    print(f"Subdomain {node.domain}: verified with bound {node.bound}")
-
-# Generate combined Lean proof
-print(result.to_lean_tactic())
-# Output:
-# apply bound_of_union
-# · -- Subdomain [0, π]
-#   interval_bound
-# · -- Subdomain [π, 2π]
-#   interval_bound
+# Auto - automatically selects best strategy
+config = AdaptiveConfig(strategy=SplitStrategy.AUTO)
 ```
 
 ## Configuration
 
 ```python
-from leancert.adaptive import AdaptiveConfig
+from leancert.adaptive import AdaptiveConfig, SplitStrategy
 
 config = AdaptiveConfig(
-    max_depth=15,           # Maximum subdivision depth
-    min_width=1e-10,        # Stop subdividing below this width
-    parallel=True,          # Verify subdomains in parallel
-    early_stop=True,        # Stop when counterexample found
-    taylor_depth=12,        # Interval arithmetic precision
+    max_splits=64,              # Maximum number of domain splits
+    max_depth=10,               # Maximum recursion depth
+    strategy=SplitStrategy.WORST_POINT,  # Splitting strategy
+    parallel=True,              # Verify subdomains in parallel
+    max_workers=None,           # Number of parallel workers (None=auto)
+    min_width=1e-10,            # Stop subdividing below this width
+    min_volume=None,            # Stop subdividing below this volume
+    timeout_per_subdomain_ms=10000,  # Timeout per subdomain
+    compute_gradients=False,    # Compute gradients for guided splitting
 )
 
-result = verifier.verify_bound(expr, domain, upper=bound, config=config)
+result = verify_bound_adaptive(
+    solver, expr, domain, upper=bound,
+    adaptive_config=config
+)
 ```
 
 ## Multivariate Domains
@@ -118,60 +107,72 @@ For multivariate functions, splitting occurs along all dimensions:
 x, y = lc.var('x'), lc.var('y')
 expr = x**2 + y**2 - x*y
 
-result = verifier.verify_bound(
+result = verify_bound_adaptive(
+    solver,
     expr,
     {'x': (-1, 1), 'y': (-1, 1)},
     upper=3.0
 )
 
-print(result.num_subdivisions)  # May split into 4x4 = 16 regions
+print(result.total_splits)  # May split into multiple regions
 ```
 
-## Expansion Heuristics
+## Result Structure
 
-When verification fails near domain boundaries, **expansion heuristics** slightly widen the domain to check if the bound is genuinely violated or just needs more precision:
+The `AdaptiveResult` contains:
 
 ```python
-result = verifier.verify_bound(
-    expr, domain, upper=bound,
-    expansion_factor=1.01  # Expand by 1% for boundary checks
+@dataclass
+class AdaptiveResult:
+    verified: bool                    # Whether the bound was proven
+    subdomains: list[Subdomain]       # All subdomains considered
+    results: list[SubdomainResult]    # Results per subdomain
+    total_splits: int                 # Total number of splits
+    failing_subdomain: Optional[Subdomain]  # First failing region (if any)
+    lean_proof: Optional[str]         # Combined Lean proof
+    certificate: Optional[Certificate] # Verification certificate
+    total_time_ms: float              # Total verification time
+    unverified_volume: float          # Volume of unverified regions
+```
+
+## Proof Assembly
+
+After verifying all subdomains, proofs are assembled:
+
+```python
+result = verify_bound_adaptive(solver, expr, domain, upper=bound)
+
+# Access the combined Lean proof
+print(result.lean_proof)
+# Output:
+# -- CEGAR-generated proof via domain splitting
+# -- Expression: ...
+# -- Bound: upper ≤ ...
+# -- Verified in N subdomains
+# apply union_bound_of_subdomains
+# ...
+```
+
+## Convenience Function
+
+For quick use, there's also a module-level function:
+
+```python
+import leancert as lc
+
+x = lc.var('x')
+result = lc.verify_bound_adaptive(
+    solver, lc.exp(x), {'x': (0, 2)}, upper=8.0
 )
-
-if result.boundary_sensitive:
-    print("Bound nearly violated at boundary")
-    print(result.critical_points)
-```
-
-## Integration with Quantifier Synthesis
-
-Adaptive verification is used internally by quantifier synthesis:
-
-```python
-from leancert.quantifier import QuantifierSynthesizer
-
-synth = QuantifierSynthesizer(solver)
-
-# forall_bound uses adaptive verification automatically
-result = synth.forall_bound(expr, domain, upper=bound)
 ```
 
 ## Performance Tips
 
-1. **Start with low `max_depth`** - Increase only if verification fails
-2. **Use `algebraic` strategy** for functions with known structure
-3. **Enable `parallel=True`** for large domains
-4. **Check `result.num_subdivisions`** - High counts suggest the bound is too tight
-
-## Result Structure
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `verified` | `bool` | Whether the bound was proven |
-| `num_subdivisions` | `int` | Total subdomains verified |
-| `max_depth_reached` | `int` | Deepest subdivision level |
-| `proof_tree` | `ProofTree` | Hierarchical proof structure |
-| `counterexample` | `dict` | Point violating bound (if failed) |
-| `timing_ms` | `float` | Total verification time |
+1. **Start with low `max_splits`** - Increase only if verification fails
+2. **Use `WORST_POINT` strategy** for tight bounds (default)
+3. **Use `ALGEBRAIC` strategy** for functions with known critical points
+4. **Enable `parallel=True`** for large domains (default)
+5. **Check `result.total_splits`** - High counts suggest the bound is too tight
 
 ## See Also
 

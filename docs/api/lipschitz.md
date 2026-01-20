@@ -99,11 +99,12 @@ from leancert.quantifier import QuantifierSynthesizer
 synth = QuantifierSynthesizer(solver)
 result = synth.epsilon_delta(
     lc.exp(x),
-    var='x',
+    variable='x',
     point=0.0,
-    domain=(-1, 1)
+    limit=1.0,  # exp(0) = 1
+    neighborhood_radius=1.0
 )
-# Uses Lipschitz bound L=e to derive δ=ε/e
+# Uses Lipschitz bound L≈e to derive δ=ε/L
 ```
 
 ### 2. Error Propagation
