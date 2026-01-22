@@ -57,7 +57,7 @@ Repository = "https://github.com/leanbound/leancert"
 Issues = "https://github.com/leanbound/leancert/issues"
 
 [tool.setuptools]
-packages = ["leancert", "leancert.bridge"]
+packages = ["leancert"]
 include-package-data = true
 
 [tool.setuptools.package-data]
