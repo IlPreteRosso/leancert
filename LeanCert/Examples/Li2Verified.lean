@@ -567,23 +567,34 @@ theorem g_mid_integral_upper :
 
 /-! ### Additional Interval Bounds -/
 
-/-- Lower bound for [0, 1/100000] using g > 0. -/
+/-- Lower bound for [0, 1/100000] using g > 0 on open interval. -/
 theorem g_integral_00_lower :
     (0:ℝ) ≤ ∫ t in (0:ℝ)..(1/100000), g t := by
-  have hInt := g_intervalIntegrable_full.mono_set (by
-    simp only [Set.uIcc_of_le (by norm_num : (0:ℝ) ≤ 1/100000),
-               Set.uIcc_of_le (by norm_num : (0:ℝ) ≤ 1)]
-    exact Set.Icc_subset_Icc (by norm_num) (by norm_num))
-  apply intervalIntegral.integral_nonneg (by norm_num : (0:ℝ) ≤ 1/100000)
-  intro t ht
-  by_cases ht0 : t = 0
-  · simp only [ht0]; exact le_refl 0
-  · have hpos : 0 < t := by
-      rcases ht.1.lt_or_eq with h | h
-      · exact h
-      · exact (ht0 h.symm).elim
-    have hlt1 : t < 1 := by linarith [ht.2]
-    exact le_of_lt (g_pos t hpos hlt1)
+  -- Establish integrability on the open interval (0, 1/100000)
+  have hmeas : Measurable g := by
+    have hlog1p : Measurable fun t : ℝ => Real.log (1 + t) :=
+      Real.measurable_log.comp (measurable_const.add measurable_id)
+    have hlog1m : Measurable fun t : ℝ => Real.log (1 - t) :=
+      Real.measurable_log.comp (measurable_const.sub measurable_id)
+    have hlog1p_inv : Measurable fun t : ℝ => (Real.log (1 + t))⁻¹ := hlog1p.inv
+    have hlog1m_inv : Measurable fun t : ℝ => (Real.log (1 - t))⁻¹ := hlog1m.inv
+    unfold g symmetricLogCombination
+    simpa [one_div] using hlog1p_inv.add hlog1m_inv
+  have hInt_Ioo : IntegrableOn g (Set.Ioo (0:ℝ) (1/100000)) volume := by
+    apply Measure.integrableOn_of_bounded
+    · exact measure_Ioo_lt_top.ne
+    · exact hmeas.aestronglyMeasurable
+    · refine (ae_restrict_iff' measurableSet_Ioo).2 ?_
+      exact ae_of_all _ (fun t ht => by
+        have hpos := g_pos t ht.1 (by linarith [ht.2])
+        have hle := g_le_two t ht.1 (by linarith [ht.2])
+        simpa [Real.norm_eq_abs, abs_of_pos hpos] using hle)
+  have hInt : IntervalIntegrable g volume (0:ℝ) (1/100000) :=
+    (intervalIntegrable_iff_integrableOn_Ioo_of_le (by norm_num : (0:ℝ) ≤ 1/100000)).2 hInt_Ioo
+  have hpos : ∀ t ∈ Set.Ioo (0:ℝ) (1/100000), 0 < g t := by
+    intro t ht; exact g_pos t ht.1 (by linarith [ht.2])
+  have hlt : (0:ℝ) < 1/100000 := by norm_num
+  exact le_of_lt (intervalIntegral.intervalIntegral_pos_of_pos_on hInt hpos hlt)
 
 /-- Lower bound for [1/100000, 1/10000] using g > 0. -/
 theorem g_integral_01_lower :
