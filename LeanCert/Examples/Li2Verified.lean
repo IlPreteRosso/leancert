@@ -579,7 +579,7 @@ theorem g_integral_00_lower :
   by_cases ht0 : t = 0
   · simp only [ht0]; exact le_refl 0
   · have hpos : 0 < t := by
-      cases' ht.1.lt_or_eq with h h
+      rcases ht.1.lt_or_eq with h | h
       · exact h
       · exact (ht0 h.symm).elim
     have hlt1 : t < 1 := by linarith [ht.2]
