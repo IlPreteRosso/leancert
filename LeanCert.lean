@@ -62,6 +62,10 @@ import LeanCert.Tactic.Refute
 import LeanCert.Tactic.Bound
 import LeanCert.Tactic.TestAuto
 import LeanCert.Tactic.TestDiscovery
+-- Vector simplification with explicit Fin constructors
+import LeanCert.Tactic.VecSimp
+-- Finset.Icc sum expansion
+import LeanCert.Tactic.ExpandIccSum
 
 -- Discovery Mode
 import LeanCert.Discovery
