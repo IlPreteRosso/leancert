@@ -23,7 +23,10 @@ Helpers for `Matrix.vecCons` expressions, used by `VecSimp` and `FinSumExpand`.
 
 * `vec_index_simp_with_dite` - vector indexing + dite + abs with fixed-point iteration
 
-Debug: `set_option trace.VecUtil.debug true`
+## Options
+
+* `set_option trace.VecUtil.debug true` - enable debug tracing
+* `set_option VecUtil.fuel 256` - max recursion depth for element extraction (default: 128)
 -/
 
 namespace VecUtil
@@ -31,6 +34,12 @@ namespace VecUtil
 open Lean Meta
 
 initialize registerTraceClass `VecUtil.debug
+
+/-- Maximum recursion depth for vector element extraction. Default: 128. -/
+register_option fuel : Nat := {
+  defValue := 128
+  descr := "Maximum recursion depth for getVecElem (vector element extraction)"
+}
 
 /-- Extract natural number from a Fin expression.
     Handles both `Fin.mk n proof` and numeric literals like `(2 : Fin 3)`.
@@ -61,6 +70,8 @@ def getFinVal? (e : Expr) : MetaM (Option Nat) := do
     - Nested vecCons after lambda reduction: when applying a lambda returns
       another `vecCons` application that needs further element extraction
 
+    Uses a `fuel` parameter for termination (decreases on each recursive call).
+
     ## Implementation notes
 
     **inferType vs bindingDomain!**: For lambda tails, we use `inferType` to get
@@ -78,7 +89,10 @@ def getFinVal? (e : Expr) : MetaM (Option Nat) := do
     **Recursive extraction**: After reducing a lambda application, the result may
     still be a `vecCons` applied to an index (e.g., `vecCons a tail (Fin.mk k proof)`).
     We recursively extract from this to handle arbitrary nesting depth. -/
-partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
+def getVecElem (fuel : Nat) (idx : Nat) (e : Expr) : MetaM (Option Expr) :=
+  match fuel with
+  | 0 => return none
+  | fuel + 1 => do
   let e ← whnfR e
   let args := e.getAppArgs
   -- Matrix.vecCons has 4 args when not applied to an index: α, n, head, tail
@@ -88,7 +102,7 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
     if idx == 0 then
       return some head
     else
-      getVecElem (idx - 1) tail
+      getVecElem fuel (idx - 1) tail
   -- Handle lambda tails from matrix column extraction
   -- e.g., (fun i => Matrix.vecCons ... i) needs to be applied to idx
   else if e.isLambda then
@@ -132,12 +146,13 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
           let rargs := reduced'.getAppArgs
           let ridxExpr := rargs[4]!
           let some remainingIdx ← getFinVal? ridxExpr | return some reduced
-          return ← getVecElem remainingIdx reduced'
+          return ← getVecElem fuel remainingIdx reduced'
         else
           return some reduced
     return none
   else
     return none
+termination_by fuel
 
 /-- Simproc: Reduce `![a, b, c, ...] i` to the i-th element.
 
@@ -185,7 +200,8 @@ dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
   if i == 0 then
     return .done x
   else
-    let some result ← getVecElem (i - 1) xs | return .continue
+    let fuelVal := fuel.get (← getOptions)
+    let some result ← getVecElem fuelVal (i - 1) xs | return .continue
     return .done result
 
 end VecUtil
