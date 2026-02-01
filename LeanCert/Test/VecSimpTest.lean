@@ -92,6 +92,17 @@ example : |(Matrix.vecCons (1 : ℚ)
     (fun (i : Fin 2) => Matrix.vecCons (-2 : ℚ) (fun (_ : Fin 1) => (-3 : ℚ)) i) : Fin 3 → ℚ) 2| = 3 := by
   vec_simp!
 
+-- Lambda tail without explicit binder types (inferred from context)
+example : |(Matrix.vecCons (1 : ℚ)
+    (fun i => Matrix.vecCons (-2 : ℚ) (fun _ => (-3 : ℚ)) i) : Fin 3 → ℚ) 2| = 3 := by
+  vec_simp!
+
+-- Nested vecCons after lambda reduction: when looking up index 3 in vecCons head (fun i => vecCons ...),
+-- we apply the lambda to Fin.mk 2, reduce, and get vecCons _ _ (Fin.mk 1 _) which needs further extraction
+example : (Matrix.vecCons (10 : ℚ)
+    (fun i => Matrix.vecCons (20 : ℚ) (fun j => Matrix.vecCons (30 : ℚ) (fun _ => 40) j) i) : Fin 4 → ℚ) 3 = 40 := by
+  vec_simp!
+
 -- Longer vectors with Fin.mk
 example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) ⟨3, by omega⟩ = 4 := by vec_simp
 
@@ -302,3 +313,48 @@ example : ∀ i j k : Fin 2, T3 i j k ≤ 8 := by
   all_goals vec_simp! [T3, M0, M1]
 
 end TensorSimp.Test
+
+/-! ## Tests for vec_simp! [defs] consistency with vec_simp!
+
+Both variants should have the same capabilities - the `[defs]` variant just also
+unfolds the given definitions first. This tests that the Mathlib fallback lemmas
+(cons_val_zero, cons_val_one, head_cons) work in both variants. -/
+
+namespace VecSimpDefConsistency.Test
+
+-- A simple defined matrix
+open Matrix in
+def simpleM : Fin 3 → Fin 3 → ℚ := ![![1, 2, 3], ![4, 5, 6], ![7, 8, 9]]
+
+-- Tests that vec_simp! [defs] handles all index positions like vec_simp! does
+-- These use the Mathlib fallback lemmas when needed
+example : simpleM 0 0 = 1 := by vec_simp! [simpleM]
+example : simpleM 0 1 = 2 := by vec_simp! [simpleM]
+example : simpleM 0 2 = 3 := by vec_simp! [simpleM]
+example : simpleM 1 0 = 4 := by vec_simp! [simpleM]
+example : simpleM 1 1 = 5 := by vec_simp! [simpleM]
+example : simpleM 1 2 = 6 := by vec_simp! [simpleM]
+example : simpleM 2 0 = 7 := by vec_simp! [simpleM]
+example : simpleM 2 1 = 8 := by vec_simp! [simpleM]
+example : simpleM 2 2 = 9 := by vec_simp! [simpleM]
+
+-- With Fin.mk indices (tests both dsimproc and fallback lemmas work)
+example : simpleM ⟨0, by omega⟩ ⟨0, by omega⟩ = 1 := by vec_simp! [simpleM]
+example : simpleM ⟨1, by omega⟩ ⟨1, by omega⟩ = 5 := by vec_simp! [simpleM]
+example : simpleM ⟨2, by omega⟩ ⟨2, by omega⟩ = 9 := by vec_simp! [simpleM]
+
+-- vec_simp! [defs] with dite conditions (tests decide config works)
+example : (if _ : (1 : ℕ) ≤ 2 then simpleM 0 0 else 0) = 1 := by vec_simp! [simpleM]
+example : (if _ : (1 : ℕ) ≤ 2 then simpleM 1 1 else 0) = 5 := by vec_simp! [simpleM]
+
+-- vec_simp! [defs] with absolute values
+open Matrix in
+def signedM : Fin 2 → Fin 2 → ℚ := ![![-1, 2], ![-3, 4]]
+
+example : |signedM 0 0| = 1 := by vec_simp! [signedM]
+example : |signedM 1 0| = 3 := by vec_simp! [signedM]
+
+-- Combined: dite + abs + matrix definition
+example : (if _ : (1 : ℕ) ≤ 2 then |signedM 0 0| else 0) = 1 := by vec_simp! [signedM]
+
+end VecSimpDefConsistency.Test

@@ -92,7 +92,9 @@ def getFinVal? (e : Expr) : MetaM (Option Nat) := do
     return none
 
 /-- Recursively traverse a vecCons chain to extract the element at index `idx`.
-    Handles both explicit vecCons chains and lambda tails from matrix column extraction. -/
+    Handles explicit vecCons chains, lambda tails from matrix column extraction,
+    and nested vecCons after lambda reduction.
+    Uses `inferType` for lambda domain to handle implicit binder types. -/
 partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
   let e ← whnfR e
   let args := e.getAppArgs
@@ -104,8 +106,12 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
     else
       getVecElem (idx - 1) tail
   else if e.isLambda then
-    let binderType := e.bindingDomain!
-    let finType ← whnfR binderType
+    -- Get the Fin type from the lambda's inferred type (more robust than bindingDomain!)
+    let lamType ← inferType e
+    let lamType' ← whnfR lamType
+    if !lamType'.isForall then return none
+    let domain := lamType'.bindingDomain!
+    let finType ← whnfR domain
     if finType.isAppOf ``Fin then
       let finArgs := finType.getAppArgs
       if finArgs.size >= 1 then
@@ -116,7 +122,16 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
         let finIdx ← mkAppM ``Fin.mk #[idxExpr, proof]
         let applied := Expr.app e finIdx
         let reduced ← reduce applied
-        return some reduced
+        -- Recursively process - handles nested vecCons after lambda application
+        let reduced' ← whnfR reduced
+        if reduced'.getAppFn.constName? == some ``Matrix.vecCons && reduced'.getAppArgs.size == 5 then
+          -- Result is vecCons applied to an index - extract via recursive getVecElem
+          let rargs := reduced'.getAppArgs
+          let ridxExpr := rargs[4]!
+          let some remainingIdx ← getFinVal? ridxExpr | return some reduced
+          return ← getVecElem remainingIdx reduced'
+        else
+          return some reduced
     return none
   else
     return none
@@ -192,20 +207,25 @@ absolute values, matrix indexing, and handles non-literal Fin dimensions.
 After expanding the sum:
 - Simplifies `if h : 1 ≤ 2 then f x else 0` to `f x`
 - Simplifies `|4321/432|` to `4321/432` when the argument is provably positive/nonnegative
-- Simplifies matrix indexing including lambda tails from column extraction
+- Simplifies matrix indexing including nested 2D access like `![![1,2],[3,4]] i j`
+- Handles lambda tails from column extraction
 - Handles `∑ i : Fin (n + 1), f i` via `Fin.sum_univ_succ` fallback
+
+Uses `repeat simp` for vector indexing to handle any nesting depth.
 
 ## Example
 ```lean
--- Before: ∑ x ∈ Finset.Icc 1 2, |if h : x ≤ 2 then a x else 0|
--- After finsum_expand:  |if h : 1 ≤ 2 then a 1 else 0| + |if h : 2 ≤ 2 then a 2 else 0|
--- After finsum_expand!: |a 1| + |a 2|
+-- dite simplification:
+-- ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x else 0) → f 1 + f 2
 
 -- Non-literal Fin dimension:
 -- ∑ i : Fin (2 + 1), f i → f 0 + f 1 + f 2
 
 -- Matrix column sums:
 -- ∑ i : Fin 3, |M i 0| → fully simplified to concrete values
+
+-- Nested 2D sums:
+-- ∑ i : Fin 2, ∑ j : Fin 2, ![![1,2],[3,4]] i j → 1 + 2 + 3 + 4
 ```
 -/
 macro "finsum_expand!" : tactic =>
@@ -222,7 +242,11 @@ macro "finsum_expand!" : tactic =>
     -- Simplify dite conditions with decidable literal bounds
     try simp (config := { decide := true }) only [dite_true, dite_false]
     -- Simplify matrix/vector indexing (handles lambda tails from column extraction)
-    try simp only [Matrix.of_apply, FinSumExpand.vecConsFinMk]
+    -- Use repeat for nested indexing (![![...]] i j) which requires multiple reduction passes
+    try simp only [Matrix.of_apply]
+    repeat simp only [FinSumExpand.vecConsFinMk,
+                      Matrix.cons_val_zero, Matrix.cons_val_zero',
+                      Matrix.cons_val_one, Matrix.head_cons]
     -- Simplify absolute values of positive/nonnegative literals
     try simp only [abs_of_pos, abs_of_nonneg]
   ))

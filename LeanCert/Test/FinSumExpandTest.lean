@@ -113,4 +113,25 @@ example : ∑ i : Fin 3, |testMatrix i 0| = 1 + 4 + 7 := by finsum_expand!
 -- Sum of column 1 with absolute values
 example : ∑ i : Fin 3, |testMatrix i 1| = 2 + 5 + 8 := by finsum_expand!
 
+/-! ### 2D matrix indexing (nested vector access) -/
+
+-- finsum_expand! handles nested vector indexing like ![![...], ![...]] i j
+-- This tests the Mathlib fallback lemmas (cons_val_zero, cons_val_one, head_cons)
+example : ∑ i : Fin 2, ![![(1 : ℚ), 2], ![3, 4]] i 0 = 1 + 3 := by finsum_expand!
+example : ∑ i : Fin 2, ![![(1 : ℚ), 2], ![3, 4]] i 1 = 2 + 4 := by finsum_expand!
+
+-- With absolute values
+example : ∑ i : Fin 2, |![![(1 : ℚ), -2], ![-3, 4]] i 0| = 1 + 3 := by finsum_expand!
+example : ∑ i : Fin 2, |![![(1 : ℚ), -2], ![-3, 4]] i 1| = 2 + 4 := by finsum_expand!
+
+-- Sum over both indices
+example : ∑ i : Fin 2, ∑ j : Fin 2, ![![(1 : ℚ), 2], ![3, 4]] i j = 1 + 2 + 3 + 4 := by
+  finsum_expand!
+
+-- Nested vecCons after lambda reduction: handles cases where lambda application
+-- returns another vecCons that still needs element extraction
+example : ∑ i : Fin 3, (Matrix.vecCons (10 : ℚ)
+    (fun j => Matrix.vecCons (20 : ℚ) (fun _ => 30) j) : Fin 3 → ℚ) i = 10 + 20 + 30 := by
+  finsum_expand!
+
 end FinSumExpand.Test

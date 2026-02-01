@@ -129,8 +129,20 @@ def getFinVal? (e : Expr) : MetaM (Option Nat) := do
 /-- Recursively traverse a vecCons chain to extract the element at index `idx`.
     Returns `some elem` if successful, `none` otherwise.
 
-    Handles both explicit vecCons chains and lambda tails that arise from
-    matrix column extraction (e.g., `fun i => Matrix.vecCons ... i`). -/
+    Handles:
+    - Explicit vecCons chains: `vecCons a (vecCons b ...) idx`
+    - Lambda tails from matrix column extraction: `fun i => vecCons ... i`
+    - Nested vecCons after lambda reduction: when applying a lambda returns
+      another `vecCons` application that needs further element extraction
+
+    Note: For lambda tails, we use `inferType` to get the domain type rather than
+    `bindingDomain!`, because lambdas without explicit binder annotations
+    (e.g., `fun i => ...` vs `fun (i : Fin 2) => ...`) may not have the Fin type
+    directly accessible in the binder.
+
+    After reducing a lambda application, the result may still be a `vecCons`
+    applied to an index (e.g., `vecCons a tail (Fin.mk k proof)`). We recursively
+    extract from this to handle arbitrary nesting depth. -/
 partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
   let e ← whnfR e
   let args := e.getAppArgs
@@ -145,10 +157,12 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
   -- Handle lambda tails from matrix column extraction
   -- e.g., (fun i => Matrix.vecCons ... i) needs to be applied to idx
   else if e.isLambda then
-    -- Get the Fin type from the lambda's domain
-    let binderType := e.bindingDomain!
-    -- Try to extract n from Fin n
-    let finType ← whnfR binderType
+    -- Get the Fin type from the lambda's inferred type (more robust than bindingDomain!)
+    let lamType ← inferType e
+    let lamType' ← whnfR lamType
+    if !lamType'.isForall then return none
+    let domain := lamType'.bindingDomain!
+    let finType ← whnfR domain
     if finType.isAppOf ``Fin then
       let finArgs := finType.getAppArgs
       if finArgs.size >= 1 then
@@ -161,7 +175,16 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
         -- Apply lambda to the index and reduce
         let applied := Expr.app e finIdx
         let reduced ← reduce applied
-        return some reduced
+        -- Recursively process - handles nested vecCons after lambda application
+        let reduced' ← whnfR reduced
+        if reduced'.getAppFn.constName? == some ``Matrix.vecCons && reduced'.getAppArgs.size == 5 then
+          -- Result is vecCons applied to an index - extract via recursive getVecElem
+          let rargs := reduced'.getAppArgs
+          let ridxExpr := rargs[4]!
+          let some remainingIdx ← getFinVal? ridxExpr | return some reduced
+          return ← getVecElem remainingIdx reduced'
+        else
+          return some reduced
     return none
   else
     return none
@@ -257,12 +280,7 @@ macro "vec_simp!" : tactic =>
 
 /-- Version of `vec_simp!` for matrices with named definitions.
 
-    Unfolds the given definitions, then applies:
-    - `Matrix.of_apply`: `(Matrix.of f) i j` → `f i j`
-    - Vector indexing with `Fin.mk` indices
-    - Decidable `dite` conditions
-    - Absolute value simplification
-    - `norm_num` for numeric goals
+    Unfolds the given definitions, then applies `vec_simp!`.
 
     Example:
     ```lean
@@ -274,14 +292,7 @@ macro "vec_simp!" : tactic =>
     ```
 -/
 macro "vec_simp!" "[" defs:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
-  `(tactic| (
-    simp only [$defs,*]
-    try simp only [Matrix.of_apply]
-    try simp only [VecSimp.vecConsFinMk]
-    try simp (config := { decide := true }) only [dite_true, dite_false]
-    try simp only [abs_of_pos, abs_of_nonneg]
-    try norm_num
-  ))
+  `(tactic| (simp only [$defs,*]; vec_simp!))
 
 /-- Tactic that simplifies `dite` expressions with decidable literal conditions.
 
