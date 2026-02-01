@@ -58,6 +58,11 @@ For `∑ i : Fin n, f i`, we use Mathlib's `Fin.sum_univ_ofNat` simproc from
 
 Works for any concrete literal n.
 
+### Fallback for non-literal Fin dimensions
+When n is not a syntactic literal (e.g., `Fin (2 + 1)` instead of `Fin 3`),
+`n.nat?` returns `none` and the simproc doesn't fire. We fall back to
+repeatedly applying `Fin.sum_univ_succ` to expand element by element.
+
 ## Main definitions
 
 * `finsum_expand` - tactic that expands Finset sums to explicit additions
@@ -79,7 +84,7 @@ Supports:
 - **Fin sums**: `∑ i : Fin n, f i` for any literal `n`
 
 Works for any concrete natural number bounds. See also `finsum_expand!` which
-additionally simplifies `dite` conditions.
+additionally simplifies `dite` conditions and handles non-literal Fin dimensions.
 
 ## Algorithm
 1. Expand `∑ i : Fin n, f i` using Mathlib's `Fin.sum_univ_ofNat` simproc
@@ -92,13 +97,13 @@ additionally simplifies `dite` conditions.
 example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 1 3, f k = f 1 + f 2 + f 3 := by
   finsum_expand
 
-example (f : Fin 10 → ℝ) : ∑ i : Fin 10, f i = f 0 + f 1 + ... + f 9 := by
+example (f : Fin 3 → ℝ) : ∑ i : Fin 3, f i = f 0 + f 1 + f 2 := by
   finsum_expand
 ```
 -/
 macro "finsum_expand" : tactic =>
   `(tactic| (
-    -- Step 0: Expand Fin sums using Mathlib's simproc (works for any n)
+    -- Step 0: Expand Fin sums using Mathlib's simproc (works for literal n)
     try simp only [Fin.sum_univ_ofNat]
     -- Step 1: Use Mathlib's simprocs to compute Finset intervals to explicit sets
     try simp only [Finset.Icc_ofNat_ofNat, Finset.Ico_ofNat_ofNat,
@@ -112,25 +117,37 @@ macro "finsum_expand" : tactic =>
       | (rw [Finset.sum_insert (by native_decide)]; try simp only [add_assoc]))
   ))
 
-/-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions
-and absolute values of positive literals.
+/-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions,
+absolute values, and handles non-literal Fin dimensions.
 
 After expanding the sum:
 - Simplifies `if h : 1 ≤ 2 then f x else 0` to `f x`
 - Simplifies `|4321/432|` to `4321/432` when the argument is provably positive/nonnegative
+- Handles `∑ i : Fin (n + 1), f i` via `Fin.sum_univ_succ` fallback
 
 ## Example
 ```lean
 -- Before: ∑ x ∈ Finset.Icc 1 2, |if h : x ≤ 2 then a x else 0|
 -- After finsum_expand:  |if h : 1 ≤ 2 then a 1 else 0| + |if h : 2 ≤ 2 then a 2 else 0|
 -- After finsum_expand!: |a 1| + |a 2|
+
+-- Non-literal Fin dimension:
+-- ∑ i : Fin (2 + 1), f i → f 0 + f 1 + f 2
 ```
 -/
 macro "finsum_expand!" : tactic =>
   `(tactic| (
     finsum_expand
-    -- Step 3: Simplify dite conditions with decidable literal bounds
+    -- Fallback for non-literal Fin n (e.g., Fin (2 + 1))
+    -- Repeatedly expand using Fin.sum_univ_succ until we hit Fin 0
+    repeat rw [Fin.sum_univ_succ]
+    -- Simplify Fin expressions and handle empty Fin 0 sum
+    try simp only [Fin.sum_univ_zero, Fin.succ_zero_eq_one, add_zero,
+                   Fin.castSucc_zero, Fin.zero_eta, add_assoc]
+    -- Normalize nested Fin.succ
+    try simp only [Fin.succ_one_eq_two]
+    -- Simplify dite conditions with decidable literal bounds
     try simp (config := { decide := true }) only [dite_true, dite_false]
-    -- Step 4: Simplify absolute values of positive/nonnegative literals
+    -- Simplify absolute values of positive/nonnegative literals
     try simp only [abs_of_pos, abs_of_nonneg]
   ))

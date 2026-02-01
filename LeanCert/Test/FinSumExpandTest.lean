@@ -81,7 +81,7 @@ example (f : Fin 10 → ℝ) : ∑ i : Fin 10, f i =
 -- With vector notation
 example (a b c : ℝ) : ∑ i : Fin 3, (![a, b, c] : Fin 3 → ℝ) i = a + b + c := by finsum_expand
 
-/-! ### finsum_expand! (with dite and abs simplification) -/
+/-! ### finsum_expand! (with dite, abs, and non-literal Fin fallback) -/
 
 -- dite conditions are simplified
 example (f : ℕ → ℝ) : ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x else 0) =
@@ -89,5 +89,13 @@ example (f : ℕ → ℝ) : ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x e
 
 -- finsum_expand! with abs in summands
 example : ∑ k ∈ Finset.Icc 1 2, |(k : ℤ)| = 1 + 2 := by finsum_expand!
+
+-- Non-literal Fin dimensions (fallback via Fin.sum_univ_succ)
+-- When n is not a syntactic literal, finsum_expand! uses the fallback
+example (f : Fin (2 + 1) → ℝ) : ∑ i : Fin (2 + 1), f i =
+    f 0 + f 1 + f 2 := by finsum_expand!
+
+example (f : Fin (1 + 2) → ℝ) : ∑ i : Fin (1 + 2), f i =
+    f 0 + f 1 + f 2 := by finsum_expand!
 
 end FinSumExpand.Test
