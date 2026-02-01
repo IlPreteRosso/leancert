@@ -49,7 +49,7 @@ example (f : ℕ → ℝ) : ∑ k ∈ Finset.Iic 2, f k = f 0 + f 1 + f 2 := by 
 example (f : ℕ → ℝ) : ∑ k ∈ Finset.Iio 3, f k = f 0 + f 1 + f 2 := by finsum_expand
 example (f : ℕ → ℝ) : ∑ k ∈ Finset.Iio 0, f k = 0 := by finsum_expand  -- empty
 
-/-! ### Arbitrary bounds (automation showcase) -/
+/-! ### Arbitrary bounds -/
 
 example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 10 12, f k = f 10 + f 11 + f 12 := by finsum_expand
 example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 0 5, f k = f 0 + f 1 + f 2 + f 3 + f 4 + f 5 := by
@@ -67,12 +67,12 @@ example : ∑ n ∈ Finset.Icc 1 3, |a n| * r ^ n =
 example : ∑ k ∈ Finset.Icc 1 3, (fun _ : ℕ => (1 : ℝ)) k = 3 := by finsum_expand; ring
 example : ∑ k ∈ Finset.Icc 1 4, (fun n : ℕ => (n : ℝ)) k = 10 := by finsum_expand; ring
 
-/-! ### Fin sums (automated for any n via Mathlib's simproc) -/
+/-! ### Fin sums -/
 
 -- Small Fin
 example (f : Fin 3 → ℝ) : ∑ i : Fin 3, f i = f 0 + f 1 + f 2 := by finsum_expand
 
--- Large Fin (proves automation beyond n = 8)
+-- Larger Fin
 example (f : Fin 10 → ℝ) : ∑ i : Fin 10, f i =
     f 0 + f 1 + f 2 + f 3 + f 4 + f 5 + f 6 + f 7 + f 8 + f 9 := by finsum_expand
 

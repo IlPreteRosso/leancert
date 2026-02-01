@@ -51,7 +51,7 @@ For `∑ i : Fin n, f i`, we use Mathlib's `Fin.sum_univ_ofNat` simproc from
 3. Builds the expanded form `f 0 + f 1 + ... + f (n-1)` via `mkSumEqQ`
 4. Returns the proof using `FinVec.sum_eq`
 
-This is **truly automated** - works for any concrete literal n, not limited to n ≤ 8.
+Works for any concrete literal n.
 
 ## Main definitions
 
@@ -70,9 +70,9 @@ end FinSumExpand
 Supports:
 - **Interval finsets**: `Icc a b`, `Ico a b`, `Ioc a b`, `Ioo a b`, `Iic b`, `Iio b`
 - **Explicit finsets**: `{a, b, c, ...}`
-- **Fin sums**: `∑ i : Fin n, f i` for any literal `n` (truly automated)
+- **Fin sums**: `∑ i : Fin n, f i` for any literal `n`
 
-**Fully automated** - works for any concrete natural number bounds.
+Works for any concrete natural number bounds.
 
 ## Algorithm
 1. Expand `Finset.univ : Finset (Fin n)` using custom simproc `finUnivExpand`
