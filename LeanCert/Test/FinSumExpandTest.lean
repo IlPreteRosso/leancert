@@ -134,6 +134,32 @@ example : ∑ i : Fin 3, (Matrix.vecCons (10 : ℚ)
     (fun j => Matrix.vecCons (20 : ℚ) (fun _ => 30) j) : Fin 3 → ℚ) i = 10 + 20 + 30 := by
   finsum_expand!
 
+/-! ### Computed interval bounds (finsum_expand! only)
+
+When interval bounds are computed expressions like `2 * 2` rather than literals like `4`,
+Mathlib's simprocs don't match because they pattern-match on syntactic `OfNat` literals.
+The `finsum_expand!` variant reduces bounds to literals first.
+-/
+
+-- Basic arithmetic in bounds
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 3 (2 * 2), f k = f 3 + f 4 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc (1 + 1) 4, f k = f 2 + f 3 + f 4 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc (2 + 1) (3 + 2), f k = f 3 + f 4 + f 5 := by finsum_expand!
+
+-- Subtraction in bounds
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc (5 - 2) 5, f k = f 3 + f 4 + f 5 := by finsum_expand!
+
+-- Compound expressions
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 1 (2 * (1 + 1)), f k = f 1 + f 2 + f 3 + f 4 := by
+  finsum_expand!
+
+-- Other interval types with computed bounds
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Ico 1 (2 + 2), f k = f 1 + f 2 + f 3 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Ioc (3 - 2) 3, f k = f 2 + f 3 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Ioo 1 (2 * 2), f k = f 2 + f 3 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Iic (1 + 1), f k = f 0 + f 1 + f 2 := by finsum_expand!
+example (f : ℕ → ℝ) : ∑ k ∈ Finset.Iio (2 + 1), f k = f 0 + f 1 + f 2 := by finsum_expand!
+
 /-! ### Inferred dimension (metavariable reduction)
 
 When the outer expression has a type annotation but inner lambdas don't have explicit

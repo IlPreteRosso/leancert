@@ -9,6 +9,8 @@ import Mathlib.Order.Interval.Finset.Nat
 import Mathlib.Tactic.Simproc.FinsetInterval
 import Mathlib.Data.Fin.Tuple.Reflection
 import Mathlib.Data.Fin.VecNotation
+import Mathlib.Tactic.NormNum
+import Mathlib.Tactic.Ring
 
 /-!
 # finsum_expand: Expand Finset sums to explicit additions
@@ -32,16 +34,20 @@ This is tedious and error-prone.
 
 This file provides two tactics:
 - `finsum_expand` - expands finite sums over concrete finsets to explicit additions
-- `finsum_expand!` - also simplifies `dite` conditions and absolute values
+- `finsum_expand!` - aggressive variant with additional simplifications
 
 Supports:
 - **Interval finsets**: `Icc`, `Ico`, `Ioc`, `Ioo`, `Iic`, `Iio`
 - **Explicit finsets**: `{a, b, c, ...}`
 - **Fin sums**: `∑ i : Fin n, f i` for any literal n (uses Mathlib's simproc)
 
-The `!` variant is useful when summands contain:
-- `dite` expressions: `if h : x ≤ 2 then f x else 0` → `f x`
-- Absolute values of positive literals: `|4321/432|` → `4321/432`
+The `!` variant handles additional cases:
+- **Computed interval bounds**: `Finset.Icc 3 (2 * 2)` → expands correctly
+- **Non-literal Fin dimensions**: `Fin (2 + 1)` → expands via `Fin.sum_univ_succ`
+- **dite expressions**: `if h : x ≤ 2 then f x else 0` → `f x`
+- **Absolute values**: `|4321/432|` → `4321/432`
+- **Matrix indexing**: `![![1,2],[3,4]] i j` → concrete values
+- **Arithmetic cleanup**: Uses `ring` and `norm_num` for final simplification
 
 ## Design Notes
 
@@ -63,6 +69,15 @@ Works for any concrete literal n.
 When n is not a syntactic literal (e.g., `Fin (2 + 1)` instead of `Fin 3`),
 `n.nat?` returns `none` and the simproc doesn't fire. We fall back to
 repeatedly applying `Fin.sum_univ_succ` to expand element by element.
+
+### Computed interval bounds
+Mathlib's interval simprocs (e.g., `Finset.Icc_ofNat_ofNat`) pattern-match on
+syntactic `OfNat` literals. When bounds are computed expressions like `2 * 2`,
+the simprocs don't fire because `2 * 2` is syntactically `HMul.hMul 2 2`, not `4`.
+
+The `finsum_expand!` variant handles this by first applying `simp only` with
+`Nat.reduceAdd`, `Nat.reduceMul`, `Nat.reduceSub` to normalize arithmetic
+expressions in interval bounds to literals before the expansion.
 
 ## Main definitions
 
@@ -206,25 +221,34 @@ macro "finsum_expand" : tactic =>
       | (rw [Finset.sum_insert (by native_decide)]; try simp only [add_assoc]))
   ))
 
-/-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions,
-absolute values, matrix indexing, and handles non-literal Fin dimensions.
+/-- Aggressive variant of `finsum_expand` that handles additional cases.
 
-After expanding the sum:
-- Simplifies `if h : 1 ≤ 2 then f x else 0` to `f x`
-- Simplifies `|4321/432|` to `4321/432` when the argument is provably positive/nonnegative
-- Simplifies matrix indexing including nested 2D access like `![![1,2],[3,4]] i j`
-- Handles lambda tails from column extraction
-- Handles `∑ i : Fin (n + 1), f i` via `Fin.sum_univ_succ` fallback
+## Preprocessing (before expansion)
+- **Computed interval bounds**: Normalizes arithmetic like `2 * 2` → `4` in interval bounds
+  using `Nat.reduceAdd`, `Nat.reduceMul`, `Nat.reduceSub`
+
+## Sum expansion
+- Runs `finsum_expand` to expand sums over intervals and explicit finsets
+- **Non-literal Fin dimensions**: Falls back to `Fin.sum_univ_succ` for `Fin (2 + 1)` etc.
+
+## Postprocessing (after expansion)
+- **dite conditions**: Simplifies `if h : 1 ≤ 2 then f x else 0` → `f x`
+- **Matrix indexing**: Handles `![![1,2],[3,4]] i j` and lambda tails from column extraction
+- **Absolute values**: Simplifies `|4321/432|` → `4321/432` for positive/nonnegative args
+- **Arithmetic cleanup**: Uses `ring` and `norm_num` for final simplification
 
 Uses `repeat simp` for vector indexing to handle any nesting depth.
 
 ## Example
 ```lean
--- dite simplification:
--- ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x else 0) → f 1 + f 2
+-- Computed interval bounds:
+-- ∑ k ∈ Finset.Icc 3 (2 * 2), f k → f 3 + f 4
 
 -- Non-literal Fin dimension:
 -- ∑ i : Fin (2 + 1), f i → f 0 + f 1 + f 2
+
+-- dite simplification:
+-- ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x else 0) → f 1 + f 2
 
 -- Matrix column sums:
 -- ∑ i : Fin 3, |M i 0| → fully simplified to concrete values
@@ -235,6 +259,10 @@ Uses `repeat simp` for vector indexing to handle any nesting depth.
 -/
 macro "finsum_expand!" : tactic =>
   `(tactic| (
+    -- Step 0: Normalize arithmetic in interval bounds
+    -- E.g., Finset.Icc 3 (2 * 2) → Finset.Icc 3 4
+    try simp only [Nat.reduceAdd, Nat.reduceMul, Nat.reduceSub]
+    -- Now run standard finsum_expand with literal bounds
     finsum_expand
     -- Fallback for non-literal Fin n (e.g., Fin (2 + 1))
     -- Repeatedly expand using Fin.sum_univ_succ until we hit Fin 0
@@ -258,4 +286,7 @@ macro "finsum_expand!" : tactic =>
                       Matrix.cons_val_one, Matrix.head_cons]
     -- Simplify absolute values of positive/nonnegative literals
     try simp only [abs_of_pos, abs_of_nonneg]
+    -- Final cleanup: resolve remaining arithmetic goals
+    try ring
+    try norm_num
   ))
