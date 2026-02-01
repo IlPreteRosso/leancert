@@ -17,8 +17,11 @@ import Mathlib.Tactic.NormNum
 
 This file tests the vector and dite simplification tactics:
 
-* `vec_simp` - Reduces `![a, b, c] ⟨i, proof⟩` to the i-th element
-* `vec_simp!` - Aggressive variant that also simplifies `dite` conditions
+* `vec_simp` - Reduces vector indexing including:
+  - `![a, b, c] ⟨i, proof⟩` (Fin.mk indices)
+  - `![a, b, c] 2` (numeric literal indices)
+  - Lambda tails from matrix column extraction
+* `vec_simp!` - Aggressive variant that also simplifies `dite` conditions and abs
 * `dite_simp` - Standalone tactic for simplifying `dite` with decidable literal conditions
 -/
 
@@ -84,6 +87,9 @@ example : (Matrix.vecCons (1 : ℚ)
 -- With absolute value on lambda tail pattern
 example : |(Matrix.vecCons (1 : ℚ)
     (fun (i : Fin 2) => Matrix.vecCons (-2 : ℚ) (fun (_ : Fin 1) => (3 : ℚ)) i) : Fin 3 → ℚ) 1| = 2 := by
+  vec_simp!
+example : |(Matrix.vecCons (1 : ℚ)
+    (fun (i : Fin 2) => Matrix.vecCons (-2 : ℚ) (fun (_ : Fin 1) => (-3 : ℚ)) i) : Fin 3 → ℚ) 2| = 3 := by
   vec_simp!
 
 -- Longer vectors with Fin.mk
