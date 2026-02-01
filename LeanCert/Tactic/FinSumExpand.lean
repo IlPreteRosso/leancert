@@ -65,18 +65,10 @@ macro "finsum_expand!" : tactic =>
                    Fin.castSucc_zero, Fin.zero_eta, add_assoc]
     -- Normalize nested Fin.succ
     try simp only [Fin.succ_one_eq_two]
-    -- Simplify dite conditions with decidable literal bounds
-    try simp (config := { decide := true }) only [dite_true, dite_false]
-    -- Simplify matrix/vector indexing (handles lambda tails from column extraction)
-    -- Matrix.of_apply: unwraps !![...] notation: (Matrix.of f) i j → f i j
-    try simp only [Matrix.of_apply]
-    -- Nested indexing (![![...]] i j) requires multiple reduction passes:
-    --   Pass 1: ![![1,2],[3,4]] 0 → ![1,2]
-    --   Pass 2: ![1,2] 0 → 1
-    -- Each pass reduces one level of vecCons application
-    repeat simp only [VecUtil.vecConsFinMk,
-                      Matrix.cons_val_zero, Matrix.cons_val_zero',
-                      Matrix.cons_val_one, Matrix.head_cons]
-    -- Simplify absolute values of positive/nonnegative literals
-    try simp only [abs_of_pos, abs_of_nonneg]
+    -- Simplify dite conditions with decidable literal bounds (shared with vec_simp!)
+    try dite_simp
+    -- Vector/matrix indexing with fixed-point iteration (shared with vec_simp!)
+    vec_index_simp_core
+    -- Simplify absolute values (shared with vec_simp!)
+    try abs_simp
   ))

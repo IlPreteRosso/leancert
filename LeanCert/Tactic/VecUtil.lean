@@ -4,6 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanCert Contributors
 -/
 import Mathlib.Data.Fin.VecNotation
+import Mathlib.Tactic.FailIfNoProgress
+import Mathlib.Algebra.Order.Group.Abs
 
 /-!
 # VecUtil: Shared vector/matrix simplification utilities
@@ -180,3 +182,62 @@ dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
     return .done result
 
 end VecUtil
+
+/-! ## Shared tactics for vector/matrix simplification -/
+
+/-- Simplify dite with decidable literal conditions: `if h : 1 ≤ 2 then x else y` → `x`.
+    Uses `simp (config := { decide := true })`. Requires literal operands (not variables). -/
+macro "dite_simp" : tactic =>
+  `(tactic| simp (config := { decide := true }) only [dite_true, dite_false])
+
+/-- Simplify absolute values of positive/nonnegative literals: `|3| → 3`, `|-2| → 2`. -/
+macro "abs_simp" : tactic =>
+  `(tactic| simp only [abs_of_pos, abs_of_nonneg, abs_of_neg, abs_neg])
+
+/-- Core vector indexing simplification with fixed-point iteration.
+
+    Reduces `![a,b,c] i` → element and handles nested `Matrix.of` wrappers.
+    Uses `fail_if_no_progress` to iterate until `Matrix.of_apply` makes no progress.
+
+    This is the base tactic used by `finsum_expand!`. For dite/abs support, use
+    `vec_index_simp_with_dite` or `vec_simp!`. -/
+macro "vec_index_simp_core" : tactic =>
+  `(tactic| (
+    -- First pass of vector indexing simp
+    try simp only [VecUtil.vecConsFinMk,
+                   Matrix.cons_val_zero, Matrix.cons_val_zero',
+                   Matrix.cons_val_one, Matrix.head_cons]
+    -- Fixed-point iteration: of_apply -> main simp, repeat while of_apply makes progress
+    repeat (
+      fail_if_no_progress simp only [Matrix.of_apply]
+      try simp only [VecUtil.vecConsFinMk,
+                     Matrix.cons_val_zero, Matrix.cons_val_zero',
+                     Matrix.cons_val_one, Matrix.head_cons]
+    )
+  ))
+
+/-- Vector indexing with dite conditions and absolute values.
+
+    Like `vec_index_simp_core` but also simplifies:
+    - `if h : 1 ≤ 2 then x else y` → `x` (decidable dite conditions)
+    - `|positive_literal|` → `positive_literal`
+
+    Used by `vec_simp!`. -/
+macro "vec_index_simp_with_dite" : tactic =>
+  `(tactic| (
+    -- First pass with dite/abs
+    try simp (config := { decide := true }) only [
+      VecUtil.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
+      Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
+      abs_of_pos, abs_of_nonneg
+    ]
+    -- Fixed-point iteration: of_apply -> main simp, repeat while of_apply makes progress
+    repeat (
+      fail_if_no_progress simp only [Matrix.of_apply]
+      try simp (config := { decide := true }) only [
+        VecUtil.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
+        Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
+        abs_of_pos, abs_of_nonneg
+      ]
+    )
+  ))

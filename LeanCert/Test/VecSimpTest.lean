@@ -148,6 +148,35 @@ example : matrixViaOf 1 1 = 2 := by vec_simp! [matrixViaOf]
 example : ∀ i j : Fin 2, matrixViaOf i j ≤ 2 := by
   intro i j; fin_cases i <;> fin_cases j; all_goals vec_simp! [matrixViaOf]
 
+/-! ### Fixed-point iteration: Matrix.of_apply after vecConsFinMk
+
+When Matrix.of wraps a matrix literal, we need:
+1. Matrix.of_apply to unwrap the outer Matrix.of
+2. vecConsFinMk to reduce the inner matrix indexing
+3. Possibly more Matrix.of_apply if there are nested Matrix.of wrappers
+
+The fail_if_no_progress pattern achieves this fixed-point iteration. -/
+
+open Matrix in
+def wrappedOf (M : Matrix (Fin 2) (Fin 2) ℝ) : Matrix (Fin 2) (Fin 2) ℝ :=
+  Matrix.of fun i j => M i j + 1
+
+-- Single wrapping: Matrix.of_apply once, then vecConsFinMk
+example : wrappedOf ![![1, 2], ![3, 4]] 0 0 = 2 := by vec_simp! [wrappedOf]
+example : wrappedOf ![![1, 2], ![3, 4]] 1 1 = 5 := by vec_simp! [wrappedOf]
+
+-- Double wrapping: needs two rounds of Matrix.of_apply
+open Matrix in
+def doubleWrappedOf (M : Matrix (Fin 2) (Fin 2) ℝ) : Matrix (Fin 2) (Fin 2) ℝ :=
+  Matrix.of fun i j => (Matrix.of fun i' j' => M i' j' + 1) i j + 1
+
+example : doubleWrappedOf ![![1, 2], ![3, 4]] 0 0 = 3 := by vec_simp! [doubleWrappedOf]
+example : doubleWrappedOf ![![1, 2], ![3, 4]] 1 1 = 6 := by vec_simp! [doubleWrappedOf]
+
+-- All indices
+example : ∀ i j : Fin 2, wrappedOf ![![1, 2], ![3, 4]] i j ≥ 2 := by
+  intro i j; fin_cases i <;> fin_cases j; all_goals vec_simp! [wrappedOf]
+
 end MatrixOfTest
 
 /-! ## Tests for 3D tensors -/
