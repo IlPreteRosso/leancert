@@ -22,9 +22,7 @@ Helpers for `Matrix.vecCons` expressions, used by `VecSimp` and `FinSumExpand`.
 ## Shared tactics (outside namespace, for use by other tactics)
 
 * `dite_simp` - simplify `if h : 1 ≤ 2 then x else y` → `x`
-* `abs_simp` - simplify `|3| → 3`, `|-2| → 2`
-* `vec_index_simp_core` - vector indexing with Matrix.of_apply fixed-point iteration
-* `vec_index_simp_with_dite` - adds dite/abs support to `vec_index_simp_core`
+* `vec_index_simp_with_dite` - vector indexing + dite + abs with fixed-point iteration
 
 Debug: `set_option trace.VecUtil.debug true`
 -/
@@ -200,32 +198,9 @@ end VecUtil
 macro "dite_simp" : tactic =>
   `(tactic| simp (config := { decide := true }) only [dite_true, dite_false])
 
-/-- Simplify absolute values of positive/nonnegative literals: `|3| → 3`, `|-2| → 2`. -/
-macro "abs_simp" : tactic =>
-  `(tactic| simp only [abs_of_pos, abs_of_nonneg, abs_of_neg, abs_neg])
-
-/-- Core vector indexing simplification with fixed-point iteration.
-
-    Reduces `![a,b,c] i` → element and handles nested `Matrix.of` wrappers.
-    Uses `first` with `fail_if_no_progress` to iterate until neither simp makes progress.
-
-    This is the base tactic used by `finsum_expand!`. For dite/abs support, use
-    `vec_index_simp_with_dite` or `vec_simp!`. -/
-macro "vec_index_simp_core" : tactic =>
-  `(tactic| (
-    -- Fixed-point iteration: try main simp, if no progress try of_apply, repeat until both fail
-    repeat (
-      first
-      | fail_if_no_progress simp only [VecUtil.vecConsFinMk,
-                     Matrix.cons_val_zero, Matrix.cons_val_zero',
-                     Matrix.cons_val_one, Matrix.head_cons]
-      | fail_if_no_progress simp only [Matrix.of_apply]
-    )
-  ))
-
 /-- Vector indexing with dite conditions and absolute values.
 
-    Like `vec_index_simp_core` but also simplifies:
+    Reduces `![a,b,c] i` → element and handles:
     - `if h : 1 ≤ 2 then x else y` → `x` (decidable dite conditions)
     - `|literal|` → reduced absolute value (positive or negative)
 
