@@ -46,9 +46,24 @@ example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 0 = a := by vec_simp
 example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 1 = b := by vec_simp
 example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 2 = c := by vec_simp
 
--- Nested vecCons with numeric indices (the original user issue)
-example : (![0, 433/500, -1299/1000] : Fin 3 → ℚ) 2 = -1299/1000 := by vec_simp
-example : |(![0, 433/500, -1299/1000] : Fin 3 → ℚ) 2| = 1299/1000 := by vec_simp!
+-- Vectors with rational elements
+example : (![0, 1/2, -3/4] : Fin 3 → ℚ) 2 = -3/4 := by vec_simp
+example : |(![0, 1/2, -3/4] : Fin 3 → ℚ) 2| = 3/4 := by vec_simp!
+
+/-! #### Raw Matrix.vecCons expressions (not using ![...] notation) -/
+
+-- Direct Matrix.vecCons indexing with explicit tail
+example : (Matrix.vecCons (1 : ℕ) ![2, 3]) 0 = 1 := by vec_simp
+example : (Matrix.vecCons (1 : ℕ) ![2, 3]) 1 = 2 := by vec_simp
+example : (Matrix.vecCons (1 : ℕ) ![2, 3]) 2 = 3 := by vec_simp
+
+-- Nested Matrix.vecCons (explicitly typed)
+example : (Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)])) 0 = 0 := by vec_simp
+example : (Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)])) 1 = 1/2 := by vec_simp
+example : (Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)])) 2 = -3/4 := by vec_simp
+
+-- With absolute value
+example : |Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)]) 2| = 3/4 := by vec_simp!
 
 -- Longer vectors with Fin.mk
 example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) ⟨3, by omega⟩ = 4 := by vec_simp
