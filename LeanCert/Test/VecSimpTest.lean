@@ -14,11 +14,10 @@ import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.NormNum
 
 /-!
-# Tests for vec_simp, vec_simp!, and dite_simp tactics
+# Tests for vec_simp and vec_simp! tactics
 
 * `vec_simp` - Reduces vector indexing (Fin.mk and numeric literal indices)
 * `vec_simp!` - + dite conditions, abs, norm_num
-* `dite_simp` - Simplifies `dite` with decidable literal conditions
 -/
 
 namespace VecSimp.Test
@@ -42,22 +41,6 @@ example : (![a₀, a₁, a₂] : Fin 3 → ℝ) ⟨0, by omega⟩ * (![a₀, a�
   vec_simp; ring
 
 end VecSimp.Test
-
-/-! ## Tests for dite_simp -/
-
-namespace DiteSimp.Test
-
-example (f : (1 : ℕ) ≤ 2 → ℕ) (g : ¬(1 : ℕ) ≤ 2 → ℕ) :
-    (if h : (1 : ℕ) ≤ 2 then f h else g h) = f (by omega) := by dite_simp  -- true case
-
-example (f : (3 : ℕ) ≤ 2 → ℕ) (g : ¬(3 : ℕ) ≤ 2 → ℕ) :
-    (if h : (3 : ℕ) ≤ 2 then f h else g h) = g (by omega) := by dite_simp  -- false case
-
-example (f : (1 : ℕ) ≤ 2 → (2 : ℕ) ≤ 2 → ℕ) :
-    (if h₁ : (1 : ℕ) ≤ 2 then if h₂ : (2 : ℕ) ≤ 2 then f h₁ h₂ else 0 else 0) =
-    f (by omega) (by omega) := by dite_simp  -- nested
-
-end DiteSimp.Test
 
 /-! ## Tests for vec_simp! (dite + vector combined) -/
 

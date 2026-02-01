@@ -21,7 +21,6 @@ Helpers for `Matrix.vecCons` expressions, used by `VecSimp` and `FinSumExpand`.
 
 ## Shared tactics (outside namespace, for use by other tactics)
 
-* `dite_simp` - simplify `if h : 1 ≤ 2 then x else y` → `x`
 * `vec_index_simp_with_dite` - vector indexing + dite + abs with fixed-point iteration
 
 Debug: `set_option trace.VecUtil.debug true`
@@ -192,11 +191,6 @@ dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
 end VecUtil
 
 /-! ## Shared tactics for vector/matrix simplification -/
-
-/-- Simplify dite with decidable literal conditions: `if h : 1 ≤ 2 then x else y` → `x`.
-    Uses `simp (config := { decide := true })`. Requires literal operands (not variables). -/
-macro "dite_simp" : tactic =>
-  `(tactic| simp (config := { decide := true }) only [dite_true, dite_false])
 
 /-- Vector indexing with dite conditions and absolute values.
 

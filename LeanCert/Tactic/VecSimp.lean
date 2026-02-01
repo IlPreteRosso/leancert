@@ -7,13 +7,12 @@ import LeanCert.Tactic.VecUtil
 import Mathlib.Tactic.NormNum
 
 /-!
-# vec_simp & dite_simp: Vector and dite simplification
+# vec_simp: Vector simplification
 
 ## Tactics
 
 * `vec_simp` - vector indexing: `![a,b,c] 2` → `c`, `![a,b,c] ⟨1, proof⟩` → `b`
 * `vec_simp!` - + dite, abs, norm_num; use `vec_simp! [M]` for named matrices
-* `dite_simp` - simplify `if h : 1 ≤ 2 then x else y` → `x`
 
 ## Why needed
 
