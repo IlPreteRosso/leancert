@@ -8,6 +8,7 @@ import Mathlib.Algebra.BigOperators.Fin
 import Mathlib.Order.Interval.Finset.Nat
 import Mathlib.Tactic.Simproc.FinsetInterval
 import Mathlib.Data.Fin.Tuple.Reflection
+import Mathlib.Data.Fin.VecNotation
 
 /-!
 # finsum_expand: Expand Finset sums to explicit additions
@@ -71,8 +72,76 @@ repeatedly applying `Fin.sum_univ_succ` to expand element by element.
 
 namespace FinSumExpand
 
--- This namespace is kept for potential future extensions.
--- The main automation comes from Mathlib's `Fin.sum_univ_ofNat` simproc.
+open Lean Meta
+
+/-- Extract natural number from a Fin expression.
+    Handles both `Fin.mk n proof` and numeric literals like `(2 : Fin 3)`. -/
+def getFinVal? (e : Expr) : MetaM (Option Nat) := do
+  let e' ← whnfR e
+  if e'.getAppFn.constName? == some ``Fin.mk then
+    let args := e'.getAppArgs
+    if args.size == 3 then
+      let val ← whnfR args[1]!
+      if let some n := val.nat? then
+        return some n
+  try
+    let finVal ← mkAppM ``Fin.val #[e]
+    let finValReduced ← reduce finVal
+    return finValReduced.nat?
+  catch _ =>
+    return none
+
+/-- Recursively traverse a vecCons chain to extract the element at index `idx`.
+    Handles both explicit vecCons chains and lambda tails from matrix column extraction. -/
+partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
+  let e ← whnfR e
+  let args := e.getAppArgs
+  if e.getAppFn.constName? == some ``Matrix.vecCons && args.size >= 4 then
+    let head := args[2]!
+    let tail := args[3]!
+    if idx == 0 then
+      return some head
+    else
+      getVecElem (idx - 1) tail
+  else if e.isLambda then
+    let binderType := e.bindingDomain!
+    let finType ← whnfR binderType
+    if finType.isAppOf ``Fin then
+      let finArgs := finType.getAppArgs
+      if finArgs.size >= 1 then
+        let nExpr := finArgs[0]!
+        let some _ := nExpr.nat? | return none
+        let idxExpr := mkNatLit idx
+        let proof ← mkDecideProof (← mkAppM ``LT.lt #[idxExpr, nExpr])
+        let finIdx ← mkAppM ``Fin.mk #[idxExpr, proof]
+        let applied := Expr.app e finIdx
+        let reduced ← reduce applied
+        return some reduced
+    return none
+  else
+    return none
+
+/-- Simproc: Reduce `![a, b, c, ...] i` to the i-th element.
+    Handles numeric literals, Fin.mk, and lambda tails from matrix column extraction. -/
+dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
+  let e ← whnfR e
+  let args := e.getAppArgs
+  if e.getAppFn.constName? != some ``Matrix.vecCons || args.size != 5 then
+    return .continue
+  let x := args[2]!
+  let xs := args[3]!
+  let ei := args[4]!
+  let ei' ← whnfR ei
+  let i : Nat ← match ei'.int? with
+    | some n => pure n.toNat
+    | none =>
+      let some n ← getFinVal? ei | return .continue
+      pure n
+  if i == 0 then
+    return .done x
+  else
+    let some result ← getVecElem (i - 1) xs | return .continue
+    return .done result
 
 end FinSumExpand
 
@@ -118,11 +187,12 @@ macro "finsum_expand" : tactic =>
   ))
 
 /-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions,
-absolute values, and handles non-literal Fin dimensions.
+absolute values, matrix indexing, and handles non-literal Fin dimensions.
 
 After expanding the sum:
 - Simplifies `if h : 1 ≤ 2 then f x else 0` to `f x`
 - Simplifies `|4321/432|` to `4321/432` when the argument is provably positive/nonnegative
+- Simplifies matrix indexing including lambda tails from column extraction
 - Handles `∑ i : Fin (n + 1), f i` via `Fin.sum_univ_succ` fallback
 
 ## Example
@@ -133,6 +203,9 @@ After expanding the sum:
 
 -- Non-literal Fin dimension:
 -- ∑ i : Fin (2 + 1), f i → f 0 + f 1 + f 2
+
+-- Matrix column sums:
+-- ∑ i : Fin 3, |M i 0| → fully simplified to concrete values
 ```
 -/
 macro "finsum_expand!" : tactic =>
@@ -148,6 +221,8 @@ macro "finsum_expand!" : tactic =>
     try simp only [Fin.succ_one_eq_two]
     -- Simplify dite conditions with decidable literal bounds
     try simp (config := { decide := true }) only [dite_true, dite_false]
+    -- Simplify matrix/vector indexing (handles lambda tails from column extraction)
+    try simp only [Matrix.of_apply, FinSumExpand.vecConsFinMk]
     -- Simplify absolute values of positive/nonnegative literals
     try simp only [abs_of_pos, abs_of_nonneg]
   ))

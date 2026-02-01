@@ -65,6 +65,27 @@ example : (Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)])) 2 = -3/4 :
 -- With absolute value
 example : |Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)]) 2| = 3/4 := by vec_simp!
 
+/-! #### Lambda tail pattern (from matrix column extraction) -/
+
+-- This pattern arises when 2D matrix indexing creates column vectors with lambda tails
+-- e.g., M i 0 across different rows creates: vecCons (M 0 0) (fun i => vecCons (M 1 0) ...)
+-- The lambda tail needs special handling in getVecElem
+
+example : (Matrix.vecCons (1 : ℚ)
+    (fun (i : Fin 2) => Matrix.vecCons (2 : ℚ) (fun (_ : Fin 1) => (3 : ℚ)) i) : Fin 3 → ℚ) 0 = 1 := by
+  vec_simp
+example : (Matrix.vecCons (1 : ℚ)
+    (fun (i : Fin 2) => Matrix.vecCons (2 : ℚ) (fun (_ : Fin 1) => (3 : ℚ)) i) : Fin 3 → ℚ) 1 = 2 := by
+  vec_simp
+example : (Matrix.vecCons (1 : ℚ)
+    (fun (i : Fin 2) => Matrix.vecCons (2 : ℚ) (fun (_ : Fin 1) => (3 : ℚ)) i) : Fin 3 → ℚ) 2 = 3 := by
+  vec_simp
+
+-- With absolute value on lambda tail pattern
+example : |(Matrix.vecCons (1 : ℚ)
+    (fun (i : Fin 2) => Matrix.vecCons (-2 : ℚ) (fun (_ : Fin 1) => (3 : ℚ)) i) : Fin 3 → ℚ) 1| = 2 := by
+  vec_simp!
+
 -- Longer vectors with Fin.mk
 example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) ⟨3, by omega⟩ = 4 := by vec_simp
 
@@ -199,6 +220,27 @@ example : ∀ i : Fin 3, ∀ j : Fin 4, rectMatrix i j ≤ 12 := by
   intro i j
   fin_cases i <;> fin_cases j
   all_goals vec_simp! [rectMatrix]
+
+-- Column extraction test: accessing column 0 across all rows
+-- This tests the lambda tail handling in getVecElem
+open Matrix in
+def colTestMatrix : Fin 3 → Fin 3 → ℚ :=
+  ![![1, 2, 3], ![-4, 5, 6], ![7, -8, 9]]
+
+-- Direct column 0 access at each row
+example : colTestMatrix 0 0 = 1 := by vec_simp! [colTestMatrix]
+example : colTestMatrix 1 0 = -4 := by vec_simp! [colTestMatrix]
+example : colTestMatrix 2 0 = 7 := by vec_simp! [colTestMatrix]
+
+-- With absolute values on column 0
+example : |colTestMatrix 1 0| = 4 := by vec_simp! [colTestMatrix]
+example : |colTestMatrix 2 1| = 8 := by vec_simp! [colTestMatrix]
+
+-- All column 0 elements via fin_cases
+example : ∀ i : Fin 3, |colTestMatrix i 0| ≤ 7 := by
+  intro i
+  fin_cases i
+  all_goals vec_simp! [colTestMatrix]
 
 end MatrixSimp.Test
 

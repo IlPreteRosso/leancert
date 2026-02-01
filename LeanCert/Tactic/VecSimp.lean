@@ -36,9 +36,11 @@ simp only [show (1 : ℕ) ≤ 2 from by omega, show (2 : ℕ) ≤ 2 from by omeg
 
 ### vec_simp
 
-A tactic using a custom `dsimproc` that handles both:
+A tactic using a custom `dsimproc` that handles:
 - Numeric literal indices: `![a, b, c] 2` → `c` (via `int?`)
 - Explicit `Fin.mk` applications: `![a, b, c] ⟨1, proof⟩` → `b` (via `Fin.val` reduction)
+- Lambda tails from matrix column extraction: `vecCons a (fun i => vecCons b ...) 1` → `b`
+  (applies lambda to synthesized Fin index and reduces)
 
 ### vec_simp!
 
@@ -125,7 +127,10 @@ def getFinVal? (e : Expr) : MetaM (Option Nat) := do
     return none
 
 /-- Recursively traverse a vecCons chain to extract the element at index `idx`.
-    Returns `some elem` if successful, `none` otherwise. -/
+    Returns `some elem` if successful, `none` otherwise.
+
+    Handles both explicit vecCons chains and lambda tails that arise from
+    matrix column extraction (e.g., `fun i => Matrix.vecCons ... i`). -/
 partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
   let e ← whnfR e
   let args := e.getAppArgs
@@ -137,14 +142,37 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
       return some head
     else
       getVecElem (idx - 1) tail
+  -- Handle lambda tails from matrix column extraction
+  -- e.g., (fun i => Matrix.vecCons ... i) needs to be applied to idx
+  else if e.isLambda then
+    -- Get the Fin type from the lambda's domain
+    let binderType := e.bindingDomain!
+    -- Try to extract n from Fin n
+    let finType ← whnfR binderType
+    if finType.isAppOf ``Fin then
+      let finArgs := finType.getAppArgs
+      if finArgs.size >= 1 then
+        let nExpr := finArgs[0]!
+        let some _ := nExpr.nat? | return none
+        -- Create Fin.mk idx (proof : idx < n)
+        let idxExpr := mkNatLit idx
+        let proof ← mkDecideProof (← mkAppM ``LT.lt #[idxExpr, nExpr])
+        let finIdx ← mkAppM ``Fin.mk #[idxExpr, proof]
+        -- Apply lambda to the index and reduce
+        let applied := Expr.app e finIdx
+        let reduced ← reduce applied
+        return some reduced
+    return none
   else
     return none
 
 /-- Simproc: Reduce `![a, b, c, ...] i` to the i-th element.
 
-    Handles both:
+    Handles:
     - Numeric literal indices: `![a, b, c] 2` → `c` (via `int?`)
     - Explicit `Fin.mk` applications: `![a, b, c] ⟨1, proof⟩` → `b` (via `Fin.val` reduction)
+    - Lambda tails from matrix column extraction: when the tail is
+      `fun i => Matrix.vecCons ...`, applies the lambda to a synthesized Fin index
 
     First tries `int?` to extract raw integer literals (like Mathlib's cons_val),
     then falls back to reducing `Fin.val` for explicit `Fin.mk` expressions.

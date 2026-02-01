@@ -98,4 +98,19 @@ example (f : Fin (2 + 1) → ℝ) : ∑ i : Fin (2 + 1), f i =
 example (f : Fin (1 + 2) → ℝ) : ∑ i : Fin (1 + 2), f i =
     f 0 + f 1 + f 2 := by finsum_expand!
 
+/-! ### Matrix column sums -/
+
+-- finsum_expand! handles matrix indexing including lambda tails from column extraction
+open Matrix in
+def testMatrix : Fin 3 → Fin 3 → ℚ := ![![1, 2, 3], ![-4, 5, 6], ![7, -8, 9]]
+
+-- Sum of column 0 elements
+example : ∑ i : Fin 3, testMatrix i 0 = 1 + (-4) + 7 := by finsum_expand!
+
+-- Sum of column 0 with absolute values
+example : ∑ i : Fin 3, |testMatrix i 0| = 1 + 4 + 7 := by finsum_expand!
+
+-- Sum of column 1 with absolute values
+example : ∑ i : Fin 3, |testMatrix i 1| = 2 + 5 + 8 := by finsum_expand!
+
 end FinSumExpand.Test
