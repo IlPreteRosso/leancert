@@ -31,15 +31,16 @@ This is tedious and error-prone.
 
 This file provides two tactics:
 - `finsum_expand` - expands finite sums over concrete finsets to explicit additions
-- `finsum_expand!` - also simplifies `dite` conditions after expansion
+- `finsum_expand!` - also simplifies `dite` conditions and absolute values
 
 Supports:
 - **Interval finsets**: `Icc`, `Ico`, `Ioc`, `Ioo`, `Iic`, `Iio`
 - **Explicit finsets**: `{a, b, c, ...}`
 - **Fin sums**: `∑ i : Fin n, f i` for any literal n (uses Mathlib's simproc)
 
-The `!` variant is useful when summands contain `dite` expressions with decidable
-conditions, e.g., `if h : x ≤ 2 then f x else 0` becomes `f x` when `x ≤ 2` is known.
+The `!` variant is useful when summands contain:
+- `dite` expressions: `if h : x ≤ 2 then f x else 0` → `f x`
+- Absolute values of positive literals: `|4321/432|` → `4321/432`
 
 ## Design Notes
 
@@ -111,10 +112,12 @@ macro "finsum_expand" : tactic =>
       | (rw [Finset.sum_insert (by native_decide)]; try simp only [add_assoc]))
   ))
 
-/-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions.
+/-- Aggressive variant of `finsum_expand` that also simplifies `dite` conditions
+and absolute values of positive literals.
 
-After expanding the sum, simplifies expressions like `if h : 1 ≤ 2 then f x else 0`
-to `f x` by evaluating the decidable condition.
+After expanding the sum:
+- Simplifies `if h : 1 ≤ 2 then f x else 0` to `f x`
+- Simplifies `|4321/432|` to `4321/432` when the argument is provably positive/nonnegative
 
 ## Example
 ```lean
@@ -128,4 +131,6 @@ macro "finsum_expand!" : tactic =>
     finsum_expand
     -- Step 3: Simplify dite conditions with decidable literal bounds
     try simp (config := { decide := true }) only [dite_true, dite_false]
+    -- Step 4: Simplify absolute values of positive/nonnegative literals
+    try simp only [abs_of_pos, abs_of_nonneg]
   ))

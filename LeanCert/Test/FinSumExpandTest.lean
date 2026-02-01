@@ -13,7 +13,7 @@ import Mathlib.Tactic.Ring
 Tests for `finsum_expand` and `finsum_expand!`.
 
 - `finsum_expand` - expands Finset sums to explicit additions
-- `finsum_expand!` - also simplifies `dite` conditions after expansion
+- `finsum_expand!` - also simplifies `dite` conditions and absolute values
 
 Supports intervals, explicit sets, and Fin sums.
 -/
@@ -57,10 +57,12 @@ example (f : ℕ → ℝ) : ∑ k ∈ Finset.Icc 0 5, f k = f 0 + f 1 + f 2 + f 
 
 /-! ### Power series patterns -/
 
+section PowerSeries
 variable (a : ℕ → ℝ) (r : ℝ)
 
 example : ∑ n ∈ Finset.Icc 1 3, |a n| * r ^ n =
     |a 1| * r ^ 1 + |a 2| * r ^ 2 + |a 3| * r ^ 3 := by finsum_expand
+end PowerSeries
 
 /-! ### Combination with other tactics -/
 
@@ -79,10 +81,17 @@ example (f : Fin 10 → ℝ) : ∑ i : Fin 10, f i =
 -- With vector notation
 example (a b c : ℝ) : ∑ i : Fin 3, (![a, b, c] : Fin 3 → ℝ) i = a + b + c := by finsum_expand
 
-/-! ### finsum_expand! (with dite simplification) -/
+/-! ### finsum_expand! (with dite and abs simplification) -/
 
 -- dite conditions are simplified
 example (f : ℕ → ℝ) : ∑ x ∈ Finset.Icc 1 2, (if _ : x ≤ 2 then f x else 0) =
     f 1 + f 2 := by finsum_expand!
+
+-- absolute values of positive literals
+example : |(4321 : ℝ) / 432| = 4321 / 432 := by simp [abs_of_pos]
+example : |(-3 : ℝ)| = 3 := by norm_num
+
+-- finsum_expand! with abs in summands (ℕ interval, cast to ℤ for abs)
+example : ∑ k ∈ Finset.Icc 1 2, |(k : ℤ)| = 1 + 2 := by finsum_expand!
 
 end FinSumExpand.Test

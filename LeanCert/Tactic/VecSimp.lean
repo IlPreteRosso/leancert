@@ -39,9 +39,9 @@ A tactic using a custom `dsimproc` that extracts the natural number from
 
 ### vec_simp!
 
-Aggressive variant of `vec_simp` that also handles `dite` conditions.
-Use this when vector indexing appears inside dependent if expressions
-(common with bounds checking).
+Aggressive variant of `vec_simp` that also handles `dite` conditions and
+absolute values of positive literals. Use this when vector indexing appears
+inside dependent if expressions (common with bounds checking).
 
 ### dite_simp
 
@@ -88,7 +88,7 @@ simp (config := { decide := true }) only [dite_true, dite_false]
 
 * `VecSimp.vecConsFinMk` - dsimproc for reducing `vecCons` with `Fin.mk` indices
 * `vec_simp` - tactic macro combining the simproc with standard vector lemmas
-* `vec_simp!` - aggressive variant that also simplifies `dite` conditions
+* `vec_simp!` - aggressive variant that also simplifies `dite` conditions and abs
 * `dite_simp` - standalone tactic for simplifying dite with decidable literal conditions
 -/
 
@@ -161,14 +161,16 @@ macro "vec_simp" : tactic =>
   `(tactic| simp only [VecSimp.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
                        Matrix.cons_val_one, Matrix.head_cons])
 
-/-- Aggressive variant of `vec_simp` that also simplifies `dite` conditions.
+/-- Aggressive variant of `vec_simp` that also simplifies `dite` conditions
+    and absolute values of positive literals.
 
     Combines vector indexing simplification with `dite_simp` to handle
-    patterns like bounds checking in vector access.
+    patterns like bounds checking in vector access and absolute value simplification.
 
     Example:
     ```lean
-    -- Simplifies both vector indexing AND dite conditions in one call
+    -- Simplifies vector indexing, dite conditions, AND absolute values
+    example : |4321 / 432| = (4321 : ℝ) / 432 := by simp [abs_of_pos]
     example (f : (1 : ℕ) ≤ 2 → ℕ) :
         (if h : (1 : ℕ) ≤ 2 then (![1, 2, 3] : Fin 3 → ℕ) ⟨1, by omega⟩ else 0)
         = 2 := by
@@ -179,7 +181,8 @@ macro "vec_simp!" : tactic =>
   `(tactic| (
     simp (config := { decide := true }) only [
       VecSimp.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
-      Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false
+      Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
+      abs_of_pos, abs_of_nonneg
     ]
   ))
 
