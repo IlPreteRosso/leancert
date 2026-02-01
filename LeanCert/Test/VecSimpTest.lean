@@ -24,7 +24,8 @@ This file tests the vector and dite simplification tactics:
 
 namespace VecSimp.Test
 
--- Basic indexing with literals
+/-! #### Indexing with Fin.mk -/
+
 example : (![1, 2, 3] : Fin 3 → ℕ) ⟨0, by omega⟩ = 1 := by vec_simp
 example : (![1, 2, 3] : Fin 3 → ℕ) ⟨1, by omega⟩ = 2 := by vec_simp
 example : (![1, 2, 3] : Fin 3 → ℕ) ⟨2, by omega⟩ = 3 := by vec_simp
@@ -33,8 +34,28 @@ example : (![1, 2, 3] : Fin 3 → ℕ) ⟨2, by omega⟩ = 3 := by vec_simp
 example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) ⟨0, by omega⟩ = a := by vec_simp
 example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) ⟨1, by omega⟩ = b := by vec_simp
 
--- Longer vectors
+/-! #### Indexing with numeric literals -/
+
+-- vec_simp now handles numeric literal indices like `2` (not just Fin.mk)
+example : (![1, 2, 3] : Fin 3 → ℕ) 0 = 1 := by vec_simp
+example : (![1, 2, 3] : Fin 3 → ℕ) 1 = 2 := by vec_simp
+example : (![1, 2, 3] : Fin 3 → ℕ) 2 = 3 := by vec_simp
+
+-- Symbolic elements with numeric indices
+example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 0 = a := by vec_simp
+example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 1 = b := by vec_simp
+example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 2 = c := by vec_simp
+
+-- Nested vecCons with numeric indices (the original user issue)
+example : (![0, 433/500, -1299/1000] : Fin 3 → ℚ) 2 = -1299/1000 := by vec_simp
+example : |(![0, 433/500, -1299/1000] : Fin 3 → ℚ) 2| = 1299/1000 := by vec_simp!
+
+-- Longer vectors with Fin.mk
 example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) ⟨3, by omega⟩ = 4 := by vec_simp
+
+-- Longer vectors with numeric indices
+example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) 3 = 4 := by vec_simp
+example : (![1, 2, 3, 4, 5] : Fin 5 → ℕ) 4 = 5 := by vec_simp
 
 -- In expressions
 example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) ⟨0, by omega⟩ + 1 = a + 1 := by vec_simp

@@ -14,15 +14,15 @@ import Mathlib.Tactic.NormNum
 
 ### 1. Vector indexing with Fin.mk
 
-Mathlib's `cons_val` simproc uses `ei.int?` to extract indices, which only
-matches numeric literals like `0`, `1`, `2`. It does not match explicit
-`Fin.mk` applications like `⟨0, by omega⟩`.
+Mathlib's `cons_val` simproc uses `ei.int?` to extract indices, which matches
+numeric literals like `0`, `1`, `2` but does not match explicit `Fin.mk`
+applications like `⟨0, by omega⟩`.
 
 This causes expressions like:
 ```lean
 (![a, b, c] : Fin 3 → α) ⟨1, by omega⟩
 ```
-to not simplify automatically.
+to not simplify automatically with default simp.
 
 ### 2. Dependent if with ℕ literal conditions
 
@@ -36,8 +36,9 @@ simp only [show (1 : ℕ) ≤ 2 from by omega, show (2 : ℕ) ≤ 2 from by omeg
 
 ### vec_simp
 
-A tactic using a custom `dsimproc` that extracts the natural number from
-`Fin.mk n proof` applications and reduces vector indexing accordingly.
+A tactic using a custom `dsimproc` that handles both:
+- Numeric literal indices: `![a, b, c] 2` → `c` (via `int?`)
+- Explicit `Fin.mk` applications: `![a, b, c] ⟨1, proof⟩` → `b` (via `Fin.val` reduction)
 
 ### vec_simp!
 
@@ -90,8 +91,9 @@ simp (config := { decide := true }) only [dite_true, dite_false]
 
 ## Main definitions
 
-* `VecSimp.vecConsFinMk` - dsimproc for reducing `vecCons` with `Fin.mk` indices
-* `vec_simp` - basic tactic for vector indexing with `Fin.mk` indices
+* `VecSimp.vecConsFinMk` - dsimproc for reducing `vecCons` with any Fin indices
+  (both numeric literals and explicit `Fin.mk` applications)
+* `vec_simp` - basic tactic for vector indexing
 * `vec_simp!` - **all-in-one tactic** for vectors, matrices, dite, abs, and norm_num
   - Use `vec_simp!` for simple cases
   - Use `vec_simp! [M]` for matrices with definition M
@@ -102,19 +104,24 @@ namespace VecSimp
 
 open Lean Meta Elab Tactic
 
-/-- Extract natural number from a Fin.mk application.
-    Returns `some n` if `e` is `Fin.mk n proof`, otherwise `none`. -/
-def getFinMkVal? (e : Expr) : MetaM (Option Nat) := do
-  -- Try to match Fin.mk _ val _
-  let e ← whnfR e
-  let args := e.getAppArgs
-  -- Fin.mk has 3 args: n (bound), val, proof
-  if e.getAppFn.constName? == some ``Fin.mk && args.size == 3 then
-    let val ← whnfR args[1]!
-    match val.nat? with
-    | some n => return some n
-    | none => return none
-  else
+/-- Extract natural number from a Fin expression.
+    Handles both `Fin.mk n proof` and numeric literals like `(2 : Fin 3)`.
+    Returns `some n` if successful, otherwise `none`. -/
+def getFinVal? (e : Expr) : MetaM (Option Nat) := do
+  -- First try whnfR and check for Fin.mk directly (handles ⟨n, proof⟩)
+  let e' ← whnfR e
+  if e'.getAppFn.constName? == some ``Fin.mk then
+    let args := e'.getAppArgs
+    if args.size == 3 then
+      let val ← whnfR args[1]!
+      if let some n := val.nat? then
+        return some n
+  -- For numeric literals like (2 : Fin 3), extract via Fin.val and reduce
+  try
+    let finVal ← mkAppM ``Fin.val #[e]
+    let finValReduced ← reduce finVal
+    return finValReduced.nat?
+  catch _ =>
     return none
 
 /-- Recursively traverse a vecCons chain to extract the element at index `idx`.
@@ -133,10 +140,14 @@ partial def getVecElem (idx : Nat) (e : Expr) : MetaM (Option Expr) := do
   else
     return none
 
-/-- Simproc: Reduce `![a, b, c, ...] ⟨n, proof⟩` to the n-th element.
+/-- Simproc: Reduce `![a, b, c, ...] i` to the i-th element.
 
-    This handles the case where the index is an explicit `Fin.mk` application
-    rather than a numeric literal (which Mathlib's `cons_val` handles).
+    Handles both:
+    - Numeric literal indices: `![a, b, c] 2` → `c` (via `int?`)
+    - Explicit `Fin.mk` applications: `![a, b, c] ⟨1, proof⟩` → `b` (via `Fin.val` reduction)
+
+    First tries `int?` to extract raw integer literals (like Mathlib's cons_val),
+    then falls back to reducing `Fin.val` for explicit `Fin.mk` expressions.
 
     The expression structure is: `App (Matrix.vecCons α n head tail) idx`
     which gives 5 args total to the vecCons function. -/
@@ -149,12 +160,15 @@ dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
   let x := args[2]!   -- head
   let xs := args[3]!  -- tail
   let ei := args[4]!  -- index
-  -- First check if it's a standard numeric literal - let Mathlib handle those
-  let ei ← whnfR ei
-  if ei.int?.isSome then
-    return .continue
-  -- Try to extract index from Fin.mk
-  let some i ← getFinMkVal? ei | return .continue
+  -- Try to get the index value:
+  -- 1. First try int? for raw integer literals (like Mathlib's cons_val)
+  -- 2. Fall back to getFinVal? for Fin.mk expressions
+  let ei' ← whnfR ei
+  let i : Nat ← match ei'.int? with
+    | some n => pure n.toNat
+    | none =>
+      let some n ← getFinVal? ei | return .continue
+      pure n
   -- Get the element at index i
   if i == 0 then
     return .done x
@@ -164,15 +178,18 @@ dsimproc vecConsFinMk (Matrix.vecCons _ _ _) := fun e => do
 
 end VecSimp
 
-/-- Tactic that simplifies vector indexing with explicit Fin constructors.
+/-- Tactic that simplifies vector indexing with Fin indices.
 
-    Use this when `![a, b, c] ⟨n, proof⟩` doesn't reduce automatically.
+    Handles both explicit `Fin.mk` constructors and numeric literal indices:
+    - `![a, b, c] ⟨1, proof⟩` → `b`
+    - `![a, b, c] 2` → `c`
 
     For a more aggressive variant that also handles `dite` conditions, use `vec_simp!`.
 
     Example:
     ```lean
     example : (![1, 2, 3] : Fin 3 → ℕ) ⟨1, by omega⟩ = 2 := by vec_simp
+    example : (![1, 2, 3] : Fin 3 → ℕ) 2 = 3 := by vec_simp
     ```
 -/
 macro "vec_simp" : tactic =>
