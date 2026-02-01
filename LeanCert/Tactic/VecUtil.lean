@@ -6,6 +6,7 @@ Authors: LeanCert Contributors
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FailIfNoProgress
 import Mathlib.Algebra.Order.Group.Abs
+import Mathlib.Tactic.NormNum
 
 /-!
 # VecUtil: Shared vector/matrix simplification utilities
@@ -206,22 +207,19 @@ macro "abs_simp" : tactic =>
 /-- Core vector indexing simplification with fixed-point iteration.
 
     Reduces `![a,b,c] i` → element and handles nested `Matrix.of` wrappers.
-    Uses `fail_if_no_progress` to iterate until `Matrix.of_apply` makes no progress.
+    Uses `first` with `fail_if_no_progress` to iterate until neither simp makes progress.
 
     This is the base tactic used by `finsum_expand!`. For dite/abs support, use
     `vec_index_simp_with_dite` or `vec_simp!`. -/
 macro "vec_index_simp_core" : tactic =>
   `(tactic| (
-    -- First pass of vector indexing simp
-    try simp only [VecUtil.vecConsFinMk,
-                   Matrix.cons_val_zero, Matrix.cons_val_zero',
-                   Matrix.cons_val_one, Matrix.head_cons]
-    -- Fixed-point iteration: of_apply -> main simp, repeat while of_apply makes progress
+    -- Fixed-point iteration: try main simp, if no progress try of_apply, repeat until both fail
     repeat (
-      fail_if_no_progress simp only [Matrix.of_apply]
-      try simp only [VecUtil.vecConsFinMk,
+      first
+      | fail_if_no_progress simp only [VecUtil.vecConsFinMk,
                      Matrix.cons_val_zero, Matrix.cons_val_zero',
                      Matrix.cons_val_one, Matrix.head_cons]
+      | fail_if_no_progress simp only [Matrix.of_apply]
     )
   ))
 
@@ -229,24 +227,27 @@ macro "vec_index_simp_core" : tactic =>
 
     Like `vec_index_simp_core` but also simplifies:
     - `if h : 1 ≤ 2 then x else y` → `x` (decidable dite conditions)
-    - `|positive_literal|` → `positive_literal`
+    - `|literal|` → reduced absolute value (positive or negative)
 
+    Strategy: Include abs lemmas IN the main iteration so simp can:
+    1. Descend into `|...|` expressions
+    2. Apply of_apply to unwrap Matrix.of
+    3. Apply vecConsFinMk to reduce indexing
+    4. Apply abs lemmas once we have a literal (for ℚ with decide)
+    Then use norm_num to handle ℝ literals where decide doesn't work.
     Used by `vec_simp!`. -/
 macro "vec_index_simp_with_dite" : tactic =>
   `(tactic| (
-    -- First pass with dite/abs
-    try simp (config := { decide := true }) only [
-      VecUtil.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
-      Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
-      abs_of_pos, abs_of_nonneg
-    ]
-    -- Fixed-point iteration: of_apply -> main simp, repeat while of_apply makes progress
+    -- Fixed-point iteration with all lemmas (abs included so simp can descend into |...|)
     repeat (
-      fail_if_no_progress simp only [Matrix.of_apply]
-      try simp (config := { decide := true }) only [
-        VecUtil.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
-        Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
-        abs_of_pos, abs_of_nonneg
-      ]
+      first
+      | fail_if_no_progress simp (config := { decide := true }) only [
+          VecUtil.vecConsFinMk, Matrix.cons_val_zero, Matrix.cons_val_zero',
+          Matrix.cons_val_one, Matrix.head_cons, dite_true, dite_false,
+          abs_of_pos, abs_of_nonneg, abs_of_neg, abs_neg
+        ]
+      | fail_if_no_progress simp only [Matrix.of_apply]
     )
+    -- norm_num to handle abs of ℝ literals (decide can't prove positivity for ℝ)
+    try norm_num [abs_of_pos, abs_of_nonneg, abs_of_neg, abs_neg]
   ))

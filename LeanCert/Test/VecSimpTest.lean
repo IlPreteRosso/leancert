@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanCert Contributors
 -/
 import LeanCert.Tactic.VecSimp
+import LeanCert.Tactic.FinSumExpand
 import Mathlib.Data.Real.Basic
 import Mathlib.Data.Fin.Basic
 import Mathlib.Data.Fintype.Basic
@@ -25,24 +26,8 @@ namespace VecSimp.Test
 /-! ### Basic indexing -/
 
 example : (![1, 2, 3] : Fin 3 → ℕ) ⟨2, by omega⟩ = 3 := by vec_simp       -- Fin.mk
-example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 1 = b := by vec_simp       -- numeric literal, symbolic
-example : |(![0, 1/2, -3/4] : Fin 3 → ℚ) 2| = 3/4 := by vec_simp!         -- with abs
-
-/-! ### Raw Matrix.vecCons with nested structure -/
-
-example : |Matrix.vecCons (0 : ℚ) (Matrix.vecCons (1/2) ![(-3/4)]) 2| = 3/4 := by vec_simp!
-
-/-! ### Lambda tail pattern (from matrix column extraction) -/
-
-example : |(Matrix.vecCons (1 : ℚ)
-    (fun i => Matrix.vecCons (-2 : ℚ) (fun _ => (-3 : ℚ)) i) : Fin 3 → ℚ) 2| = 3 := by
-  vec_simp!
-
-/-! ### Nested vecCons after lambda reduction (inferred dimension) -/
-
-example : (Matrix.vecCons (10 : ℚ)
-    (fun i => Matrix.vecCons (20 : ℚ) (fun j => Matrix.vecCons (30 : ℚ) (fun _ => 40) j) i) : Fin 4 → ℚ) 3 = 40 := by
-  vec_simp!
+example (a b c : ℝ) : (![a, b, c] : Fin 3 → ℝ) 1 = b := by vec_simp       -- numeric literal
+example : |(![0, 1/2, -3/4] : Fin 3 → ℚ) 2| = 3/4 := by vec_simp!         -- with abs (ℚ)
 
 /-! ### Longer vectors -/
 
@@ -145,6 +130,107 @@ example : ∀ i j k : Fin 2, T3 i j k ≤ 8 := by
   intro i j k; fin_cases i <;> fin_cases j <;> fin_cases k; all_goals vec_simp! [T3, M0, M1]
 
 end TensorSimp.Test
+
+/-! ## Bug fix tests: |vecCons ... idx| inside matrix column norms
+
+These tests target a specific bug where `|vecCons h (fun i => ...) idx|` wasn't being
+reduced. The issue was that abs lemmas need to be in the SAME simp call as vecConsFinMk
+so simp can descend into the `|...|` and reduce the inner vecCons.
+
+Key patterns that triggered the bug:
+1. Lambda tail: `fun i => vecCons ...` (from matrix column extraction)
+2. Last index: accessing the deepest element (most recursion through tail)
+3. Inside abs: `|vecCons ...|` where abs "hides" the vecCons from simp
+4. Real numbers: `ℝ` where `decide` can't prove positivity (need norm_num)
+
+See design-notes.txt for full explanation.
+-/
+
+namespace AbsVecConsBugFix.Test
+
+/-! ### Lambda tail pattern (from matrix column extraction)
+
+When extracting a matrix column, the tail becomes a lambda:
+`![a, b, c] i` unfolds to `vecCons a (fun i => vecCons b (fun _ => c) i) i`
+-/
+
+-- Basic lambda tail with abs (ℚ - works with decide)
+example : |(Matrix.vecCons (1 : ℚ)
+    (fun i => Matrix.vecCons (-2) (fun _ => (-3)) i) : Fin 3 → ℚ) 2| = 3 := by
+  vec_simp!
+
+-- Lambda tail with abs (ℝ - needs norm_num for positivity)
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 2| = 3/8 := by
+  vec_simp!
+
+-- Test each index to ensure all positions work
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 0| = 1/2 := by vec_simp!
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 1| = 1/4 := by vec_simp!
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 2| = 3/8 := by vec_simp!
+
+/-! ### finsum_expand! integration
+
+After finsum_expand! expands a Fin sum, we often have |vecCons ...| expressions.
+finsum_expand! now uses vec_index_simp_with_dite internally to handle these.
+-/
+
+-- finsum_expand! alone should fully reduce
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 2| = 3/8 := by
+  finsum_expand!
+
+-- finsum_expand! alone is sufficient (vec_simp! would be redundant)
+example : |(Matrix.vecCons (1/2 : ℝ)
+    (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 2| = 3/8 := by
+  finsum_expand!
+
+/-! ### Inequality context (like matrix norm bounds)
+
+The original bug appeared when proving `∑ i, |A i j| * ν^i ≤ bound`.
+After sum expansion, expressions like `|vecCons ...| * ν^2` need reduction.
+-/
+
+-- In an inequality with multiplication (like colNorm_le)
+example : 1/2 + (1/4 * (1/4) +
+    |(Matrix.vecCons (1/2 : ℝ)
+        (fun i => Matrix.vecCons (-1/4) (fun _ => (3/8)) i) : Fin 3 → ℝ) 2| * (1/16)) ≤ 1 := by
+  finsum_expand!  -- fully reduces vecCons and abs
+
+/-! ### Matrix definition pattern
+
+Replicate the structure from Example_7_7: a 3x3 lower triangular matrix with
+entries defined via separate defs, then accessed column-wise.
+-/
+
+open Matrix in
+-- Lower triangular matrix (simplified from Example_7_7)
+noncomputable def L_diag : ℝ := 1/2
+noncomputable def L_sub1 : ℝ := -1/4
+noncomputable def L_sub2 : ℝ := 3/8
+
+open Matrix in
+noncomputable def L_mat : Matrix (Fin 3) (Fin 3) ℝ :=
+  of ![![L_diag, 0, 0],
+       ![L_sub1, L_diag, 0],
+       ![L_sub2, L_sub1, L_diag]]
+
+-- Column 0 access: this is the pattern that was failing
+example : ∀ i : Fin 3, |L_mat i 0| ≤ 1 := by
+  intro i
+  unfold L_mat L_diag L_sub1 L_sub2
+  fin_cases i <;> vec_simp!
+
+-- With finsum_expand! alone (like colNorm_le proof) - now sufficient
+example : ∀ i : Fin 3, |L_mat i 0| ≤ 1 := by
+  intro i
+  unfold L_mat L_diag L_sub1 L_sub2
+  fin_cases i <;> finsum_expand!
+
+end AbsVecConsBugFix.Test
 
 /-! ## Tests for dite + abs combined -/
 

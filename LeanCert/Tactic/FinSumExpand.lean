@@ -65,10 +65,8 @@ macro "finsum_expand!" : tactic =>
                    Fin.castSucc_zero, Fin.zero_eta, add_assoc]
     -- Normalize nested Fin.succ
     try simp only [Fin.succ_one_eq_two]
-    -- Simplify dite conditions with decidable literal bounds (shared with vec_simp!)
-    try dite_simp
-    -- Vector/matrix indexing with fixed-point iteration (shared with vec_simp!)
-    vec_index_simp_core
-    -- Simplify absolute values (shared with vec_simp!)
-    try abs_simp
+    -- Vector/matrix indexing + dite + abs with fixed-point iteration
+    -- Must use vec_index_simp_with_dite (not vec_index_simp_core) so abs lemmas are
+    -- in the same simp call, allowing simp to descend into |vecCons ...| and reduce
+    vec_index_simp_with_dite
   ))
