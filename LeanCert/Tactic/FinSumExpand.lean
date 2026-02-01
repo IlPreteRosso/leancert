@@ -47,7 +47,6 @@ The `!` variant handles additional cases:
 - **dite expressions**: `if h : x ≤ 2 then f x else 0` → `f x`
 - **Absolute values**: `|4321/432|` → `4321/432`
 - **Matrix indexing**: `![![1,2],[3,4]] i j` → concrete values
-- **Arithmetic cleanup**: Uses `ring` and `norm_num` for final simplification
 
 ## Design Notes
 
@@ -235,8 +234,6 @@ macro "finsum_expand" : tactic =>
 - **dite conditions**: Simplifies `if h : 1 ≤ 2 then f x else 0` → `f x`
 - **Matrix indexing**: Handles `![![1,2],[3,4]] i j` and lambda tails from column extraction
 - **Absolute values**: Simplifies `|4321/432|` → `4321/432` for positive/nonnegative args
-- **Arithmetic cleanup**: Uses `ring` and `norm_num` for final simplification
-
 Uses `repeat simp` for vector indexing to handle any nesting depth.
 
 ## Example
@@ -286,7 +283,4 @@ macro "finsum_expand!" : tactic =>
                       Matrix.cons_val_one, Matrix.head_cons]
     -- Simplify absolute values of positive/nonnegative literals
     try simp only [abs_of_pos, abs_of_nonneg]
-    -- Final cleanup: resolve remaining arithmetic goals
-    try ring
-    try norm_num
   ))
