@@ -78,15 +78,20 @@ theorem primeLambda_lower_of_forall (lo : ℚ)
 def checkPrimeLambdaUpper (N : Nat) (hi : ℚ) : Bool :=
   decide (primeFRat N ≤ hi)
 
-/-- Golden theorem for prime-limit upper certificates. -/
+/-- Golden theorem for prime-limit upper certificates.
+
+The checker verifies an upper bound for one finite prime truncation. Antitonicity
+then makes the same rational an upper bound for the directed prime limit. -/
 theorem verify_primeLambda_upper (N : Nat) (hi : ℚ)
     (hcheck : checkPrimeLambdaUpper N hi = true) :
     primeLambda ≤ (hi : ℝ) := by
   simp only [checkPrimeLambdaUpper, decide_eq_true_eq] at hcheck
   exact le_trans (primeLambda_le_trunc N) (by exact_mod_cast hcheck)
 
-/-- Combined prime-limit interval theorem. The lower side is supplied as a
-mathematical tail proof; the upper side is checked exactly by computation. -/
+/-- Combined prime-limit interval bridge. The lower side is supplied as a
+mathematical tail proof; the upper side is checked exactly by computation. This
+is intentionally not a purely boolean certificate, because lower bounds for the
+directed limit need a tail argument. -/
 theorem verify_primeLambda_interval_of_forall (N : Nat) (lo hi : ℚ)
     (hlo : ∀ M : Nat, (lo : ℝ) ≤ (primeFRat M : ℝ))
     (hcheck : checkPrimeLambdaUpper N hi = true) :

@@ -35,6 +35,7 @@ def checkFiniteIntegralUpper (S : Finset Nat) (hi : ℚ) : Bool :=
 def checkFiniteIntegralLower (S : Finset Nat) (lo : ℚ) : Bool :=
   decide (lo ≤ finiteIntegralRat S)
 
+/-- Golden theorem for exact finite q-product upper-bound certificates. -/
 theorem verify_finiteIntegral_upper (S : Finset Nat) (hi : ℚ)
     (hcheck : checkFiniteIntegralUpper S hi = true) :
     F S ≤ (hi : ℝ) := by
@@ -42,6 +43,7 @@ theorem verify_finiteIntegral_upper (S : Finset Nat) (hi : ℚ)
   rw [← finiteIntegralRat_correct]
   exact_mod_cast hcheck
 
+/-- Golden theorem for exact finite q-product lower-bound certificates. -/
 theorem verify_finiteIntegral_lower (S : Finset Nat) (lo : ℚ)
     (hcheck : checkFiniteIntegralLower S lo = true) :
     (lo : ℝ) ≤ F S := by
