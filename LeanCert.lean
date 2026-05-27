@@ -11,6 +11,7 @@ import LeanCert.Core.IntervalReal
 import LeanCert.Core.IntervalRealEndpoints
 import LeanCert.Core.Taylor
 import LeanCert.Core.DerivativeIntervals
+import LeanCert.Cert.Interval
 -- v1.1: Dyadic arithmetic (high-performance alternative to Rat)
 import LeanCert.Core.Dyadic
 import LeanCert.Core.IntervalDyadic
@@ -124,6 +125,16 @@ export LeanCert.Core (Expr)
 
 -- Re-export interval types
 export LeanCert.Core (IntervalRat)
+
+-- Re-export small certificate combinators
+export LeanCert.Cert (
+  checkRatInterval
+  checkRatUpper
+  checkRatLower
+  verify_rat_interval
+  verify_rat_upper
+  verify_rat_lower
+)
 
 -- v1.1: Re-export Dyadic types (high-performance arithmetic)
 export LeanCert.Core (Dyadic IntervalDyadic)
@@ -420,6 +431,8 @@ export LeanCert.ANT (
   abelBoundUpperRat
   abelBoundLowerRat_le_transform
   transform_le_abelBoundUpperRat
+  abelTransformOfPrefix_le_abelBoundUpperRat
+  abelTransformOfPrefix_ge_abelBoundLowerRat
   checkAbelBoundInterval
   verify_abelBound_interval
   productLowerRat
@@ -438,6 +451,8 @@ export LeanCert.ANT (
   verify_logProduct_interval
   finiteProduct_eq_exp_finiteLogProduct
   verify_product_interval_of_log_interval
+  verify_product_lower_of_log_lower
+  verify_product_upper_of_log_upper
   oneMinusInvRat
   onePlusInvRat
   primeEulerOneMinusInv

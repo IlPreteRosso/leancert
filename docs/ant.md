@@ -23,6 +23,20 @@ or through the main API:
 import LeanCert
 ```
 
+## Certificate Helpers
+
+The ANT layer uses the shared rational interval helpers:
+
+```lean
+LeanCert.Cert.checkRatInterval
+LeanCert.Cert.verify_rat_interval
+LeanCert.Cert.verify_rat_upper
+LeanCert.Cert.verify_rat_lower
+```
+
+Domain-specific modules provide the semantic lower/upper endpoint proofs; the
+generic helper handles the repeated boolean-check-to-real-interval boilerplate.
+
 ## Step Sums
 
 `StepFn` represents a semantic real-valued sequence with computable rational
@@ -99,6 +113,8 @@ Positive products can also be bounded through their logs:
 ```lean
 finiteProduct_eq_exp_finiteLogProduct
 verify_product_interval_of_log_interval
+verify_product_lower_of_log_lower
+verify_product_upper_of_log_upper
 ```
 
 Prime-product presets are included for the most common Mertens factors:
@@ -109,6 +125,9 @@ primeEulerOnePlusInv         -- ∏ p ≤ N, (1 + 1 / p)
 verify_primeEulerOneMinusInv_interval
 verify_primeEulerOnePlusInv_interval
 ```
+
+The generic product machinery lives in `LeanCert.ANT.EulerProduct`; these
+number-theoretic presets live in `LeanCert.ANT.PrimeEuler`.
 
 ## Mertens-Style Prime Sums
 

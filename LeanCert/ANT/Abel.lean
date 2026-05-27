@@ -78,15 +78,15 @@ theorem weightedSumRat_eq_abelTransformRat {a f : Nat → ℚ} {m n : Nat}
 
 /-- Exact rational Abel interval checker. -/
 def checkAbelInterval (a f : Nat → ℚ) (m n : Nat) (lo hi : ℚ) : Bool :=
-  decide (lo ≤ abelTransformRat a f m n) && decide (abelTransformRat a f m n ≤ hi)
+  LeanCert.Cert.checkRatInterval (abelTransformRat a f m n) (abelTransformRat a f m n) lo hi
 
 /-- Exact rational Abel upper checker. -/
 def checkAbelUpper (a f : Nat → ℚ) (m n : Nat) (hi : ℚ) : Bool :=
-  decide (abelTransformRat a f m n ≤ hi)
+  LeanCert.Cert.checkRatUpper (abelTransformRat a f m n) hi
 
 /-- Exact rational Abel lower checker. -/
 def checkAbelLower (a f : Nat → ℚ) (m n : Nat) (lo : ℚ) : Bool :=
-  decide (lo ≤ abelTransformRat a f m n)
+  LeanCert.Cert.checkRatLower (abelTransformRat a f m n) lo
 
 /-- Golden theorem for exact finite Abel interval certificates. -/
 theorem verify_abel_interval (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (lo hi : ℚ)
@@ -95,7 +95,7 @@ theorem verify_abel_interval (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (lo h
       (weightedSumRat a f m n : ℝ) ≤ (hi : ℝ) := by
   simp only [checkAbelInterval, Bool.and_eq_true, decide_eq_true_eq] at hcheck
   rw [weightedSumRat_eq_abelTransformRat hmn]
-  exact ⟨by exact_mod_cast hcheck.1, by exact_mod_cast hcheck.2⟩
+  exact LeanCert.Cert.verify_rat_interval le_rfl le_rfl hcheck
 
 /-- Golden theorem for exact finite Abel upper certificates. -/
 theorem verify_abel_upper (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (hi : ℚ)
@@ -103,7 +103,7 @@ theorem verify_abel_upper (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (hi : �
     (weightedSumRat a f m n : ℝ) ≤ (hi : ℝ) := by
   simp only [checkAbelUpper, decide_eq_true_eq] at hcheck
   rw [weightedSumRat_eq_abelTransformRat hmn]
-  exact_mod_cast hcheck
+  exact LeanCert.Cert.verify_rat_upper le_rfl hcheck
 
 /-- Golden theorem for exact finite Abel lower certificates. -/
 theorem verify_abel_lower (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (lo : ℚ)
@@ -111,7 +111,7 @@ theorem verify_abel_lower (a f : Nat → ℚ) {m n : Nat} (hmn : m < n) (lo : �
     (lo : ℝ) ≤ (weightedSumRat a f m n : ℝ) := by
   simp only [checkAbelLower, decide_eq_true_eq] at hcheck
   rw [weightedSumRat_eq_abelTransformRat hmn]
-  exact_mod_cast hcheck
+  exact LeanCert.Cert.verify_rat_lower le_rfl hcheck
 
 /-! ### Bounded Abel certificates -/
 
@@ -193,10 +193,24 @@ theorem transform_le_abelBoundUpperRat
       (hA (i + 1)).1 (hA (i + 1)).2
     convert hterm using 1 <;> simp [Nat.add_comm] <;> ring_nf
 
+/-- Alias with the semantic object first in the name. -/
+theorem abelTransformOfPrefix_le_abelBoundUpperRat
+    (f ALo AHi : Nat → ℚ) (A : Nat → ℝ) (m n : Nat)
+    (hA : ∀ k, (ALo k : ℝ) ≤ A k ∧ A k ≤ (AHi k : ℝ)) :
+    abelTransformOfPrefix f A m n ≤ (abelBoundUpperRat f ALo AHi m n : ℝ) :=
+  transform_le_abelBoundUpperRat f ALo AHi A m n hA
+
+/-- Alias with the semantic object first in the name. -/
+theorem abelTransformOfPrefix_ge_abelBoundLowerRat
+    (f ALo AHi : Nat → ℚ) (A : Nat → ℝ) (m n : Nat)
+    (hA : ∀ k, (ALo k : ℝ) ≤ A k ∧ A k ≤ (AHi k : ℝ)) :
+    (abelBoundLowerRat f ALo AHi m n : ℝ) ≤ abelTransformOfPrefix f A m n :=
+  abelBoundLowerRat_le_transform f ALo AHi A m n hA
+
 /-- Boolean interval checker for Abel bounds from prefix envelopes. -/
 def checkAbelBoundInterval (f ALo AHi : Nat → ℚ) (m n : Nat) (lo hi : ℚ) : Bool :=
-  decide (lo ≤ abelBoundLowerRat f ALo AHi m n) &&
-    decide (abelBoundUpperRat f ALo AHi m n ≤ hi)
+  LeanCert.Cert.checkRatInterval (abelBoundLowerRat f ALo AHi m n)
+    (abelBoundUpperRat f ALo AHi m n) lo hi
 
 /-- Golden theorem for bounded Abel certificates. -/
 theorem verify_abelBound_interval
@@ -205,13 +219,10 @@ theorem verify_abelBound_interval
     (lo hi : ℚ)
     (hcheck : checkAbelBoundInterval f ALo AHi m n lo hi = true) :
     (lo : ℝ) ≤ weightedSum a f m n ∧ weightedSum a f m n ≤ (hi : ℝ) := by
-  simp only [checkAbelBoundInterval, Bool.and_eq_true, decide_eq_true_eq] at hcheck
   rw [weightedSum_eq_abelTransformOfPrefix hmn]
-  have hlo : (lo : ℝ) ≤ (abelBoundLowerRat f ALo AHi m n : ℝ) := by
-    exact_mod_cast hcheck.1
-  have hhi : (abelBoundUpperRat f ALo AHi m n : ℝ) ≤ (hi : ℝ) := by
-    exact_mod_cast hcheck.2
-  exact ⟨hlo.trans (abelBoundLowerRat_le_transform f ALo AHi (prefixSum a) m n hA),
-    (transform_le_abelBoundUpperRat f ALo AHi (prefixSum a) m n hA).trans hhi⟩
+  exact LeanCert.Cert.verify_rat_interval
+    (abelBoundLowerRat_le_transform f ALo AHi (prefixSum a) m n hA)
+    (transform_le_abelBoundUpperRat f ALo AHi (prefixSum a) m n hA)
+    hcheck
 
 end LeanCert.ANT

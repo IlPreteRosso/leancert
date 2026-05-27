@@ -131,19 +131,14 @@ theorem mertensLogSum_le_mertensLogSumUpperRat (N depth : Nat) :
 
 /-- Boolean interval checker for finite Mertens log sums. -/
 def checkMertensLogSumInterval (N depth : Nat) (lo hi : ℚ) : Bool :=
-  decide (lo ≤ mertensLogSumLowerRat N depth) &&
-    decide (mertensLogSumUpperRat N depth ≤ hi)
+  LeanCert.Cert.checkRatInterval (mertensLogSumLowerRat N depth)
+    (mertensLogSumUpperRat N depth) lo hi
 
 /-- Golden theorem for finite Mertens log-sum certificates. -/
 theorem verify_mertensLogSum_interval (N depth : Nat) (lo hi : ℚ)
     (hcheck : checkMertensLogSumInterval N depth lo hi = true) :
     (lo : ℝ) ≤ mertensLogSum N ∧ mertensLogSum N ≤ (hi : ℝ) := by
-  simp only [checkMertensLogSumInterval, Bool.and_eq_true, decide_eq_true_eq] at hcheck
-  have hlo : (lo : ℝ) ≤ (mertensLogSumLowerRat N depth : ℝ) := by
-    exact_mod_cast hcheck.1
-  have hhi : (mertensLogSumUpperRat N depth : ℝ) ≤ (hi : ℝ) := by
-    exact_mod_cast hcheck.2
-  exact ⟨hlo.trans (mertensLogSumLowerRat_le N depth),
-    (mertensLogSum_le_mertensLogSumUpperRat N depth).trans hhi⟩
+  exact LeanCert.Cert.verify_rat_interval (mertensLogSumLowerRat_le N depth)
+    (mertensLogSum_le_mertensLogSumUpperRat N depth) hcheck
 
 end LeanCert.ANT

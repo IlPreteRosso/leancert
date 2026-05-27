@@ -6,6 +6,7 @@ Authors: LeanCert Contributors
 import Mathlib.Data.Rat.Cast.Order
 import Mathlib.Algebra.BigOperators.Intervals
 import Mathlib.Tactic
+import LeanCert.Cert.Interval
 
 /-!
 # Finite step-sum certificates
@@ -60,40 +61,33 @@ theorem stepSum_le_stepUpperRat (S : StepFn) (m N : Nat) :
 
 /-- Boolean interval checker for a finite step sum. -/
 def checkStepSumInterval (S : StepFn) (m N : Nat) (lo hi : ℚ) : Bool :=
-  decide (lo ≤ stepLowerRat S m N) && decide (stepUpperRat S m N ≤ hi)
+  LeanCert.Cert.checkRatInterval (stepLowerRat S m N) (stepUpperRat S m N) lo hi
 
 /-- Boolean lower-bound checker for a finite step sum. -/
 def checkStepSumLower (S : StepFn) (m N : Nat) (lo : ℚ) : Bool :=
-  decide (lo ≤ stepLowerRat S m N)
+  LeanCert.Cert.checkRatLower (stepLowerRat S m N) lo
 
 /-- Boolean upper-bound checker for a finite step sum. -/
 def checkStepSumUpper (S : StepFn) (m N : Nat) (hi : ℚ) : Bool :=
-  decide (stepUpperRat S m N ≤ hi)
+  LeanCert.Cert.checkRatUpper (stepUpperRat S m N) hi
 
 /-- Golden theorem for finite step-sum interval certificates. -/
 theorem verify_stepSum_interval (S : StepFn) (m N : Nat) (lo hi : ℚ)
     (hcheck : checkStepSumInterval S m N lo hi = true) :
     (lo : ℝ) ≤ stepSum S m N ∧ stepSum S m N ≤ (hi : ℝ) := by
-  simp only [checkStepSumInterval, Bool.and_eq_true, decide_eq_true_eq] at hcheck
-  have hlo : (lo : ℝ) ≤ (stepLowerRat S m N : ℝ) := by exact_mod_cast hcheck.1
-  have hhi : (stepUpperRat S m N : ℝ) ≤ (hi : ℝ) := by exact_mod_cast hcheck.2
-  exact ⟨hlo.trans (stepLowerRat_le_stepSum S m N),
-    (stepSum_le_stepUpperRat S m N).trans hhi⟩
+  exact LeanCert.Cert.verify_rat_interval (stepLowerRat_le_stepSum S m N)
+    (stepSum_le_stepUpperRat S m N) hcheck
 
 /-- Golden theorem for finite step-sum lower certificates. -/
 theorem verify_stepSum_lower (S : StepFn) (m N : Nat) (lo : ℚ)
     (hcheck : checkStepSumLower S m N lo = true) :
     (lo : ℝ) ≤ stepSum S m N := by
-  simp only [checkStepSumLower, decide_eq_true_eq] at hcheck
-  have hlo : (lo : ℝ) ≤ (stepLowerRat S m N : ℝ) := by exact_mod_cast hcheck
-  exact hlo.trans (stepLowerRat_le_stepSum S m N)
+  exact LeanCert.Cert.verify_rat_lower (stepLowerRat_le_stepSum S m N) hcheck
 
 /-- Golden theorem for finite step-sum upper certificates. -/
 theorem verify_stepSum_upper (S : StepFn) (m N : Nat) (hi : ℚ)
     (hcheck : checkStepSumUpper S m N hi = true) :
     stepSum S m N ≤ (hi : ℝ) := by
-  simp only [checkStepSumUpper, decide_eq_true_eq] at hcheck
-  have hhi : (stepUpperRat S m N : ℝ) ≤ (hi : ℝ) := by exact_mod_cast hcheck
-  exact (stepSum_le_stepUpperRat S m N).trans hhi
+  exact LeanCert.Cert.verify_rat_upper (stepSum_le_stepUpperRat S m N) hcheck
 
 end LeanCert.ANT

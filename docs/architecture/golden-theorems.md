@@ -25,9 +25,11 @@ Golden Theorems are defined across multiple files:
 - `Validity/Monotonicity.lean` - Monotonicity via automatic differentiation
 - `Engine/Chebyshev/Psi.lean` - Chebyshev `ψ` finite-range certificates
 - `Engine/Chebyshev/Theta.lean` - Chebyshev `θ` finite-range certificates
+- `Cert/Interval.lean` - shared rational interval Golden Theorem combinators
 - `ANT/Step.lean` - finite arithmetic step-sum certificates
 - `ANT/Abel.lean` - finite Abel / partial-summation certificates
 - `ANT/EulerProduct.lean` - finite Euler-product and log-product certificates
+- `ANT/PrimeEuler.lean` - prime Euler-product presets
 - `ANT/Mertens.lean` - finite Mertens-style prime-sum certificates
 - `QProduct/Certificate.lean` - Exact finite q-product integrals
 - `QProduct/PrimeLambda.lean` - Prime-limit q-product certificates
@@ -215,6 +217,16 @@ theorem verify_all_theta_rel_error
 The ANT layer exposes small bridge Golden Theorems that compose with the
 Chebyshev engines.
 
+The shared interval helper used by these APIs is:
+
+```lean
+theorem LeanCert.Cert.verify_rat_interval {value : ℝ} {lower upper lo hi : ℚ}
+    (hlower : (lower : ℝ) ≤ value)
+    (hupper : value ≤ (upper : ℝ))
+    (hcheck : checkRatInterval lower upper lo hi = true) :
+    (lo : ℝ) ≤ value ∧ value ≤ (hi : ℝ)
+```
+
 | Goal | Theorem | Checker/Data |
 |------|---------|--------------|
 | Finite step-sum interval | `verify_stepSum_interval` | `checkStepSumInterval` |
@@ -223,6 +235,8 @@ Chebyshev engines.
 | Finite Euler product interval | `verify_eulerProduct_interval` | `checkEulerProductInterval` |
 | Finite log-product interval | `verify_logProduct_interval` | `checkLogProductInterval` |
 | Log interval to product interval | `verify_product_interval_of_log_interval` | log interval proof |
+| Log lower to product lower | `verify_product_lower_of_log_lower` | log lower proof |
+| Log upper to product upper | `verify_product_upper_of_log_upper` | log upper proof |
 | Prime product `∏(1 - 1/p)` | `verify_primeEulerOneMinusInv_interval` | `checkPrimeEulerOneMinusInvInterval` |
 | Prime product `∏(1 + 1/p)` | `verify_primeEulerOnePlusInv_interval` | `checkPrimeEulerOnePlusInvInterval` |
 | Finite Mertens log-sum interval | `verify_mertensLogSum_interval` | `checkMertensLogSumInterval` |
