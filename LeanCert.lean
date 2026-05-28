@@ -11,6 +11,7 @@ import LeanCert.Core.IntervalReal
 import LeanCert.Core.IntervalRealEndpoints
 import LeanCert.Core.Taylor
 import LeanCert.Core.DerivativeIntervals
+import LeanCert.Cert.Interval
 -- v1.1: Dyadic arithmetic (high-performance alternative to Rat)
 import LeanCert.Core.Dyadic
 import LeanCert.Core.IntervalDyadic
@@ -58,6 +59,9 @@ import LeanCert.Engine.SearchAPI
 
 -- Q-product product-integral certificates
 import LeanCert.QProduct
+
+-- Analytic number theory certificate machinery
+import LeanCert.ANT
 
 -- Meta (metaprogramming utilities)
 import LeanCert.Meta.ProveContinuous
@@ -121,6 +125,16 @@ export LeanCert.Core (Expr)
 
 -- Re-export interval types
 export LeanCert.Core (IntervalRat)
+
+-- Re-export small certificate combinators
+export LeanCert.Cert (
+  checkRatInterval
+  checkRatUpper
+  checkRatLower
+  verify_rat_interval
+  verify_rat_upper
+  verify_rat_lower
+)
 
 -- v1.1: Re-export Dyadic types (high-performance arithmetic)
 export LeanCert.Core (Dyadic IntervalDyadic)
@@ -381,6 +395,122 @@ export LeanCert.QProduct (
   primeFRat_lower_nineteen_thirtysix
   primeLambda_lower_nineteen_thirtysix
   primeLambda_gt_half
+)
+
+-- Re-export ANT certificate API
+export LeanCert.ANT (
+  StepFn
+  stepLowerRat
+  stepUpperRat
+  stepSum
+  stepLowerRat_le_stepSum
+  stepSum_le_stepUpperRat
+  checkStepSumInterval
+  checkStepSumLower
+  checkStepSumUpper
+  verify_stepSum_interval
+  verify_stepSum_lower
+  verify_stepSum_upper
+  prefixSum
+  prefixSumRat
+  abelTransformRat
+  weightedSumRat
+  weightedSum
+  abelTransformOfPrefix
+  weightedSumRat_eq_abelTransformRat
+  weightedSum_eq_abelTransformOfPrefix
+  checkAbelInterval
+  checkAbelUpper
+  checkAbelLower
+  verify_abel_interval
+  verify_abel_upper
+  verify_abel_lower
+  coeffLowerRat
+  coeffUpperRat
+  abelBoundLowerRat
+  abelBoundUpperRat
+  abelBoundLowerRat_le_transform
+  transform_le_abelBoundUpperRat
+  abelTransformOfPrefix_le_abelBoundUpperRat
+  abelTransformOfPrefix_ge_abelBoundLowerRat
+  checkAbelBoundInterval
+  verify_abelBound_interval
+  productLowerRat
+  productUpperRat
+  finiteProduct
+  productLowerRat_le_finiteProduct
+  finiteProduct_le_productUpperRat
+  checkEulerProductInterval
+  verify_eulerProduct_interval
+  finiteLogProduct
+  logProductLowerRat
+  logProductUpperRat
+  logProductLowerRat_le_finiteLogProduct
+  finiteLogProduct_le_logProductUpperRat
+  checkLogProductInterval
+  verify_logProduct_interval
+  finiteProduct_eq_exp_finiteLogProduct
+  verify_product_interval_of_log_interval
+  verify_product_lower_of_log_lower
+  verify_product_upper_of_log_upper
+  oneMinusInvRat
+  onePlusInvRat
+  primeEulerOneMinusInv
+  primeEulerOneMinusInvRat
+  primeEulerOnePlusInv
+  primeEulerOnePlusInvRat
+  checkPrimeEulerOneMinusInvInterval
+  checkPrimeEulerOnePlusInvInterval
+  verify_primeEulerOneMinusInv_interval
+  verify_primeEulerOnePlusInv_interval
+  finiteDirichletSum
+  intervalMulLowerRat
+  intervalMulUpperRat
+  finiteDirichletSumLowerRat
+  finiteDirichletSumUpperRat
+  finiteDirichletSumLowerRat_le
+  finiteDirichletSum_le_upperRat
+  checkDirichletSumInterval
+  checkDirichletSumLower
+  checkDirichletSumUpper
+  verify_dirichletSum_interval
+  verify_dirichletSum_lower
+  verify_dirichletSum_upper
+  naturalsIcc
+  harmonicSum
+  harmonicSumRat
+  primeHarmonicSum
+  primeHarmonicSumRat
+  logPrimeOverPrimeSum
+  logPrimeOverPrimeLowerRat
+  logPrimeOverPrimeUpperRat
+  harmonicSum_eq_rat
+  primeHarmonicSum_eq_rat
+  checkHarmonicSumInterval
+  checkPrimeHarmonicSumInterval
+  checkLogPrimeOverPrimeSumInterval
+  logPrimeOverPrimeLowerRat_le
+  logPrimeOverPrime_le_upperRat
+  verify_harmonicSum_interval
+  verify_primeHarmonicSum_interval
+  verify_logPrimeOverPrimeSum_interval
+  mertensLogSum
+  thetaIncrement
+  invNatRat
+  thetaPrefixLowerRat
+  thetaPrefixUpperRat
+  mertensAbelSum
+  thetaPrefixLowerRat_le_prefix
+  prefix_le_thetaPrefixUpperRat
+  thetaPrefix_envelope
+  checkMertensAbelInterval
+  verify_mertensAbel_interval
+  mertensLogSumLowerRat
+  mertensLogSumUpperRat
+  mertensLogSumLowerRat_le
+  mertensLogSum_le_mertensLogSumUpperRat
+  checkMertensLogSumInterval
+  verify_mertensLogSum_interval
 )
 
 /-! ### Convenience abbreviations -/

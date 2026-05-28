@@ -25,6 +25,13 @@ Golden Theorems are defined across multiple files:
 - `Validity/Monotonicity.lean` - Monotonicity via automatic differentiation
 - `Engine/Chebyshev/Psi.lean` - Chebyshev `ψ` finite-range certificates
 - `Engine/Chebyshev/Theta.lean` - Chebyshev `θ` finite-range certificates
+- `Cert/Interval.lean` - shared rational interval Golden Theorem combinators
+- `ANT/Step.lean` - finite arithmetic step-sum certificates
+- `ANT/Abel.lean` - finite Abel / partial-summation certificates
+- `ANT/EulerProduct.lean` - finite Euler-product and log-product certificates
+- `ANT/PrimeEuler.lean` - prime Euler-product presets
+- `ANT/Dirichlet.lean` - finite Dirichlet-style truncation certificates
+- `ANT/Mertens.lean` - finite Mertens-style prime-sum certificates
 - `QProduct/Certificate.lean` - Exact finite q-product integrals
 - `QProduct/PrimeLambda.lean` - Prime-limit q-product certificates
 
@@ -204,6 +211,71 @@ theorem verify_all_theta_rel_error
     (hcheck : checkAllThetaRelError start limit bound depth = true) :
     ∀ N : Nat, 0 < N → start ≤ N → N ≤ limit →
       |Chebyshev.theta (N : ℝ) - N| ≤ (bound : ℝ) * N
+```
+
+### Analytic Number Theory Bridges
+
+The ANT layer exposes small bridge Golden Theorems that compose with the
+Chebyshev engines.
+
+The shared interval helper used by these APIs is:
+
+```lean
+theorem LeanCert.Cert.verify_rat_interval {value : ℝ} {lower upper lo hi : ℚ}
+    (hlower : (lower : ℝ) ≤ value)
+    (hupper : value ≤ (upper : ℝ))
+    (hcheck : checkRatInterval lower upper lo hi = true) :
+    (lo : ℝ) ≤ value ∧ value ≤ (hi : ℝ)
+```
+
+| Goal | Theorem | Checker/Data |
+|------|---------|--------------|
+| Finite step-sum interval | `verify_stepSum_interval` | `checkStepSumInterval` |
+| Exact Abel interval | `verify_abel_interval` | `checkAbelInterval` |
+| Bounded Abel interval | `verify_abelBound_interval` | `checkAbelBoundInterval` |
+| Finite Euler product interval | `verify_eulerProduct_interval` | `checkEulerProductInterval` |
+| Finite log-product interval | `verify_logProduct_interval` | `checkLogProductInterval` |
+| Log interval to product interval | `verify_product_interval_of_log_interval` | log interval proof |
+| Log lower to product lower | `verify_product_lower_of_log_lower` | log lower proof |
+| Log upper to product upper | `verify_product_upper_of_log_upper` | log upper proof |
+| Prime product `∏(1 - 1/p)` | `verify_primeEulerOneMinusInv_interval` | `checkPrimeEulerOneMinusInvInterval` |
+| Prime product `∏(1 + 1/p)` | `verify_primeEulerOnePlusInv_interval` | `checkPrimeEulerOnePlusInvInterval` |
+| Finite Dirichlet sum interval | `verify_dirichletSum_interval` | `checkDirichletSumInterval` |
+| Harmonic truncation interval | `verify_harmonicSum_interval` | `checkHarmonicSumInterval` |
+| Prime harmonic truncation interval | `verify_primeHarmonicSum_interval` | `checkPrimeHarmonicSumInterval` |
+| Prime log-over-prime interval | `verify_logPrimeOverPrimeSum_interval` | `checkLogPrimeOverPrimeSumInterval` |
+| Finite Mertens log-sum interval | `verify_mertensLogSum_interval` | `checkMertensLogSumInterval` |
+| Abel-routed Mertens interval | `verify_mertensAbel_interval` | `checkMertensAbelInterval` |
+
+The central exact identity is:
+
+```lean
+theorem weightedSumRat_eq_abelTransformRat {a f : Nat → ℚ} {m n : Nat}
+    (hmn : m < n) :
+    (weightedSumRat a f m n : ℝ) = (abelTransformRat a f m n : ℝ)
+```
+
+The first Chebyshev-to-Mertens bridge is finite:
+
+```lean
+theorem verify_mertensLogSum_interval (N depth : Nat) (lo hi : ℚ)
+    (hcheck : checkMertensLogSumInterval N depth lo hi = true) :
+    (lo : ℝ) ≤ mertensLogSum N ∧ mertensLogSum N ≤ (hi : ℝ)
+```
+
+Here `mertensLogSum N` is `∑ p ≤ N, log p / p`, and the checker uses the
+existing Chebyshev theta logarithm envelopes.
+
+The bounded Abel bridge has the reusable shape:
+
+```lean
+theorem verify_abelBound_interval
+    (a : Nat → ℝ) (f ALo AHi : Nat → ℚ) {m n : Nat} (hmn : m < n)
+    (hA : ∀ k, (ALo k : ℝ) ≤ prefixSum a k ∧
+      prefixSum a k ≤ (AHi k : ℝ))
+    (lo hi : ℚ)
+    (hcheck : checkAbelBoundInterval f ALo AHi m n lo hi = true) :
+    (lo : ℝ) ≤ weightedSum a f m n ∧ weightedSum a f m n ≤ (hi : ℝ)
 ```
 
 ### Monotonicity
