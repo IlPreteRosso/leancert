@@ -72,6 +72,7 @@ example :
 
 noncomputable def deltaOneOverNCert : OneOverNStieltjesCert deltaOneEnv where
   cutoff := 1
+  cutoff_pos := by norm_num
   mainTerm := Expr.const 1
   errorTerm := Expr.const 0
   cert := by

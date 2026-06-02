@@ -68,7 +68,9 @@ structure NatSlabCover where
 
 This is the first CAEE coverage layer: numerical interval arithmetic handles a
 finite initial range, while a symbolic/asymptotic tail proof handles every
-endpoint from `tailStart` onward. -/
+endpoint from `tailStart` onward.  No relation between `cutoff` and
+`tailStart` is required: if `tailStart ≤ cutoff`, the tail proof handles every
+endpoint in the certificate's domain. -/
 structure SlabTailCert (lhs rhs : Expr) where
   /-- First endpoint covered by the combined certificate. -/
   cutoff : Nat
@@ -83,6 +85,20 @@ structure SlabTailCert (lhs rhs : Expr) where
   /-- Symbolic/asymptotic domination proof on the tail. -/
   tailBound :
     ∀ N, tailStart ≤ N → evalAtNat lhs N ≤ evalAtNat rhs N
+
+namespace SlabTailCert
+
+/-- Every endpoint in the certificate domain is either covered by a pre-tail
+slab or handled by the tail proof. -/
+theorem covered_or_tail {lhs rhs : Expr} (cert : SlabTailCert lhs rhs)
+    (N : Nat) (hN : cert.cutoff ≤ N) :
+    (∃ I ∈ cert.slabs, (N : ℝ) ∈ Set.Icc (I.lo : ℝ) I.hi) ∨ cert.tailStart ≤ N := by
+  by_cases htail : cert.tailStart ≤ N
+  · exact Or.inr htail
+  · have hpre : N < cert.tailStart := Nat.lt_of_not_ge htail
+    exact Or.inl (cert.coversSlabs N hN hpre)
+
+end SlabTailCert
 
 /-- Golden theorem for dyadic expression domination on one slab. -/
 theorem verify_expr_le_on_interval_dyadic

@@ -104,6 +104,8 @@ structure StieltjesCert (A : AsympEnv) where
 structure OneOverNStieltjesCert (A : AsympEnv) where
   /-- First endpoint from which the transformed envelope is valid. -/
   cutoff : Nat
+  /-- The `1 / n` transform is intended for positive natural endpoints. -/
+  cutoff_pos : 1 ≤ cutoff
   /-- Main term for `∑_{n ≤ N} a_n / n`. -/
   mainTerm : Expr
   /-- Error term for `∑_{n ≤ N} a_n / n`. -/
