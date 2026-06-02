@@ -119,6 +119,30 @@ structure OneOverNStieltjesCert (A : AsympEnv) where
   error_nonneg :
     ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
 
+/-- Generated Abel-side certificate for the canonical `1 / n` transform.
+
+Checker generators should target this structure: prove the Abel transform of
+the source prefix is close to a proposed main term, then convert it to a
+`OneOverNStieltjesCert` through the exact finite Abel identity. -/
+structure OneOverNAbelCert (A : AsympEnv) where
+  /-- First endpoint from which the transformed envelope is valid. -/
+  cutoff : Nat
+  /-- The `1 / n` transform is intended for positive natural endpoints. -/
+  cutoff_pos : 1 ≤ cutoff
+  /-- Main term for `∑_{n ≤ N} a_n / n`. -/
+  mainTerm : Expr
+  /-- Error term for `∑_{n ≤ N} a_n / n`. -/
+  errorTerm : Expr
+  /-- Generated Abel-transform certificate. -/
+  cert :
+    ∀ N, cutoff ≤ N →
+      |abelTransformOfPrefixReal oneOverNWeight (prefixSum A.seq) 0 (N + 1) -
+          evalAtNat mainTerm N| ≤
+        evalAtNat errorTerm N
+  /-- Error terms are genuine nonnegative envelope radii. -/
+  error_nonneg :
+    ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
+
 namespace StieltjesCert
 
 /-- Convert a certified Stieltjes transform into a new asymptotic envelope. -/
@@ -154,6 +178,30 @@ noncomputable def toAsympEnv {A : AsympEnv} (C : OneOverNStieltjesCert A) :
 
 end OneOverNStieltjesCert
 
+namespace OneOverNAbelCert
+
+/-- Convert a generated Abel-side `1 / n` certificate into the public
+Stieltjes certificate. -/
+noncomputable def toOneOverNStieltjesCert {A : AsympEnv}
+    (C : OneOverNAbelCert A) : OneOverNStieltjesCert A where
+  cutoff := C.cutoff
+  cutoff_pos := C.cutoff_pos
+  mainTerm := C.mainTerm
+  errorTerm := C.errorTerm
+  cert := by
+    intro N hN
+    rw [weightedPrefixSumReal_oneOverN_eq_abelTransformOfPrefixReal]
+    exact C.cert N hN
+  error_nonneg := C.error_nonneg
+
+/-- Convert a generated Abel-side `1 / n` certificate directly into an
+asymptotic envelope. -/
+noncomputable def toAsympEnv {A : AsympEnv} (C : OneOverNAbelCert A) :
+    AsympEnv :=
+  C.toOneOverNStieltjesCert.toAsympEnv
+
+end OneOverNAbelCert
+
 /-- Golden theorem for a certified Stieltjes-Abel transform payload. -/
 theorem verify_stieltjes_envelope {A : AsympEnv} (C : StieltjesCert A) :
     ∀ N, C.cutoff ≤ N →
@@ -165,6 +213,15 @@ theorem verify_stieltjes_envelope {A : AsympEnv} (C : StieltjesCert A) :
 /-- Golden theorem for the certified `1 / n` Stieltjes-Abel transform. -/
 theorem verify_one_over_n_stieltjes_envelope {A : AsympEnv}
     (C : OneOverNStieltjesCert A) :
+    ∀ N, C.cutoff ≤ N →
+      |(C.toAsympEnv).summatory N - evalAtNat C.mainTerm N| ≤
+        evalAtNat C.errorTerm N := by
+  intro N hN
+  exact C.toAsympEnv.cert N hN
+
+/-- Golden theorem for a generated Abel-side `1 / n` certificate. -/
+theorem verify_one_over_n_abel_envelope {A : AsympEnv}
+    (C : OneOverNAbelCert A) :
     ∀ N, C.cutoff ≤ N →
       |(C.toAsympEnv).summatory N - evalAtNat C.mainTerm N| ≤
         evalAtNat C.errorTerm N := by

@@ -90,4 +90,21 @@ example (N : Nat) :
   exact ⟨zeroEnvErrorOne.lower_le_summatory N (Nat.zero_le N),
     zeroEnvErrorOne.summatory_le_upper N (Nat.zero_le N)⟩
 
+def zeroErrorLeOneDomination :
+    ErrorDomination zeroEnv.errorTerm (ErrorTerm.const 1) where
+  cutoff := 0
+  cert := by
+    intro N _hN
+    simp [zeroEnv, ErrorTerm.const, evalAtNat]
+
+noncomputable def zeroEnvErrorOneViaDomination : AsympEnv :=
+  ErrorDomination.weakenAsympEnv zeroEnv (ErrorTerm.const 1)
+    zeroErrorLeOneDomination (Nat.le_refl 0)
+
+example (N : Nat) :
+    |zeroEnvErrorOneViaDomination.summatory N -
+        evalAtNat zeroEnvErrorOneViaDomination.mainTerm N| ≤
+      evalAtNat zeroEnvErrorOneViaDomination.errorTerm N := by
+  exact zeroEnvErrorOneViaDomination.cert N (Nat.zero_le N)
+
 end LeanCert.Test.AsympEnv

@@ -269,4 +269,58 @@ noncomputable def constMul (q : ℚ) (A : AsympEnv) : AsympEnv where
 
 end AsympEnv
 
+namespace ErrorTerm
+
+/-- The endpoint variable `X`. -/
+def X : Expr :=
+  Expr.var 0
+
+/-- The expression `log X`. -/
+def logX : Expr :=
+  Expr.log X
+
+/-- Constant error term. -/
+def const (c : ℚ) : Expr :=
+  Expr.const c
+
+/-- The normal form `C * X`. -/
+def cMulX (c : ℚ) : Expr :=
+  Expr.mul (Expr.const c) X
+
+/-- The normal form `C * X / log X`. -/
+def cMulXOverLogX (c : ℚ) : Expr :=
+  Expr.mul (Expr.const c) (Expr.div X logX)
+
+/-- The normal form `C * X * log X`. -/
+def cMulXLogX (c : ℚ) : Expr :=
+  Expr.mul (Expr.const c) (Expr.mul X logX)
+
+/-- The normal form `C / log X`. -/
+def cOverLogX (c : ℚ) : Expr :=
+  Expr.mul (Expr.const c) (Expr.inv logX)
+
+end ErrorTerm
+
+/-- A semantic domination certificate between two error expressions from a
+cutoff onward.  It is the proof-facing counterpart of an error-normal-form
+checker. -/
+structure ErrorDomination (lhs rhs : Expr) where
+  /-- First endpoint from which the domination proof is valid. -/
+  cutoff : Nat
+  /-- Pointwise domination of the generated error by the target error. -/
+  cert : ∀ N, cutoff ≤ N → evalAtNat lhs N ≤ evalAtNat rhs N
+
+namespace ErrorDomination
+
+/-- Use an error-domination certificate to weaken an envelope to a target error
+normal form, assuming the envelope cutoff is inside the domination range. -/
+noncomputable def weakenAsympEnv (A : AsympEnv) (targetError : Expr)
+    (D : ErrorDomination A.errorTerm targetError) (hcut : D.cutoff ≤ A.cutoff) :
+    AsympEnv :=
+  A.weakenError targetError (by
+    intro N hN
+    exact D.cert N (hcut.trans hN))
+
+end ErrorDomination
+
 end LeanCert.ANT.Asymp

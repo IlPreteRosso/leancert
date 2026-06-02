@@ -99,6 +99,25 @@ example (N : Nat) (hN : 1 ≤ N) :
       evalAtNat deltaOneOverNCert.errorTerm N := by
   exact verify_one_over_n_stieltjes_envelope deltaOneOverNCert N hN
 
+noncomputable def deltaOneOverNAbelCert : OneOverNAbelCert deltaOneEnv where
+  cutoff := 1
+  cutoff_pos := by norm_num
+  mainTerm := Expr.const 1
+  errorTerm := Expr.const 0
+  cert := by
+    intro N hN
+    rw [← weightedPrefixSumReal_oneOverN_eq_abelTransformOfPrefixReal deltaOneEnv.seq N]
+    exact deltaOneOverNCert.cert N hN
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
+
+example (N : Nat) (hN : 1 ≤ N) :
+    |deltaOneOverNAbelCert.toAsympEnv.summatory N -
+        evalAtNat deltaOneOverNAbelCert.mainTerm N| ≤
+      evalAtNat deltaOneOverNAbelCert.errorTerm N := by
+  exact verify_one_over_n_abel_envelope deltaOneOverNAbelCert N hN
+
 def oneErr : Expr := Expr.const 1
 
 def zeroErrLeOneSupport :
@@ -178,6 +197,28 @@ noncomputable def zeroHyperbolaCert : HyperbolaCert zeroEnvT zeroEnvT where
   error_nonneg := by
     intro N _hN
     simp [evalAtNat]
+
+noncomputable def zeroHyperbolaSplitCert : HyperbolaSplitCert zeroEnvT zeroEnvT where
+  split := fun _ => 1
+  cutoff := 0
+  mainTerm := Expr.const 0
+  errorTerm := Expr.const 0
+  split_pos := by
+    intro N _hN
+    norm_num
+  cert := by
+    intro N _hN
+    simp [hyperbolaLeft, hyperbolaBottom, hyperbolaOverlap, zeroEnvT, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
+
+example (N : Nat) :
+    |hyperbolaPairSum zeroEnvT.seq zeroEnvT.seq N -
+        evalAtNat zeroHyperbolaSplitCert.mainTerm N| ≤
+      evalAtNat zeroHyperbolaSplitCert.errorTerm N := by
+  exact verify_dirichlet_hyperbola_split_envelope zeroHyperbolaSplitCert
+    N (Nat.zero_le N)
 
 noncomputable def zeroConvolutionBridge :
     DirichletConvolutionBridge zeroEnvT zeroEnvT where
