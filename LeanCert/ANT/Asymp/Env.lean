@@ -48,6 +48,9 @@ structure AsympEnv where
   cert :
     ∀ N, cutoff ≤ N →
       |prefixSum seq (N + 1) - evalAtNat mainTerm N| ≤ evalAtNat errorTerm N
+  /-- Error terms are genuine nonnegative envelope radii. -/
+  error_nonneg :
+    ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
 
 namespace AsympEnv
 
@@ -154,6 +157,9 @@ noncomputable def weakenError (A : AsympEnv) (newError : Expr)
   cert := by
     intro N hN
     exact (A.cert N hN).trans (hnew N hN)
+  error_nonneg := by
+    intro N hN
+    exact (A.error_nonneg N hN).trans (hnew N hN)
 
 /-- Raise the cutoff of an envelope. -/
 noncomputable def shiftCutoff (A : AsympEnv) (newCutoff : Nat)
@@ -165,6 +171,9 @@ noncomputable def shiftCutoff (A : AsympEnv) (newCutoff : Nat)
   cert := by
     intro N hN
     exact A.cert N (hcut.trans hN)
+  error_nonneg := by
+    intro N hN
+    exact A.error_nonneg N (hcut.trans hN)
 
 /-- Sum of two certified envelopes. -/
 noncomputable def add (A B : AsympEnv) : AsympEnv where
@@ -190,6 +199,11 @@ noncomputable def add (A B : AsympEnv) : AsympEnv where
             + |prefixSum B.seq (N + 1) - evalAtNat B.mainTerm N| := abs_add_le _ _
       _ ≤ evalAtNat A.errorTerm N + evalAtNat B.errorTerm N := add_le_add hA hB
       _ = evalAtNat (Expr.add A.errorTerm B.errorTerm) N := rfl
+  error_nonneg := by
+    intro N hN
+    have hAcut : A.cutoff ≤ N := (Nat.le_max_left A.cutoff B.cutoff).trans hN
+    have hBcut : B.cutoff ≤ N := (Nat.le_max_right A.cutoff B.cutoff).trans hN
+    exact add_nonneg (A.error_nonneg N hAcut) (B.error_nonneg N hBcut)
 
 /-- Negation of a certified envelope. -/
 noncomputable def neg (A : AsympEnv) : AsympEnv where
@@ -213,6 +227,9 @@ noncomputable def neg (A : AsympEnv) : AsympEnv where
                       congrArg abs hlin
                 _ = |prefixSum A.seq (N + 1) - evalAtNat A.mainTerm N| := abs_neg _
       _ ≤ evalAtNat A.errorTerm N := A.cert N hN
+  error_nonneg := by
+    intro N hN
+    exact A.error_nonneg N hN
 
 /-- Difference of two certified envelopes. -/
 noncomputable def sub (A B : AsympEnv) : AsympEnv :=
@@ -244,6 +261,11 @@ noncomputable def constMul (q : ℚ) (A : AsympEnv) : AsympEnv where
       _ ≤ ((|q| : ℚ) : ℝ) * evalAtNat A.errorTerm N := by
               exact mul_le_mul_of_nonneg_left hA (by exact_mod_cast abs_nonneg q)
       _ = evalAtNat (Expr.mul (Expr.const |q|) A.errorTerm) N := rfl
+  error_nonneg := by
+    intro N hN
+    have hq : 0 ≤ ((|q| : ℚ) : ℝ) := by
+      exact_mod_cast abs_nonneg q
+    simpa [evalAtNat] using mul_nonneg hq (A.error_nonneg N hN)
 
 end AsympEnv
 

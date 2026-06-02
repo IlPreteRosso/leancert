@@ -19,7 +19,11 @@ namespace LeanCert.ANT.Asymp
 open scoped BigOperators
 open LeanCert.Core
 
-/-- Positive integer pairs under the hyperbola `i * j ≤ N`. -/
+/-- Positive integer pairs under the hyperbola `i * j ≤ N`.
+
+This is a specification-level finite set, not an execution-level evaluator:
+it enumerates an `N × N` rectangle before filtering.  Fast reflective checkers
+should target equivalent compressed/hyperbola-split forms instead. -/
 def hyperbolaPairs (N : Nat) : Finset (Nat × Nat) :=
   ((Finset.Icc 1 N).product (Finset.Icc 1 N)).filter
     (fun p : Nat × Nat => p.1 * p.2 ≤ N)
@@ -97,17 +101,22 @@ theorem hyperbolaPairSum_eq_left_add_bottom_sub_overlap
     (fun p => p.1 ≤ y) (fun p => p.2 ≤ N / y)
     (hyperbola_cover (N := N) (y := y) hy)
 
+/-- Discrete derivative of a natural-endpoint function, with zero initial
+previous value. -/
+noncomputable def discreteDerivative (F : Nat → ℝ) : Nat → ℝ :=
+  fun n => F n - if n = 0 then 0 else F (n - 1)
+
 /-- Prefix sums of discrete increments telescope. -/
 theorem prefixSum_discreteDerivative (F : Nat → ℝ) (N : Nat) :
-    prefixSum (fun n => F n - if n = 0 then 0 else F (n - 1)) (N + 1) =
+    prefixSum (discreteDerivative F) (N + 1) =
       F N := by
   induction N with
   | zero =>
-      simp [prefixSum]
+      simp [prefixSum, discreteDerivative]
   | succ N ih =>
       unfold prefixSum at ih ⊢
       rw [Finset.sum_range_succ, ih]
-      simp
+      simp [discreteDerivative]
 
 /-- A certified hyperbola-transform payload. -/
 structure HyperbolaCert (A B : AsympEnv) where
@@ -122,6 +131,9 @@ structure HyperbolaCert (A B : AsympEnv) where
     ∀ N, cutoff ≤ N →
       |hyperbolaPairSum A.seq B.seq N - evalAtNat mainTerm N| ≤
         evalAtNat errorTerm N
+  /-- Error terms are genuine nonnegative envelope radii. -/
+  error_nonneg :
+    ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
 
 /-- A bridge from a conventional Dirichlet-convolution sequence to the
 hyperbola pair-summatory kernel.
@@ -146,8 +158,7 @@ namespace HyperbolaCert
 sequence value is the discrete increment of the pair-summatory function. -/
 noncomputable def toAsympEnv {A B : AsympEnv} (C : HyperbolaCert A B) :
     AsympEnv where
-  seq := fun n => hyperbolaPairSum A.seq B.seq n -
-    if n = 0 then 0 else hyperbolaPairSum A.seq B.seq (n - 1)
+  seq := discreteDerivative (fun n => hyperbolaPairSum A.seq B.seq n)
   cutoff := C.cutoff
   mainTerm := C.mainTerm
   errorTerm := C.errorTerm
@@ -155,6 +166,7 @@ noncomputable def toAsympEnv {A B : AsympEnv} (C : HyperbolaCert A B) :
     intro N hN
     rw [prefixSum_discreteDerivative]
     exact C.cert N hN
+  error_nonneg := C.error_nonneg
 
 end HyperbolaCert
 
@@ -173,6 +185,7 @@ noncomputable def toAsympEnv {A B : AsympEnv}
     intro N hN
     rw [D.summatory_eq_hyperbola]
     exact C.cert N hN
+  error_nonneg := C.error_nonneg
 
 end DirichletConvolutionBridge
 

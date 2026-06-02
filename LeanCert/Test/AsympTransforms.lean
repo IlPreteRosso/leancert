@@ -29,6 +29,9 @@ noncomputable def zeroEnvT : AsympEnv where
   cert := by
     intro N _hN
     simp [prefixSum, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 noncomputable def deltaOneEnv : AsympEnv where
   seq := deltaOne
@@ -49,6 +52,9 @@ noncomputable def deltaOneEnv : AsympEnv where
       · intro hnot
         exact False.elim (hnot hmem)
     simp [hsum, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 example :
     weightedPrefixSumReal deltaOne oneWeight 3 = 1 := by
@@ -82,12 +88,69 @@ noncomputable def deltaOneOverNCert : OneOverNStieltjesCert deltaOneEnv where
       · intro hnot
         exact False.elim (hnot hmem)
     simp [hsum, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 example (N : Nat) (hN : 1 ≤ N) :
     |(deltaOneOverNCert.toAsympEnv).summatory N -
         evalAtNat deltaOneOverNCert.mainTerm N| ≤
       evalAtNat deltaOneOverNCert.errorTerm N := by
   exact verify_one_over_n_stieltjes_envelope deltaOneOverNCert N hN
+
+def oneErr : Expr := Expr.const 1
+
+def zeroErrLeOneSupport :
+    ExprSupportedWithInv (Expr.sub deltaOneOverNCert.toStieltjesCert.errorTerm oneErr) := by
+  unfold oneErr Expr.sub
+  exact ExprSupportedWithInv.add
+    (ExprSupportedWithInv.const 0)
+    (ExprSupportedWithInv.neg (ExprSupportedWithInv.const 1))
+
+def slab15 : IntervalRat := ⟨1, 5, by norm_num⟩
+
+def deltaOneErrorSlabTail :
+    SlabTailCert deltaOneOverNCert.toStieltjesCert.errorTerm oneErr where
+  cutoff := 1
+  tailStart := 5
+  slabs := [slab15]
+  coversSlabs := by
+    intro N hcut htail
+    refine ⟨slab15, by simp, ?_⟩
+    simp [slab15]
+    constructor
+    · exact_mod_cast hcut
+    · have hle5 : N ≤ 5 := (Nat.le_of_lt_succ htail).trans (by norm_num)
+      exact_mod_cast hle5
+  tailBound := by
+    intro N _hN
+    simp [evalAtNat, oneErr, deltaOneOverNCert, OneOverNStieltjesCert.toStieltjesCert]
+
+example (N : Nat) (hN : 1 ≤ N) :
+    evalAtNat deltaOneOverNCert.toStieltjesCert.errorTerm N ≤ evalAtNat oneErr N := by
+  exact verify_stieltjes_error_le_target_with_slab_tail_dyadic
+    deltaOneOverNCert.toStieltjesCert oneErr deltaOneErrorSlabTail (-53) 10
+    zeroErrLeOneSupport (by norm_num)
+    (by
+      change checkExprLeOnSlabsDyadic (Expr.const 0) oneErr [slab15] (-53) 10 = true
+      native_decide)
+    N hN
+
+noncomputable def deltaOneOverNWeakEnv : AsympEnv :=
+  deltaOneOverNCert.toAsympEnv.weakenError oneErr (by
+    intro N hN
+    exact verify_stieltjes_error_le_target_with_slab_tail_dyadic
+      deltaOneOverNCert.toStieltjesCert oneErr deltaOneErrorSlabTail (-53) 10
+      zeroErrLeOneSupport (by norm_num)
+      (by
+        change checkExprLeOnSlabsDyadic (Expr.const 0) oneErr [slab15] (-53) 10 = true
+        native_decide)
+      N hN)
+
+example (N : Nat) (hN : 1 ≤ N) :
+    |deltaOneOverNWeakEnv.summatory N - evalAtNat deltaOneOverNWeakEnv.mainTerm N| ≤
+      evalAtNat deltaOneOverNWeakEnv.errorTerm N := by
+  exact deltaOneOverNWeakEnv.cert N hN
 
 example : (hyperbolaPairs 3).card = 5 := by
   native_decide
@@ -101,7 +164,7 @@ example :
     (fun _ => (1 : ℝ)) (fun _ => (1 : ℝ)) 5 2 (by norm_num)
 
 example (F : Nat → ℝ) (N : Nat) :
-    prefixSum (fun n => F n - if n = 0 then 0 else F (n - 1)) (N + 1) = F N := by
+    prefixSum (discreteDerivative F) (N + 1) = F N := by
   exact prefixSum_discreteDerivative F N
 
 noncomputable def zeroHyperbolaCert : HyperbolaCert zeroEnvT zeroEnvT where
@@ -111,6 +174,9 @@ noncomputable def zeroHyperbolaCert : HyperbolaCert zeroEnvT zeroEnvT where
   cert := by
     intro N _hN
     simp [hyperbolaPairSum, zeroEnvT, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 noncomputable def zeroConvolutionBridge :
     DirichletConvolutionBridge zeroEnvT zeroEnvT where
@@ -118,6 +184,12 @@ noncomputable def zeroConvolutionBridge :
   summatory_eq_hyperbola := by
     intro N
     simp [prefixSum, hyperbolaPairSum, zeroEnvT]
+
+example (N : Nat) :
+    |zeroHyperbolaCert.toAsympEnv.summatory N -
+        evalAtNat zeroHyperbolaCert.mainTerm N| ≤
+      evalAtNat zeroHyperbolaCert.errorTerm N := by
+  exact zeroHyperbolaCert.toAsympEnv.cert N (Nat.zero_le N)
 
 example (N : Nat) :
     |(zeroConvolutionBridge.toAsympEnv zeroHyperbolaCert).summatory N -

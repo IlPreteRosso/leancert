@@ -36,6 +36,23 @@ def checkExprLeOnSlabsDyadic
     (lhs rhs : Expr) (slabs : List IntervalRat) (prec : Int) (depth : Nat) : Bool :=
   slabs.all fun I => checkExprLeOnIntervalDyadic lhs rhs I prec depth
 
+/-- Soundness-facing certificate for one dyadic domination check.
+
+The raw Boolean checker is intentionally separate and computable; this package
+records the support and precision hypotheses needed to use its golden theorem. -/
+structure ExprLeOnIntervalDyadicCert
+    (lhs rhs : Expr) (I : IntervalRat) (prec : Int) (depth : Nat) where
+  supported : ExprSupportedWithInv (Expr.sub lhs rhs)
+  prec_ok : prec ≤ 0
+  checked : checkExprLeOnIntervalDyadic lhs rhs I prec depth = true
+
+/-- Soundness-facing certificate for dyadic domination on a list of slabs. -/
+structure ExprLeOnSlabsDyadicCert
+    (lhs rhs : Expr) (slabs : List IntervalRat) (prec : Int) (depth : Nat) where
+  supported : ExprSupportedWithInv (Expr.sub lhs rhs)
+  prec_ok : prec ≤ 0
+  checked : checkExprLeOnSlabsDyadic lhs rhs slabs prec depth = true
+
 /-- A finite slab cover for natural endpoints starting at `cutoff`. -/
 structure NatSlabCover where
   /-- First endpoint covered by the slab family. -/
@@ -82,6 +99,15 @@ theorem verify_expr_le_on_interval_dyadic
   simp [Expr.sub] at h
   linarith
 
+/-- Verify a packaged one-slab dyadic domination certificate. -/
+theorem ExprLeOnIntervalDyadicCert.verify
+    {lhs rhs : Expr} {I : IntervalRat} {prec : Int} {depth : Nat}
+    (cert : ExprLeOnIntervalDyadicCert lhs rhs I prec depth) :
+    ∀ x ∈ Set.Icc (I.lo : ℝ) I.hi,
+      Expr.eval (fun _ => x) lhs ≤ Expr.eval (fun _ => x) rhs :=
+  verify_expr_le_on_interval_dyadic lhs rhs I prec depth
+    cert.supported cert.prec_ok cert.checked
+
 /-- Golden theorem for dyadic expression domination on a list of slabs. -/
 theorem verify_expr_le_on_slabs_dyadic
     (lhs rhs : Expr) (slabs : List IntervalRat) (prec : Int) (depth : Nat)
@@ -94,6 +120,15 @@ theorem verify_expr_le_on_slabs_dyadic
   rw [checkExprLeOnSlabsDyadic, List.all_eq_true] at hcheck
   exact verify_expr_le_on_interval_dyadic lhs rhs I prec depth hsupp hprec
     (hcheck I hI) x hx
+
+/-- Verify a packaged dyadic domination certificate over slabs. -/
+theorem ExprLeOnSlabsDyadicCert.verify
+    {lhs rhs : Expr} {slabs : List IntervalRat} {prec : Int} {depth : Nat}
+    (cert : ExprLeOnSlabsDyadicCert lhs rhs slabs prec depth) :
+    ∀ I ∈ slabs, ∀ x ∈ Set.Icc (I.lo : ℝ) I.hi,
+      Expr.eval (fun _ => x) lhs ≤ Expr.eval (fun _ => x) rhs :=
+  verify_expr_le_on_slabs_dyadic lhs rhs slabs prec depth
+    cert.supported cert.prec_ok cert.checked
 
 /-- Verify expression domination for all natural endpoints covered by a finite
 slab family. -/

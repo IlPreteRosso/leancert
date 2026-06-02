@@ -25,6 +25,9 @@ noncomputable def zeroEnv : AsympEnv where
   cert := by
     intro N _hN
     simp [prefixSum, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 /-- Exact envelope for the sequence concentrated at zero. -/
 noncomputable def deltaZeroEnv : AsympEnv where
@@ -45,6 +48,9 @@ noncomputable def deltaZeroEnv : AsympEnv where
       · intro hnot
         exact False.elim (hnot hmem)
     simp [hsum, evalAtNat]
+  error_nonneg := by
+    intro N _hN
+    simp [evalAtNat]
 
 example (N : Nat) :
     (AsympEnv.add zeroEnv deltaZeroEnv).summatory N = 1 := by

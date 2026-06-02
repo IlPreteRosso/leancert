@@ -41,6 +41,17 @@ example :
     checkExprLeOnSlabsDyadic lhsX rhsEleven [slab010] (-53) 10 = true := by
   native_decide
 
+def lhsLeRhsIntervalCert :
+    ExprLeOnIntervalDyadicCert lhsX rhsEleven slab010 (-53) 10 where
+  supported := lhsLeRhsSupport
+  prec_ok := by norm_num
+  checked := by native_decide
+
+example :
+    ∀ x ∈ Set.Icc (0 : ℝ) 10,
+      Expr.eval (fun _ => x) lhsX ≤ Expr.eval (fun _ => x) rhsEleven := by
+  simpa [slab010] using lhsLeRhsIntervalCert.verify
+
 def slab05 : IntervalRat := ⟨0, 5, by norm_num⟩
 
 def lhsZero : Expr := Expr.const 0
@@ -67,9 +78,16 @@ def slabTailZeroLeOne : SlabTailCert lhsZero rhsOne where
     intro N _hN
     simp [evalAtNat, lhsZero, rhsOne]
 
+def zeroLeOneSlabsCert :
+    ExprLeOnSlabsDyadicCert lhsZero rhsOne slabTailZeroLeOne.slabs (-53) 10 where
+  supported := zeroLeOneSupport
+  prec_ok := by norm_num
+  checked := by native_decide
+
 example (N : Nat) :
     evalAtNat lhsZero N ≤ evalAtNat rhsOne N := by
   exact verify_expr_le_with_slab_tail_dyadic lhsZero rhsOne slabTailZeroLeOne
-    (-53) 10 zeroLeOneSupport (by norm_num) (by native_decide) N (Nat.zero_le N)
+    (-53) 10 zeroLeOneSlabsCert.supported zeroLeOneSlabsCert.prec_ok
+    zeroLeOneSlabsCert.checked N (Nat.zero_le N)
 
 end LeanCert.Test.AsympCheckers

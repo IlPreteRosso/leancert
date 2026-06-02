@@ -96,6 +96,9 @@ structure StieltjesCert (A : AsympEnv) where
     ∀ N, cutoff ≤ N →
       |weightedPrefixSumReal A.seq weight N - evalAtNat mainTerm N| ≤
         evalAtNat errorTerm N
+  /-- Error terms are genuine nonnegative envelope radii. -/
+  error_nonneg :
+    ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
 
 /-- Certified Stieltjes payload for the canonical ANT weight `1 / n`. -/
 structure OneOverNStieltjesCert (A : AsympEnv) where
@@ -110,6 +113,9 @@ structure OneOverNStieltjesCert (A : AsympEnv) where
     ∀ N, cutoff ≤ N →
       |weightedPrefixSumReal A.seq oneOverNWeight N - evalAtNat mainTerm N| ≤
         evalAtNat errorTerm N
+  /-- Error terms are genuine nonnegative envelope radii. -/
+  error_nonneg :
+    ∀ N, cutoff ≤ N → 0 ≤ evalAtNat errorTerm N
 
 namespace StieltjesCert
 
@@ -123,6 +129,7 @@ noncomputable def toAsympEnv {A : AsympEnv} (C : StieltjesCert A) :
   cert := by
     intro N hN
     simpa [weightedPrefixSumReal_eq_prefixSum] using C.cert N hN
+  error_nonneg := C.error_nonneg
 
 end StieltjesCert
 
@@ -136,6 +143,7 @@ noncomputable def toStieltjesCert {A : AsympEnv}
   mainTerm := C.mainTerm
   errorTerm := C.errorTerm
   cert := C.cert
+  error_nonneg := C.error_nonneg
 
 /-- Convert a certified `1 / n` Stieltjes transform into an asymptotic envelope. -/
 noncomputable def toAsympEnv {A : AsympEnv} (C : OneOverNStieltjesCert A) :
