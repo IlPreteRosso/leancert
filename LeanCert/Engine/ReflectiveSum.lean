@@ -139,9 +139,7 @@ def oneDyadic : IntervalDyadic := IntervalDyadic.singleton (Core.Dyadic.ofInt 1)
     Formula: x^p = exp(p * log(x)) -/
 def bklnwTermFromLog (logX : IntervalDyadic) (k : Nat) (cfg : BKLNWSumConfig) : IntervalDyadic :=
   let p : ℚ := (1 : ℚ) / k - 1 / 3
-  let pInterval := IntervalDyadic.ofIntervalRat (IntervalRat.singleton p) cfg.precision
-  let pLogX := (IntervalDyadic.mul pInterval logX).roundOut cfg.precision
-  expIntervalDyadic pLogX cfg.toDyadicConfig
+  rpowFromCachedLogDyadic logX p cfg.toDyadicConfig
 
 /-- Optimized accumulator that uses precomputed log(x) and batched rounding.
     - logX: precomputed log(x) interval
@@ -711,7 +709,7 @@ private theorem bklnwTermFromLog_eq_bklnwTermDyadic
     bklnwTermFromLog (logIntervalDyadic x cfg.toDyadicConfig) k cfg =
       bklnwTermDyadic x k cfg := by
   simp only [bklnwTermFromLog, bklnwTermDyadic, rpowIntervalDyadic,
-    BKLNWSumConfig.toDyadicConfig]
+    rpowFromCachedLogDyadic, BKLNWSumConfig.toDyadicConfig]
 
 /-- Cached-log accumulator is definitionally equivalent to the standard accumulator. -/
 theorem bklnwSumAuxCached_eq_bklnwSumAux (x : IntervalDyadic)
