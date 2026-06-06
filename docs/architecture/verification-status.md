@@ -1,10 +1,13 @@
 # Verification Status
 
-LeanCert aims for full formal verification. This page documents what is **fully proved** versus what contains `sorry` (unfinished proofs).
+LeanCert aims for full formal verification in its production/default library.
+Legacy examples and prototype interface files are separate from that guarantee
+and may contain placeholders while their verified counterparts are developed.
 
-## Fully Verified
+## Production Verification Status
 
-The following components have complete proofs with no `sorry`:
+The following production components have complete proofs with no Lean proof
+placeholders in the default LeanCert library path:
 
 ### Interval Arithmetic (FTIA)
 
@@ -175,25 +178,38 @@ Bridge theorems for kernel-level verification via `decide`:
 
 These enable the `certify_kernel` tactic to produce proofs verified purely by the Lean kernel, removing the compiler from the trusted computing base.
 
-## Incomplete (Contains `sorry`)
+## Placeholder Boundary
 
-These features work computationally but have gaps in formal proofs:
+The default LeanCert library and production import paths are intended to be
+placeholder-free. Some legacy example/prototype files under `LeanCert/Examples`
+and top-level `examples` may contain `sorry`-based interface sketches; these are
+not production imports.
 
-| Component | Issue | Impact |
-|-----------|-------|--------|
-| `sinc` derivative bound | `sinc_deriv_bound` for n≥2 | Very Low - only affects Taylor precision for sinc |
+For production work, prefer the verified heavy certificate files and the default
+LeanCert library imports. Do not build downstream formalizations on prototype
+example files that advertise placeholder interfaces.
 
-The `sinc_deriv_bound` lemma bounds higher derivatives of sinc for Taylor remainder estimation. The proof requires Leibniz rule under the integral (sinc(x) = ∫₀¹ cos(tx) dt), which is deferred. The interval-based sinc evaluation still works correctly.
+## Auditing Placeholders
 
-## Finding Sorries
-
-To audit the codebase yourself:
+The current CI soundness guard checks the production LeanCert tree and excludes
+legacy example/test prototype directories. To reproduce the production-style
+source scan manually:
 
 ```bash
-grep -r "sorry" --include="*.lean" LeanCert/ | grep -v "no sorry"
+rg -n '^\s*sorry\s*$' LeanCert \
+  -g '!LeanCert/Examples/**' \
+  -g '!LeanCert/Test/**'
 ```
 
-Current count: **0 declarations** using `sorry` in the default build target. The examples directory contains deliberate `sorry`s for downstream API ergonomics (e.g., `Li2Bounds.lean` provides sorry'd lemmas alongside verified proofs in `Li2Verified.lean`).
+The core theorem audit is:
+
+```bash
+lake env lean Tests/AxiomAudit.lean
+```
+
+To inspect legacy example placeholders as well, run a repo-wide textual search
+over Lean files and review hits manually; documentation comments can mention the
+word without introducing a proof placeholder.
 
 ## What This Means
 

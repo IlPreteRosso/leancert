@@ -76,6 +76,5 @@ values, margins, successor witnesses, or precision choices. Their output becomes
 trusted only when checked by LeanCert's verified checkers.
 
 Checked-in Lean source should not contain proof placeholders in production
-imports. CI runs `scripts/check_no_sorry.py` over the production LeanCert
-directories, and the same script can be run repo-wide while cleaning legacy
-prototype examples.
+imports. The CI soundness guard checks production LeanCert directories and
+keeps legacy prototype examples out of production import paths.
