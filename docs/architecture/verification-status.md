@@ -180,6 +180,8 @@ strict `Option` evaluators where available:
 - `evalIntervalRefined1?`
 - `evalIntervalRefined?_correct`
 - `evalIntervalRefined1?_correct`
+- `evalIntervalAffine?`
+- `evalAffineToInterval?`
 
 These return `none` for unsupported partial operations such as `inv`, `log`, and
 `atanh`, so callers cannot accidentally treat a legacy fallback interval as a

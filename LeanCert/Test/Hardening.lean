@@ -6,6 +6,7 @@ Authors: LeanCert Contributors
 import LeanCert.Tactic.DyadicAuto
 import LeanCert.Meta.ProveSupported
 import LeanCert.Engine.IntervalEvalReal
+import LeanCert.Engine.IntervalEvalAffine
 
 /-!
 # Hardening Regression Tests
@@ -75,6 +76,13 @@ example :
 example :
     evalIntervalRefined1? (Expr.sinc (Expr.log (Expr.var 0))) ⟨0, 1, by norm_num⟩ =
       some ⟨-1, 1, by norm_num⟩ := by
+  rfl
+
+def affineHardeningEnv : AffineEnv :=
+  toAffineEnv [⟨-1, 1, by norm_num⟩]
+
+example :
+    evalIntervalAffine? (Expr.arsinh (Expr.var 0)) affineHardeningEnv = none := by
   rfl
 
 example : ∀ x ∈ Set.Icc (0 : ℝ) 1, x * x ≤ (2 : ℚ) := by

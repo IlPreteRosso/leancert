@@ -19,6 +19,7 @@ Affine arithmetic tracks correlations between variables, solving the
 * `AffineConfig` - Configuration for affine evaluation
 * `AffineEnv` - Variable environment mapping indices to affine forms
 * `evalIntervalAffine` - Main evaluator: Expr → AffineForm
+* `evalIntervalAffine?` - Strict evaluator rejecting unsupported/domain-invalid cases
 
 ## Performance
 
@@ -154,11 +155,117 @@ def evalIntervalAffine (e : Expr) (ρ : AffineEnv) (cfg : AffineConfig := {}) : 
       let rad := (I.hi - I.lo) / 2
       { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
 
+/-- Strict affine evaluator.
+
+This variant returns `none` for operations that the legacy evaluator handles by
+returning `default` or a huge fallback interval. It is intended for new callers
+that want unsupported/domain-invalid expressions to fail explicitly.
+-/
+def evalIntervalAffine? (e : Expr) (ρ : AffineEnv) (cfg : AffineConfig := {}) : Option AffineForm :=
+  match e with
+  | Expr.const q => some (AffineForm.const q)
+  | Expr.var idx => some (ρ idx)
+  | Expr.add e₁ e₂ =>
+      match evalIntervalAffine? e₁ ρ cfg, evalIntervalAffine? e₂ ρ cfg with
+      | some a₁, some a₂ => some (AffineForm.add a₁ a₂)
+      | _, _ => none
+  | Expr.mul e₁ e₂ =>
+      match evalIntervalAffine? e₁ ρ cfg, evalIntervalAffine? e₂ ρ cfg with
+      | some a₁, some a₂ => some (AffineForm.mul a₁ a₂)
+      | _, _ => none
+  | Expr.neg e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.neg a)
+      | none => none
+  | Expr.inv e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a =>
+          if a.toInterval.lo > 0 ∨ a.toInterval.hi < 0 then
+            some (AffineForm.inv a)
+          else
+            none
+      | none => none
+  | Expr.exp e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.exp a cfg.taylorDepth)
+      | none => none
+  | Expr.sinh e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.sinh a cfg.taylorDepth)
+      | none => none
+  | Expr.cosh e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.cosh a cfg.taylorDepth)
+      | none => none
+  | Expr.tanh e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.tanh a)
+      | none => none
+  | Expr.sqrt e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a => some (AffineForm.sqrt a)
+      | none => none
+  | Expr.sin e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a =>
+          let I := a.toInterval
+          let result := IntervalRat.sinComputable I cfg.taylorDepth
+          let mid := (result.lo + result.hi) / 2
+          let rad := (result.hi - result.lo) / 2
+          some { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
+      | none => none
+  | Expr.cos e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a =>
+          let I := a.toInterval
+          let result := IntervalRat.cosComputable I cfg.taylorDepth
+          let mid := (result.lo + result.hi) / 2
+          let rad := (result.hi - result.lo) / 2
+          some { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
+      | none => none
+  | Expr.log e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some a =>
+          let I := a.toInterval
+          if h : 0 < I.lo then
+            let result := IntervalRat.logComputable I cfg.taylorDepth
+            let mid := (result.lo + result.hi) / 2
+            let rad := (result.hi - result.lo) / 2
+            some { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
+          else
+            none
+      | none => none
+  | Expr.atan e =>
+      match evalIntervalAffine? e ρ cfg with
+      | some _ =>
+          let neg2 := (-2 : ℚ)
+          let pos2 := (2 : ℚ)
+          let mid := (neg2 + pos2) / 2
+          let rad := (pos2 - neg2) / 2
+          some { c0 := mid, coeffs := [], r := rad, r_nonneg := by norm_num }
+      | none => none
+  | Expr.arsinh _ => none
+  | Expr.atanh _ => none
+  | Expr.sinc _ => some { c0 := 0, coeffs := [], r := 1, r_nonneg := by norm_num }
+  | Expr.erf _ => some { c0 := 0, coeffs := [], r := 1, r_nonneg := by norm_num }
+  | Expr.namedConst c =>
+      let I := c.interval
+      let mid := (I.lo + I.hi) / 2
+      let rad := (I.hi - I.lo) / 2
+      some { c0 := mid, coeffs := [], r := |rad|, r_nonneg := abs_nonneg _ }
+
 /-! ### Convenience Functions -/
 
 /-- Evaluate and convert to interval -/
 def evalAffineToInterval (e : Expr) (ρ : AffineEnv) (cfg : AffineConfig := {}) : IntervalRat :=
   (evalIntervalAffine e ρ cfg).toInterval
+
+/-- Strictly evaluate and convert to an interval. -/
+def evalAffineToInterval? (e : Expr) (ρ : AffineEnv) (cfg : AffineConfig := {}) :
+    Option IntervalRat :=
+  match evalIntervalAffine? e ρ cfg with
+  | some a => some a.toInterval
+  | none => none
 
 /-- Check if expression is bounded above -/
 def checkUpperBoundAffine (e : Expr) (ρ : AffineEnv) (bound : ℚ) (cfg : AffineConfig := {}) : Bool :=
