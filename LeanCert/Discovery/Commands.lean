@@ -6,6 +6,7 @@ Authors: LeanCert Contributors
 import Lean
 import LeanCert.Discovery.Find
 import LeanCert.Meta.ToExpr
+import LeanCert.Meta.Numeral
 import LeanCert.Meta.ProveSupported
 
 /-!
@@ -56,55 +57,14 @@ abbrev LExpr := LeanCert.Core.Expr
 
 /-! ## Interval Parsing Helpers -/
 
-/-- Parse a rational number from a Lean expression using native evaluation -/
-unsafe def parseRatUnsafe (e : Lean.Expr) : MetaM ℚ := do
-  -- First try to evaluate the expression directly to a ℚ
-  try
-    return ← evalExpr ℚ (mkConst ``Rat) e
-  catch _ =>
-    pure ()
-  -- Fallback: pattern matching for common cases
-  let e ← reduce e (skipTypes := true) (skipProofs := true)
-  if let some n := e.rawNatLit? then
-    return n
-  match_expr e with
-  | OfNat.ofNat _ n _ =>
-    if let some k := n.rawNatLit? then
-      return k
-    if let some k := n.nat? then
-      return k
-    throwError "Cannot parse numeric: {e}"
-  | Zero.zero _ _ =>
-    return 0
-  | One.one _ _ =>
-    return 1
-  | _ => throwError "Cannot parse as rational: {e}"
-
-/-- Safe wrapper for parseRatUnsafe -/
-@[implemented_by parseRatUnsafe]
+/-- Parse a rational expression structurally for interactive discovery commands. -/
 partial def parseRat (e : Lean.Expr) : MetaM ℚ := do
-  -- Pattern matching fallback (shouldn't be called due to implemented_by)
+  if let some q ← LeanCert.Meta.Numeral.toRatFolded? e then
+    return q
   let e ← reduce e (skipTypes := true) (skipProofs := true)
-  if let some n := e.rawNatLit? then
-    return n
-  match_expr e with
-  | OfNat.ofNat _ n _ =>
-    if let some k := n.rawNatLit? then
-      return k
-    throwError "Cannot parse numeric: {e}"
-  | Zero.zero _ _ =>
-    return 0
-  | One.one _ _ =>
-    return 1
-  | Neg.neg _ _ x =>
-    let q ← parseRat x
-    return -q
-  | HDiv.hDiv _ _ _ _ a b =>
-    let qa ← parseRat a
-    let qb ← parseRat b
-    if qb == 0 then throwError "Division by zero in interval bound"
-    return qa / qb
-  | _ => throwError "Cannot parse as rational: {e}"
+  if let some q ← LeanCert.Meta.Numeral.toRatFolded? e then
+    return q
+  throwError "Cannot parse as rational: {e}"
 
 /-- Parse an integer from a reduced Lean expression -/
 partial def parseIntFromExpr (e : Lean.Expr) : MetaM ℤ := do

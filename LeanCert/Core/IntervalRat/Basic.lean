@@ -215,7 +215,10 @@ private def mulFast (I J : IntervalRat) : IntervalRat :=
     else
       mul I J
 
-attribute [implemented_by mulFast] mul
+/- We intentionally do not attach `mulFast` as a native replacement here.
+   Native certificate checking should execute the same definition that the
+   kernel proofs reason about. Keep `mulFast` available only as an internal
+   candidate for future explicitly-audited runtime backends. -/
 
 /-- Helper: for x ∈ [a₁, a₂], x*y lies between endpoint products.
     When y ≥ 0: a₁*y ≤ x*y ≤ a₂*y
@@ -390,9 +393,9 @@ private theorem mulFast_hi (I J : IntervalRat) : (mulFast I J).hi = (mul I J).hi
         · exact eq_max4_of_ge (by nlinarith [I.le, J.le]) (by nlinarith [I.le, J.le]) (by nlinarith [I.le, J.le])
         · rfl
 
-/-- Runtime safety net: `mulFast` preserves the containment property of `mul`.
-    This ensures that even though `implemented_by` bypasses the kernel's
-    definitional equality check, the runtime implementation is sound. -/
+/-- `mulFast` preserves the containment property of `mul`.
+    This is retained as documentation and a future audited optimization hook;
+    production certificate checking currently uses `mul` directly. -/
 theorem mem_mulFast {x y : ℝ} {I J : IntervalRat} (hx : x ∈ I) (hy : y ∈ J) :
     x * y ∈ mulFast I J := by
   simp only [mem_def]

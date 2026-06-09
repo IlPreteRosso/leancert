@@ -18,6 +18,24 @@ open Lean Meta
 
 namespace LeanCert.Meta.Numeral
 
+/-- Peel one explicit cast wrapper when the head is a known cast constant. -/
+def peelCast? (e : Lean.Expr) : MetaM (Option Lean.Expr) := do
+  let fn := e.getAppFn
+  let args := e.getAppArgs
+  if args.size > 0 &&
+      (fn.isConstOf ``Nat.cast || fn.isConstOf ``NatCast.natCast ||
+       fn.isConstOf ``Int.cast || fn.isConstOf ``IntCast.intCast ||
+       fn.isConstOf ``Rat.cast || fn.isConstOf ``RatCast.ratCast) then
+    return some args.back!
+  let fnHead := fn.getAppFn
+  let allArgs := fn.getAppArgs ++ args
+  if allArgs.size > 0 &&
+      (fnHead.isConstOf ``Nat.cast || fnHead.isConstOf ``NatCast.natCast ||
+       fnHead.isConstOf ``Int.cast || fnHead.isConstOf ``IntCast.intCast ||
+       fnHead.isConstOf ``Rat.cast || fnHead.isConstOf ``RatCast.ratCast) then
+    return some allArgs.back!
+  return none
+
 /-- Last-resort extraction for closed expressions whose type is definitionally
 `Rat`.  This is intentionally named so callers and CI audits can distinguish it
 from structural literal parsing. -/
@@ -53,13 +71,8 @@ partial def toRat? (e : Lean.Expr) : MetaM (Option ℚ) := do
 where
   /-- Try to match a numeric expression directly. -/
   tryMatchNumeric (e : Lean.Expr) : MetaM (Option ℚ) := do
-    let fn0 := e.getAppFn
-    let args0 := e.getAppArgs
-    if args0.size > 0 &&
-        (fn0.isConstOf ``Nat.cast || fn0.isConstOf ``NatCast.natCast ||
-         fn0.isConstOf ``Int.cast || fn0.isConstOf ``IntCast.intCast ||
-         fn0.isConstOf ``Rat.cast || fn0.isConstOf ``RatCast.ratCast) then
-      return ← toRat? args0.back!
+    if let some inner ← peelCast? e then
+      return ← toRat? inner
 
     match_expr e with
     -- OfNat.ofNat α n inst
@@ -167,41 +180,44 @@ where
       return some ((m : ℚ) * base10)
 
     | _ =>
-      let fn := e.getAppFn
-      let args := e.getAppArgs
-      let fnHead := fn.getAppFn
-      let allArgs := fn.getAppArgs ++ args
-      if allArgs.size > 0 &&
-          (fnHead.isConstOf ``Nat.cast || fnHead.isConstOf ``NatCast.natCast ||
-           fnHead.isConstOf ``Int.cast || fnHead.isConstOf ``IntCast.intCast ||
-           fnHead.isConstOf ``Rat.cast || fnHead.isConstOf ``RatCast.ratCast) then
-        return ← toRat? allArgs.back!
-      -- Handle cast wrappers. We accept only cast-related projections/constants.
-      -- This avoids accidentally classifying non-numeral projections
-      -- (e.g. `x ^ (1/3)` reducing to a projection-headed term) as constants.
-      let cast? ←
-        match fnHead with
-        | .proj s _ _ =>
-          let sName := toString s
-          if allArgs.size > 0 &&
-              (sName.endsWith "NatCast" || sName.endsWith "IntCast" ||
-               sName.endsWith "RatCast") then
-            toRat? allArgs.back!
-          else
-            pure none
-        | .const _ _ => pure none
-        | _ => pure none
-      if let some q := cast? then
-        return some q
-
       -- Last resort: evaluate closed rational expressions directly.
       unsafeToRatByEval? e
 
-/-- Structural/literal rational extraction.  This currently aliases `toRat?`
-but gives callers a stable name for places that should not rely on broader
-normalization in the future. -/
-partial def toRatLeaf? (e : Lean.Expr) : MetaM (Option ℚ) :=
-  toRat? e
+/-- Structural/literal rational extraction without arithmetic folding. -/
+partial def toRatLeaf? (e : Lean.Expr) : MetaM (Option ℚ) := do
+  if let some n := e.rawNatLit? then
+    return some (n : ℚ)
+  if let some inner ← peelCast? e then
+    return ← toRatLeaf? inner
+  match_expr e with
+  | OfNat.ofNat _ n _ =>
+    if let some k := n.rawNatLit? then
+      return some (k : ℚ)
+    if let some k := n.nat? then
+      return some (k : ℚ)
+    toRatLeaf? n
+  | Nat.cast _ n => toRatLeaf? n
+  | NatCast.natCast _ n => toRatLeaf? n
+  | Int.cast _ z => toRatLeaf? z
+  | IntCast.intCast _ z => toRatLeaf? z
+  | Rat.cast _ q => toRat? q
+  | RatCast.ratCast _ q => toRat? q
+  | Int.ofNat n =>
+    if let some k := n.rawNatLit? then
+      return some (k : ℚ)
+    toRatLeaf? n
+  | Int.negSucc n =>
+    if let some k := n.rawNatLit? then
+      return some (-(k + 1 : ℚ))
+    return none
+  | Rat.mk' num den _ _ =>
+    match ← toRatLeaf? num, ← toRatLeaf? den with
+    | some qnum, some qden =>
+      if qden = 0 then return none
+      return some (qnum / qden)
+    | _, _ => return none
+  | Rat.ofInt z => toRatLeaf? z
+  | _ => return none
 
 /-- Rational extraction that may fold closed rational arithmetic. -/
 partial def toRatFolded? (e : Lean.Expr) : MetaM (Option ℚ) :=

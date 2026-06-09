@@ -215,32 +215,50 @@ Bridge theorems for kernel-level verification via `decide`:
 
 These enable the `certify_kernel` tactic to produce proofs verified purely by the Lean kernel, removing the compiler from the trusted computing base.
 
-### Runtime Replacement Boundary
+### Runtime Optimization Boundary
 
-LeanCert keeps optimized runtime implementations for interval multiplication:
+LeanCert contains optimized candidate implementations for interval
+multiplication:
 
-- `IntervalRat.mul` has `implemented_by IntervalRat.mulFast`.
-- `IntervalDyadic.mul` has `implemented_by IntervalDyadic.mulFast`.
+- `IntervalRat.mulFast`
+- `IntervalDyadic.mulFast`
 
-Kernel proofs are still about the definitional `mul` operations.  Compiled
-`native_decide` paths execute the `mulFast` replacements, so native certificates
-include the Lean compiler/runtime and these replacement functions in the trusted
-runtime path.  The public safety-net theorems:
+These are not attached as native replacements in the production path. Compiled
+certificate checks execute the same `mul` definitions that the kernel proofs
+reason about. The retained safety-net theorems:
 
 ```lean
 IntervalRat.mem_mulFast
 IntervalDyadic.mem_mulFast
 ```
 
-prove that the optimized implementations preserve interval containment.  Any
-new `implemented_by` use should either expose an analogous theorem or be removed.
+prove that the optimized implementations preserve interval containment if they
+are used by a future explicitly-audited backend.
+
+### Meta-Level Evaluation Boundary
+
+Some tactics still use Lean meta-level evaluation while elaborating user input or
+building diagnostics. Current uses are limited to extracting already-elaborated
+certificate data, AST values, intervals, or diagnostic search inputs; final proof
+terms are still produced through the relevant certificate soundness theorems.
+
+The shared numeral parser exposes this boundary explicitly:
+
+```lean
+LeanCert.Meta.Numeral.unsafeToRatByEval?
+```
+
+New proof-producing code should prefer structural parsers such as
+`toRatLeaf?`, `toRatFolded?`, and `peelCast?`, and reserve meta-level evaluation
+for candidate generation or diagnostics.
 
 ## Placeholder Boundary
 
 The default LeanCert library and production import paths are intended to be
-placeholder-free. Some legacy example/prototype files under `LeanCert/Examples`
-and top-level `examples` may contain `sorry`-based interface sketches; these are
-not production imports.
+placeholder-free. Public Li2 and BKLNW example interfaces now re-export verified
+certificate theorems rather than lightweight placeholder theorem bodies. Some
+legacy example/prototype files under `LeanCert/Examples` and top-level
+`examples` may still contain sketches; these are not production imports.
 
 For production work, prefer the verified heavy certificate files and the default
 LeanCert library imports. Do not build downstream formalizations on prototype
@@ -253,7 +271,7 @@ legacy example/test prototype directories. To reproduce the production-style
 source scan manually:
 
 ```bash
-rg -n '^\s*sorry\s*$' LeanCert \
+rg -n '^\s*sorry\s*$|sorryAx|mkSorry|admit' LeanCert \
   -g '!LeanCert/Examples/**' \
   -g '!LeanCert/Test/**'
 ```

@@ -6,6 +6,7 @@ Authors: LeanCert Contributors
 import Lean
 import LeanCert.Core.Expr
 import LeanCert.Core.IntervalRat.Basic
+import LeanCert.Meta.Numeral
 import LeanCert.Meta.ProveSupported
 import LeanCert.Tactic.IntervalAuto.Types
 import LeanCert.Tactic.IntervalAuto.Extract
@@ -419,10 +420,6 @@ def getSubdivBounds (intervalInfo : IntervalInfo) :
 
 /-- Extract a rational literal from an expression -/
 def getLiteral? (e : Lean.Expr) : TacticM (Option ℚ) := do
-  try
-    let val ← unsafe evalExpr ℚ (mkConst ``Rat) e
-    return some val
-  catch _ =>
-    return none
+  LeanCert.Meta.Numeral.toRatFolded? e
 
 end LeanCert.Tactic.Auto

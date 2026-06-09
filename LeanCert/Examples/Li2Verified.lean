@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanCert Contributors
 -/
 import LeanCert
-import LeanCert.Examples.Li2Bounds
+import LeanCert.Examples.Li2Base
 import LeanCert.Engine.Integrate
 import LeanCert.Validity.IntegrationDyadic
 
@@ -28,18 +28,14 @@ The proof uses:
 
 ## Module Structure
 
-The lightweight interface (definitions, analytic lemmas, bound statements) is in
-`Li2Bounds.lean`. This file provides the actual numerical verification.
-
-Downstream projects like PNT+ should import `Li2Bounds` for fast compilation.
-This file is only needed for LeanCert's CI to verify the bounds.
+The shared definitions and analytic lemmas are in `Li2Base.lean`. Public bounds
+are re-exported from `Li2Bounds.lean` and point at the verified theorems in this
+file.
 
 ## Verification Status
 
-The bounds `li2_lower` and `li2_upper` in `Li2Bounds.lean` are marked with `sorry`.
-This file proves `li2_bounds_verified` which establishes the same bounds with full
-verification. The `sorry`s in Li2Bounds are deliberate - they allow downstream
-projects to use the bounds without the ~20 minute compilation cost.
+This file proves `li2_bounds_verified`, `li2_lower_verified`, and
+`li2_upper_verified` with full verification.
 -/
 
 open MeasureTheory LeanCert.Engine.TaylorModel
@@ -839,12 +835,8 @@ theorem g_integral_67_lower :
 
 /-- The main verified theorem: certified bounds on li(2).
 
-This proves the same bounds as `Li2.li2_lower` and `Li2.li2_upper` in Li2Bounds.lean,
-but with full numerical verification via interval arithmetic.
-
-The `sorry`s in Li2Bounds.lean are deliberate - they allow downstream projects to use
-the bounds without the ~20 minute compilation cost. This file provides the actual
-verification that those bounds are correct. -/
+This proves the bounds re-exported as `Li2.li2_lower` and `Li2.li2_upper` in
+`Li2Bounds.lean`, with full numerical verification via interval arithmetic. -/
 theorem li2_bounds_verified : (1039:ℚ)/1000 ≤ li2 ∧ li2 ≤ (106:ℚ)/100 := by
   constructor
   · -- Lower bound: li(2) ≥ 1.039
@@ -914,11 +906,7 @@ theorem li2_lower_verified : (1039:ℚ)/1000 ≤ li2 := li2_bounds_verified.1
 /-- Upper bound extraction from verified bounds. -/
 theorem li2_upper_verified : li2 ≤ (106:ℚ)/100 := li2_bounds_verified.2
 
-/-! ### Consistency Checks
-
-These verify that the bounds proven here match the interface statements in Li2Bounds.lean.
-The sorry'd `Li2.li2_lower` and `Li2.li2_upper` have the exact same types as the verified
-theorems below, so compiling this file validates those interface statements. -/
+/-! ### Consistency Checks -/
 
 /-- Consistency: the verified lower bound has the same statement as `Li2.li2_lower`. -/
 example : (1039:ℚ)/1000 ≤ li2 := li2_lower_verified

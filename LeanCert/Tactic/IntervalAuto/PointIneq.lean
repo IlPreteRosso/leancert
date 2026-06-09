@@ -508,6 +508,9 @@ private def ratCeilAbs (q : ℚ) : Nat :=
 private def expReduceKMeta (q : ℚ) : Nat :=
   Nat.log2 (ratCeilAbs q + 1)
 
+private def isConstNameIn (n : Lean.Name) (names : List Lean.Name) : Bool :=
+  names.any (fun m => n == m)
+
 /-- Heuristic exp depth estimate using argument reduction.
     We approximate the required depth based on |q/2^k|, where k = log2(ceil|q|+1). -/
 private def expDepthEstimate (q : ℚ) : Nat :=
@@ -531,9 +534,8 @@ where
     -- Check for transcendental functions
     if fn.isConst then
       let name := fn.constName!
-      let nameStr := name.toString
       -- exp, sinh, cosh need ~7x the argument magnitude (with exp reduction)
-      if nameStr.endsWith "exp" || nameStr.endsWith "sinh" || nameStr.endsWith "cosh" then
+      if isConstNameIn name [``Real.exp, ``Real.sinh, ``Real.cosh] then
         if args.size > 0 then
           let arg := args.back!
           if let some q ← extractRatFromReal arg then
@@ -545,7 +547,7 @@ where
             let childDepth ← go arg
             return childDepth
       -- sin, cos need ~3x the argument magnitude
-      if nameStr.endsWith "sin" || nameStr.endsWith "cos" then
+      if isConstNameIn name [``Real.sin, ``Real.cos] then
         if args.size > 0 then
           let arg := args.back!
           if let some q ← extractRatFromReal arg then
@@ -556,7 +558,7 @@ where
             let childDepth ← go arg
             return childDepth
       -- log needs ~3x for large arguments
-      if nameStr.endsWith "log" then
+      if name == ``Real.log then
         if args.size > 0 then
           let arg := args.back!
           if let some q ← extractRatFromReal arg then

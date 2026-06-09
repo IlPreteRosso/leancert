@@ -638,7 +638,7 @@ partial def parseMultivariateBoundGoal (goal : Lean.Expr) : MetaM (Option Multiv
 /-- Check if a Lean Name ends with a given suffix string -/
 private def nameEndsWithStr (n : Lean.Name) (suffix : String) : Bool :=
   match n with
-  | .str _ s => s == suffix || s.endsWith ("." ++ suffix)
+  | .str _ s => s == suffix
   | _ => false
 
 /-- Parse a point inequality goal and extract lhs, rhs, and inequality type.
@@ -689,12 +689,9 @@ partial def collectConstants (e : Lean.Expr) : MetaM (List ℚ) := do
 
   -- For function applications, collect from arguments
   if let .const name _ := fn then
-    let nameStr := name.toString
     -- Unary functions: collect from the argument
-    -- Check by name suffix since the full name might include module prefix
-    if nameStr.endsWith "exp" || nameStr.endsWith "sin" || nameStr.endsWith "cos" ||
-       nameStr.endsWith "sqrt" || nameStr.endsWith "log" || nameStr.endsWith "sinh" ||
-       nameStr.endsWith "cosh" || nameStr.endsWith "tanh" || nameStr.endsWith "arctan" then
+    if [``Real.exp, ``Real.sin, ``Real.cos, ``Real.sqrt, ``Real.log,
+        ``Real.sinh, ``Real.cosh, ``Real.tanh, ``Real.arctan].any (fun n => name == n) then
       if args.size > 0 then
         return ← collectConstants args.back!
     -- Negation
