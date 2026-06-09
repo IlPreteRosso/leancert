@@ -102,8 +102,10 @@ def findViolation (e : Expr) (domain : Box) (limit : ℚ)
 
   if max_lo > limit then
     -- CASE 1: Verified counter-example
-    -- The lower bound of the maximum exceeds the limit.
-    -- For ANY point in best_box, f(x) ≥ max_lo > limit.
+    -- The certified lower bound for the global maximum exceeds the limit.
+    -- The midpoint is reported as a diagnostic representative of the returned box;
+    -- this function does not construct a Lean proof that the midpoint itself violates
+    -- the bound.
     some {
       point := CounterExample.boxMidpoint best_box
       valueLo := max_lo
@@ -184,8 +186,10 @@ def findViolationLower (e : Expr) (domain : Box) (limit : ℚ)
 
   if min_hi < limit then
     -- CASE 1: Verified counter-example
-    -- The upper bound of the minimum is below the limit.
-    -- For ANY point in best_box, f(x) ≤ min_hi < limit.
+    -- The certified upper bound for the global minimum is below the limit.
+    -- The midpoint is reported as a diagnostic representative of the returned box;
+    -- this function does not construct a Lean proof that the midpoint itself violates
+    -- the bound.
     some {
       point := CounterExample.boxMidpoint best_box
       valueLo := min_lo

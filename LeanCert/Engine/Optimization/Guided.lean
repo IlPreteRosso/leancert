@@ -153,9 +153,10 @@ def globalMinimizeGuided (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) : Gl
   -- Step 2: Heuristic Search (The Oracle)
   let (mcBest, mcVal) := findBestCandidate e B (samples := cfg.heuristicSamples) (seed := cfg.seed)
 
-  -- Optionally do grid search for low dimensions
+  -- Optionally do grid search for low dimensions.
+  -- `gridSearch` currently enumerates dimensions 0, 1, and 2 explicitly.
   let (heuristicBest, _heuristicVal) :=
-    if cfg.useGridSearch && B.length ≤ 3 then
+    if cfg.useGridSearch && B.length ≤ 2 then
       let (gridBest, gridVal) := gridSearch e B (pointsPerDim := cfg.gridPointsPerDim)
       if gridVal < mcVal then (gridBest, gridVal) else (mcBest, mcVal)
     else
@@ -185,7 +186,7 @@ def globalMinimizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) :
   let (mcBest, mcVal) := findBestCandidate e B (samples := cfg.heuristicSamples) (seed := cfg.seed)
 
   let (heuristicBest, _) :=
-    if cfg.useGridSearch && B.length ≤ 3 then
+    if cfg.useGridSearch && B.length ≤ 2 then
       let (gridBest, gridVal) := gridSearch e B (pointsPerDim := cfg.gridPointsPerDim)
       if gridVal < mcVal then (gridBest, gridVal) else (mcBest, mcVal)
     else

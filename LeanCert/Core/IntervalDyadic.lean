@@ -268,7 +268,10 @@ private def mulFast (I J : IntervalDyadic) : IntervalDyadic :=
     else
       mul I J
 
-attribute [implemented_by mulFast] mul
+/- We intentionally do not attach `mulFast` as a native replacement here.
+   Native certificate checking should execute the same definition that the
+   kernel proofs reason about. Keep `mulFast` available only as an internal
+   candidate for future explicitly-audited runtime backends. -/
 
 /-- FTIA for multiplication -/
 theorem mem_mul {x y : ℝ} {I J : IntervalDyadic} (hx : x ∈ I) (hy : y ∈ J) :
@@ -412,10 +415,10 @@ private theorem mulFast_hi (I J : IntervalDyadic) : (mulFast I J).hi.toRat = (mu
           exact IntervalRat.eq_max4_of_ge (by nlinarith [I.le, J.le]) (by nlinarith [I.le, J.le]) (by nlinarith [I.le, J.le])
         · exact hrhs
 
-/-- Safety net: mulFast preserves the containment property of mul.
-    This ensures that even though `implemented_by` bypasses the kernel's
-    definitional equality check, the runtime implementation is sound. -/
-private theorem mem_mulFast {x y : ℝ} {I J : IntervalDyadic} (hx : x ∈ I) (hy : y ∈ J) :
+/-- `mulFast` preserves the containment property of `mul`.
+    This is retained as documentation and a future audited optimization hook;
+    production certificate checking currently uses `mul` directly. -/
+theorem mem_mulFast {x y : ℝ} {I J : IntervalDyadic} (hx : x ∈ I) (hy : y ∈ J) :
     x * y ∈ mulFast I J := by
   simp only [mem_def]
   constructor
