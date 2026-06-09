@@ -129,6 +129,76 @@ verify_primeEulerOnePlusInv_interval
 The generic product machinery lives in `LeanCert.ANT.EulerProduct`; these
 number-theoretic presets live in `LeanCert.ANT.PrimeEuler`.
 
+## Prime-Power Extensionality
+
+For multiplicative arithmetic functions, equality can be reduced to equality on
+prime powers.  LeanCert exposes a stable ANT-facing wrapper around mathlib's
+prime-power extensionality theorem:
+
+```lean
+LeanCert.ANT.PrimePowerExt.ext_prime_powers
+LeanCert.ANT.PrimePowerExt.eq_iff_eq_on_prime_powers
+```
+
+For generated or data-driven local-factor proofs, LeanCert also exposes a
+certificate object:
+
+```lean
+LeanCert.ANT.PrimePowerExt.LocalPrimePowerCert
+LeanCert.ANT.PrimePowerExt.LocalPrimePowerCert.sound
+```
+
+`LocalPrimePowerCert f g` stores multiplicativity for both arithmetic functions
+and equality on every prime power.  The soundness theorem proves `f = g`.
+
+The intended workflow is:
+
+```lean
+apply LeanCert.ANT.PrimePowerExt.ext_prime_powers
+-- prove multiplicativity of both sides
+-- reduce the goal to:
+--   ∀ p k, Nat.Prime p → f (p ^ k) = g (p ^ k)
+```
+
+This is the lightweight first layer for local Euler-factor and
+arithmetic-function identity certificates.
+
+## Explicit-PNT Compiler Schemas
+
+`LeanCert.ANT.PNTCompilers` contains theorem schemas for the two standard
+explicit-PNT envelope transfers.  They are deliberately project-agnostic:
+LeanCert proves the reusable inequality algebra, while project files provide
+the semantic definitions of `ψ`, `θ`, `π`, `Li`, and the decomposition
+identities.
+
+Public theorems:
+
+```lean
+psi_to_theta_bound
+theta_to_pi_bound_of_decomposition
+theta_to_pi_bound
+```
+
+`psi_to_theta_bound` proves the abstract transfer:
+
+```text
+theta x - x = (psi x - x) - powerContribution
+|psi x - x| <= psiError
+0 <= powerContribution <= powerBound
+------------------------------------------------
+|theta x - x| <= psiError + powerBound
+```
+
+`theta_to_pi_bound_of_decomposition` packages the partial-summation error
+algebra once the project has proved a decomposition of `primeCount x - li x`
+into endpoint and integral terms.
+
+`theta_to_pi_bound` is the endpoint-specialized version where the endpoint
+terms are `deltaTheta x / log x` and `deltaTheta x0 / log x0`.
+
+These schemas are intended as the bridge between project-specific analytic
+identities and LeanCert's table, interval, and Taylor integral certificates.
+
 ## Dirichlet Truncations
 
 `LeanCert.ANT.Dirichlet` certifies finite Dirichlet-style weighted sums:
