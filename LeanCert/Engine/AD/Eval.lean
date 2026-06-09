@@ -16,7 +16,7 @@ mapping expressions to dual intervals.
 
 * `DualEnv` - Environment mapping variable indices to dual intervals
 * `evalDual` - Main evaluator for supported expressions (total)
-* `evalDual?` - Partial evaluator supporting inv and log (returns Option)
+* `evalDual?` - Partial evaluator supporting domain-checked functions (returns Option)
 * `evalDual?1` - Single-variable version of evalDual?
 * `mkDualEnv` - Create a dual environment for differentiation w.r.t. a variable
 * `evalWithDeriv` - Evaluate and differentiate w.r.t. a variable index
@@ -64,15 +64,18 @@ noncomputable def evalDual (e : Expr) (ρ : DualEnv) : DualInterval :=
   | Expr.sqrt e => DualInterval.sqrt (evalDual e ρ)
   | Expr.namedConst c => DualInterval.ofMathConst c
 
-/-! ### Partial dual evaluation (supports inv) -/
+/-! ### Partial dual evaluation -/
 
-/-- Partial dual evaluator that supports inv and log.
+/-- Partial dual evaluator that supports domain-checked functions.
     Returns `none` if any domain error would occur:
     - inv of an interval containing zero
     - log of an interval not strictly positive
     When it returns `some`, the result is guaranteed to be correct.
 
-    This is the Option-returning version that safely handles expressions with inv and log. -/
+    The total and computable dual evaluators support `tanh`, but this
+    Option-returning evaluator deliberately keeps `tanh` disabled until the
+    `evalDual?`-specific value/differentiability/derivative correctness path
+    is wired for that constructor. -/
 noncomputable def evalDual? (e : Expr) (ρ : DualEnv) : Option DualInterval :=
   match e with
   | Expr.const q => some (DualInterval.const q)
@@ -138,6 +141,9 @@ noncomputable def evalDual? (e : Expr) (ρ : DualEnv) : Option DualInterval :=
       | some d => some (DualInterval.cosh d)
       | none => none
   | Expr.tanh _ =>
+      -- See the docstring above: `evalDual`/`evalDualCore` support tanh, but
+      -- the partial `evalDual?` correctness theorem currently treats tanh as
+      -- outside this Option API.
       none
   | Expr.sqrt e =>
       match evalDual? e ρ with

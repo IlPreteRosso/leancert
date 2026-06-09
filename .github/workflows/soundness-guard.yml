@@ -19,7 +19,7 @@ jobs:
 
       - name: Guard - no user axioms in LeanCert
         run: |
-          if find LeanCert -name '*.lean' -print | xargs grep -nE '^[[:space:]]*axiom[[:space:]]+'; then
+          if find LeanCert -name '*.lean' -print0 | xargs -0 grep -nE '^[[:space:]]*axiom[[:space:]]+'; then
             echo "Found forbidden axiom declaration(s) in LeanCert/"
             exit 1
           fi
@@ -33,7 +33,7 @@ jobs:
           hits="$(find LeanCert \
             -path 'LeanCert/Examples' -prune -o \
             -path 'LeanCert/Test' -prune -o \
-            -name '*.lean' -print | xargs grep -nE '^[[:space:]]*sorry[[:space:]]*$' || true)"
+            -name '*.lean' -print0 | xargs -0 grep -nE '^[[:space:]]*sorry[[:space:]]*$' || true)"
           if [ -n "$hits" ]; then
             echo "Found non-allowlisted sorry placeholder(s):"
             echo "$hits"
@@ -42,7 +42,7 @@ jobs:
 
       - name: Guard - no synthetic proof holes in LeanCert
         run: |
-          hits="$(find LeanCert -name '*.lean' -print | xargs grep -nE '\bmkSorry\b|\bsorryAx\b|\badmit\b' || true)"
+          hits="$(find LeanCert -name '*.lean' -print0 | xargs -0 grep -nE '\bmkSorry\b|\bsorryAx\b|\badmit\b' || true)"
           if [ -n "$hits" ]; then
             echo "Found forbidden synthetic proof-hole construction(s):"
             echo "$hits"
@@ -52,11 +52,11 @@ jobs:
       - name: Audit - native/runtime boundary markers
         run: |
           echo "implemented_by uses:"
-          find LeanCert -name '*.lean' -print | xargs grep -nE '\bimplemented_by\b' || true
+          find LeanCert -name '*.lean' -print0 | xargs -0 grep -nE '\bimplemented_by\b' || true
           echo "unsafe evalExpr uses:"
-          find LeanCert/Tactic LeanCert/Meta -name '*.lean' -print | xargs grep -nE '\bunsafe[[:space:]]+evalExpr\b|\bevalExpr\b' || true
+          find LeanCert/Tactic LeanCert/Meta -name '*.lean' -print0 | xargs -0 grep -nE '\bunsafe[[:space:]]+evalExpr\b|\bevalExpr\b' || true
           echo "pretty-printer string matching candidates:"
-          find LeanCert/Tactic LeanCert/Meta -name '*.lean' -print | xargs grep -nE 'ppExpr|endsWith "inst' || true
+          find LeanCert/Tactic LeanCert/Meta -name '*.lean' -print0 | xargs -0 grep -nE 'ppExpr|endsWith "inst' || true
 
       - name: Guard - core axiom/sorry audit
         run: lake env lean Tests/AxiomAudit.lean
