@@ -1,17 +1,36 @@
 # LeanCert
 
-LeanCert is a Lean 4 library for certified numerical computation and proof-producing tactics.
+LeanCert is a Lean 4 library for certified numerical computation and
+proof-producing certificate workflows.
 
-## What You Get
+LeanCert is organized around proof intent:
 
-- Verified interval bounds
-- Proof automation for inequalities and root claims
-- Global optimization and integration certificates
-- Chebyshev function certificates
-- Analytic-number-theory certificate bridges for Abel summation, Euler products, prime-power extensionality, and explicit-PNT envelope transfers
-- Exact q-product/product-integral certificates
-- Table, slab, and contour-shift certificate frameworks
-- Dyadic and rational backends for different performance/precision tradeoffs
+1. **Direct automation** closes concrete bounds, roots, optimizations, and
+   integral goals over explicit expressions.
+2. **Proof templates** package reusable certificate strategies such as table
+   checking, main-term/error envelopes, perturbation observers, product-integral
+   identities, and contour-shift bookkeeping.
+3. **Domain libraries** provide specialized mathematics, especially analytic
+   number theory and q-product certificates, built on top of the templates.
+4. **Architecture and trust** explains checkers, Golden Theorems, arithmetic
+   backends, and verification status.
+
+## What Kind Of Proof Are You Building?
+
+| I have... | Go to |
+|---|---|
+| A concrete inequality over an interval | [Direct Automation → Bounds](direct/bounds.md) |
+| A root existence, uniqueness, or no-root claim | [Direct Automation → Roots](direct/roots.md) |
+| A global minimum or maximum problem | [Direct Automation → Optimization and Discovery](direct/optimization-discovery.md) |
+| A definite integral bound | [Direct Automation → Integration](direct/integration.md) |
+| Generated finite rows to verify | [Proof Templates → Table Certificates](proof-templates/table-certificates.md) |
+| A summatory function with a main term and error term | [Proof Templates → Asymptotic Envelopes](proof-templates/asymptotic-envelopes.md) |
+| A real-variable approximation with an error radius | [Proof Templates → Pointwise Envelopes](proof-templates/pointwise-envelopes.md) |
+| A constant built by perturbing a reusable base object | [Proof Templates → ConstantFactory](proof-templates/constant-factory.md) |
+| A finite q-product integral | [Proof Templates → Exact Product-Integral Certificates](proof-templates/qproduct-finite-integrals.md) |
+| A contour-shift identity | [Proof Templates → Contour Shift](proof-templates/contour-shift.md) |
+| Chebyshev, Abel, Euler-product, Dirichlet, or Mertens certificates | [Domain Libraries → Analytic Number Theory](domains/ant/overview.md) |
+| A neural-network or transformer verification problem | [ML Verification](ml/neural-networks.md) |
 
 ## Quick Lean Example
 
@@ -41,47 +60,14 @@ lake update
 
 ## Documentation Map
 
-| Guide | Description |
-|-------|-------------|
-| [Quickstart](quickstart.md) | First Lean proofs with LeanCert |
-
-## Tactics
-
-| Guide | Description |
-|-------|-------------|
-| [Choosing Tactics](tactics/choosing-tactics.md) | Pick the right tactic quickly |
-| [Tactics Reference](tactics/tactics.md) | Main proving tactics |
-| [Discovery Mode](tactics/discovery.md) | Explore bounds and extrema interactively |
-| [Troubleshooting](tactics/troubleshooting.md) | Common failures and fixes |
-| [End-to-End Example](tactics/end-to-end-example.md) | Discovery to theorem workflow |
-
-## Certificate APIs
-
-| Guide | Description |
-|-------|-------------|
-| [Certificate Overview](certificates/overview.md) | Domain-specific certificate families |
-| [Chebyshev Certificates](certificates/chebyshev.md) | Certified `ψ` and `θ` finite-range bounds |
-| [ANT Certificates](certificates/ant.md) | Step sums, Abel transforms, Euler products, and Mertens-style finite sums |
-| [Asymptotic Envelopes](certificates/ant-asymp.md) | Summatory and pointwise error envelopes, slab inequalities, Stieltjes transforms, and hyperbola kernels |
-| [QProduct Certificates](certificates/qproduct.md) | Exact product-integral and prime-limit certificates |
-| [ConstantFactory Certificates](certificates/constants.md) | Observer-generated q-product constants from finite perturbation sums |
-| [Contour-Shift Certificates](certificates/contour-shift.md) | Rectangle, horizontal-vanishing, and limit-passing contour-shift certificates |
-
-## ML
-
-| Guide | Description |
-|-------|-------------|
-| [Neural Networks](ml/neural-networks.md) | Neural network interval verification |
-| [Distillation](ml/distillation.md) | Distillation and model-certificate workflows |
-
-## Architecture
-
-| Document | Description |
-|----------|-------------|
-| [Golden Theorems](architecture/golden-theorems.md) | Why the checkers imply theorems |
-| [Table Certificates](architecture/table-certificates.md) | Generic finite-table checking infrastructure |
-| [Root Finding](architecture/root-finding.md) | Existence and uniqueness flow |
-| [Verification Status](architecture/verification-status.md) | Proven components and known gaps |
+| Section | Description |
+|---|---|
+| [Getting Started](choosing-proof-shape.md) | Choose the right proof path before selecting modules |
+| [Direct Automation](direct/bounds.md) | Tactics and commands for direct numeric goals |
+| [Proof Templates](proof-templates/overview.md) | Reusable certificate strategies and proof patterns |
+| [Domain Libraries](domains/overview.md) | Domain-specific certificate packages |
+| [Architecture and Trust](architecture/golden-theorems.md) | Why checkers imply theorems, and what is trusted |
+| [Reference](reference/imports.md) | Imports, tactics, and certificate API references |
 
 ## Split Repositories
 
