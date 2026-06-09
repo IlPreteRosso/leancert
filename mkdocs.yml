@@ -51,24 +51,45 @@ extra_javascript:
 
 nav:
   - Home: index.md
-  - Quickstart: quickstart.md
-  - Tactics:
-    - Choosing Tactics: tactics/choosing-tactics.md
-    - Reference: tactics/tactics.md
-    - Discovery Mode: tactics/discovery.md
-    - Troubleshooting: tactics/troubleshooting.md
-    - End-to-End Example: tactics/end-to-end-example.md
-    - Root Finding: architecture/root-finding.md
-  - Certificate APIs:
-    - Overview: certificates/overview.md
-    - Chebyshev: certificates/chebyshev.md
-    - ANT Finite Bridges: certificates/ant.md
-    - Asymptotic Envelopes: certificates/ant-asymp.md
-    - QProduct: certificates/qproduct.md
-  - Neural Networks:
+  - Getting Started:
+    - Quickstart: quickstart.md
+    - Choosing A Proof Shape: choosing-proof-shape.md
+  - Direct Automation:
+    - Bounds and Inequalities: direct/bounds.md
+    - Roots and No-Root Proofs: direct/roots.md
+    - Optimization and Discovery: direct/optimization-discovery.md
+    - Integration: direct/integration.md
+    - Troubleshooting: direct/troubleshooting.md
+    - Tactics Reference: direct/tactics-reference.md
+  - Proof Templates:
+    - Overview: proof-templates/overview.md
+    - Checker-To-Theorem Pattern: proof-templates/checker-to-theorem.md
+    - Table Certificates: proof-templates/table-certificates.md
+    - Asymptotic Envelopes: proof-templates/asymptotic-envelopes.md
+    - Pointwise Envelopes: proof-templates/pointwise-envelopes.md
+    - ConstantFactory: proof-templates/constant-factory.md
+    - QProduct Finite Integrals: proof-templates/qproduct-finite-integrals.md
+    - Contour Shift: proof-templates/contour-shift.md
+  - Domain Libraries:
+    - Analytic Number Theory:
+      - Overview: domains/ant/overview.md
+      - Chebyshev: domains/ant/chebyshev.md
+      - Finite ANT: domains/ant/finite-ant.md
+      - ANT Asymptotic: domains/ant/asymptotic-ant.md
+      - Explicit PNT: domains/ant/explicit-pnt.md
+    - QProduct Prime Limits: domains/qproduct-prime-limits.md
+    - Constants: domains/constants.md
+  - ML Verification:
     - Verification: ml/neural-networks.md
     - Distillation: ml/distillation.md
-  - Architecture:
+  - Architecture and Trust:
     - Golden Theorems: architecture/golden-theorems.md
     - Table Certificates: architecture/table-certificates.md
+    - Root Finding: architecture/root-finding.md
     - Verification Status: architecture/verification-status.md
+  - Reference:
+    - Imports: reference/imports.md
+    - Tactics: reference/tactics.md
+    - Certificate APIs: reference/certificate-apis.md
+    - Legacy Certificate Overview: certificates/overview.md
+    - Legacy Tactics Reference: tactics/tactics.md

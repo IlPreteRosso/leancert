@@ -1,7 +1,10 @@
-# Certificate APIs
+# Certificate API Reference
 
-LeanCert has several domain-specific certificate families.  They share the same
-basic pattern:
+This page is a legacy API map for existing certificate pages.  For the
+conceptual entry point, start with [Proof Templates](../proof-templates/overview.md)
+or [Domain Libraries](../domains/ant/overview.md).
+
+LeanCert certificate APIs share the same basic pattern:
 
 ```text
 computable certificate data
@@ -10,7 +13,8 @@ computable certificate data
 = a semantic theorem over real numbers
 ```
 
-Use this page as the map for choosing the right certificate API.
+Use this page when you already know the family name and want the detailed API
+reference.
 
 ## Families
 
