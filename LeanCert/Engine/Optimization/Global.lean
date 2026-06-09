@@ -110,7 +110,7 @@ def popBest (queue : List (ℚ × Box)) : Option ((ℚ × Box) × List (ℚ × B
 noncomputable def evalOnBox (e : Expr) (B : Box) (_cfg : GlobalOptConfig) : IntervalRat :=
   evalIntervalRefined e (Box.toEnv B)
 
-/-- One step of branch-and-bound for minimization with explicit bestLB tracking.
+/-- One step of branch-and-bound for minimization with explicit global-safe lower bound tracking.
     When `cfg.useMonotonicity` is true, applies gradient-based pruning before evaluation. -/
 noncomputable def minimizeStep (e : Expr) (cfg : GlobalOptConfig)
     (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
@@ -131,7 +131,9 @@ noncomputable def minimizeStep (e : Expr) (cfg : GlobalOptConfig)
         else B
       -- Step 2: Evaluate on (potentially pruned) box
       let I := evalOnBox e B_curr cfg
-      -- Update global lower bound: min of old and this box's local lower bound
+      -- Update the global-safe lower bound. This value is intentionally monotone
+      -- downward, preserving the simple invariant `bestLB ≤ f(ρ)` on the original
+      -- box. It is not the tightest lower bound over the active queue.
       let newBestLB := min bestLB I.lo
       -- Update best upper bound if we found a better one
       let (newBestUB, newBestBox) :=
@@ -151,7 +153,8 @@ noncomputable def minimizeStep (e : Expr) (cfg : GlobalOptConfig)
         let queue' := if I2.lo ≤ newBestUB then insertByBound queue' I2.lo B2 else queue'
         some (queue', newBestLB, newBestUB, newBestBox)
 
-/-- Run branch-and-bound for a fixed number of iterations with explicit bestLB tracking -/
+/-- Run branch-and-bound for a fixed number of iterations with explicit global-safe
+lower bound tracking. -/
 noncomputable def minimizeLoop (e : Expr) (cfg : GlobalOptConfig)
     (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
     GlobalResult :=
@@ -390,9 +393,11 @@ theorem Box.splitWidest_length_eq (B : Box) :
     (Box.splitWidest B).1.length = B.length ∧ (Box.splitWidest B).2.length = B.length :=
   Box.split_length_eq B (Box.widestDim B)
 
-/-! ### New simplified correctness architecture with explicit bestLB tracking
+/-! ### Simplified correctness architecture with explicit global-safe lower bound tracking
 
-The key idea: track both bestLB (global lower bound) and bestUB (global upper bound) explicitly.
+The key idea: track both `bestLB` (a global-safe lower bound, not necessarily the
+tightest active-queue lower bound) and `bestUB` (a global upper-bound witness)
+explicitly.
 This makes the invariants much simpler:
 - (Global LB) For all ρ in the original box, bestLB ≤ f(ρ)
 - (Global UB witness) There exists ρ* in bestBox such that f(ρ*) ≤ bestUB
