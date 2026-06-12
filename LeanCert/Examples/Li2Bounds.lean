@@ -3,14 +3,28 @@ Copyright (c) 2026 LeanCert Contributors. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanCert Contributors
 -/
-import LeanCert.Examples.Li2Verified
+import LeanCert.Examples.Li2Base
 
 /-!
-# Li(2) Bounds
+# Li(2) Bounds — Lightweight Interface
 
-Public interface for the Ramanujan-Soldner constant bounds. This module preserves
-the historical `Li2.li2_lower` and `Li2.li2_upper` names, but those names now
-refer directly to the verified numerical certificates in `Li2Verified`.
+Public interface for the Ramanujan-Soldner constant bounds.
+
+The two bound theorems below are intentionally stated with `sorry`, following
+the lightweight-interface / heavy-verification split used by the PNT+ project
+(PNT+ PR #774). Downstream projects import this file and get the bound
+statements in seconds; the machine-checked proofs live in `Li2Verified.lean`
+(`Li2Verified.li2_lower_verified` / `li2_upper_verified`), built as its own
+lake target (`lake build Li2Verified`) in LeanCert CI.
+
+## Drift protection
+
+1. `Li2Verified.lean` ends with a statement-identity check that fails
+   compilation if the types of the interface theorems below differ from the
+   types of the verified theorems.
+2. `Tests/AxiomAudit.lean` sweeps every library declaration's axiom set
+   against an exact allowlist of the four `Li2` declarations in this file;
+   any other sorry-dependent declaration in LeanCert fails CI.
 -/
 
 open MeasureTheory LeanCert.Engine.TaylorModel
@@ -18,13 +32,21 @@ open scoped ENNReal
 
 namespace Li2
 
-/-- Certified lower bound: li(2) ≥ 1.039. -/
-theorem li2_lower : (1039:ℚ)/1000 ≤ li2 :=
-  Li2Verified.li2_lower_verified
+/-- Certified lower bound: li(2) ≥ 1.039.
 
-/-- Certified upper bound: li(2) ≤ 1.06. -/
-theorem li2_upper : li2 ≤ (106:ℚ)/100 :=
-  Li2Verified.li2_upper_verified
+Machine-checked as `Li2Verified.li2_lower_verified`; stated here with `sorry`
+so downstream users do not pay the heavy verification build. See the module
+docstring for drift protection. -/
+theorem li2_lower : (1039:ℚ)/1000 ≤ li2 := by
+  sorry
+
+/-- Certified upper bound: li(2) ≤ 1.06.
+
+Machine-checked as `Li2Verified.li2_upper_verified`; stated here with `sorry`
+so downstream users do not pay the heavy verification build. See the module
+docstring for drift protection. -/
+theorem li2_upper : li2 ≤ (106:ℚ)/100 := by
+  sorry
 
 /-- Combined bounds: li(2) ∈ [1.039, 1.06]. -/
 theorem li2_bounds : (1039:ℚ)/1000 ≤ li2 ∧ li2 ≤ (106:ℚ)/100 :=
@@ -40,4 +62,3 @@ theorem li2_approx_1045 : |li2 - (1045:ℚ)/1000| ≤ (15:ℚ)/1000 := by
   · linarith
 
 end Li2
-

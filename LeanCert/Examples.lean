@@ -17,11 +17,13 @@ import LeanCert.Examples.ML.SineApprox
 import LeanCert.Examples.ML.SineNetWeights
 import LeanCert.Examples.BernsteinTest
 import LeanCert.Examples.Li2CertificateTest
+import LeanCert.Examples.Li2Bounds
 import LeanCert.Examples.PNT_PsiBounds
 import LeanCert.Examples.BKLNW_a2_TailBounds
 import LeanCert.Examples.BKLNW_reflective_test
 import LeanCert.Tactic.TestAuto
 import LeanCert.Tactic.TestDiscovery
--- NOTE: Li2Bounds (which imports the ~20min Li2Verified build) and the heavy
--- Li2Verified / BKLNW_a2_reflective verification files have their own
--- explicit lakefile targets and are intentionally not imported here.
+-- NOTE: Li2Bounds is the lightweight li(2) interface; its two bound statements
+-- are intentionally `sorry` (see the file's docstring). The heavy Li2Verified /
+-- BKLNW_a2_reflective verification files have their own explicit lakefile
+-- targets and are not imported here.

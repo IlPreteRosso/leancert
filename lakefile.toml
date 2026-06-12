@@ -10,8 +10,12 @@ rev = "v4.30.0"
 [[lean_lib]]
 name = "LeanCert"
 precompileModules = false
-# Note: Downstream projects importing LeanCert.Examples.Li2Bounds get fast builds (~3s).
-# Li2Verified (~20min) is only built if explicitly imported or requested.
+# Note: LeanCert.Examples.Li2Bounds is the lightweight li(2) interface for
+# downstream projects (builds in seconds; its two bound statements are
+# intentionally `sorry` — see the file docstring). The machine-checked proofs
+# live in the Li2Verified target (several minutes of native_decide interval
+# arithmetic), built in LeanCert CI, which ends with a statement-identity
+# check against the interface.
 
 # Examples and tests - not part of default build
 # Build with: lake build examples
@@ -20,7 +24,8 @@ name = "examples"
 roots = ["LeanCert.Examples"]
 precompileModules = false
 
-# Heavy numerical verification - for CI validation
+# Heavy numerical verification - for CI validation. Proves the bounds stated
+# (with `sorry`) in the Li2Bounds interface and statement-identity-checks them.
 # Build explicitly with: lake build Li2Verified
 [[lean_lib]]
 name = "Li2Verified"

@@ -101,12 +101,10 @@ The residue theorem is not baked into this structure.  Projects can supply the
 finite rectangle identity from a residue theorem, from a specialized local
 calculation, or from a future LeanCert residue constructor.
 
-Finite pole metadata can be stored separately with:
-
-```lean
-StripPoleCert
-stripResidueSum
-```
+With the residue term as written, the identity matches the positively-oriented
+rectangle residue theorem when `σ₁ < σ₀` (a leftward shift). For `σ₀ < σ₁` the
+positively-oriented residue theorem yields the opposite sign on the residue
+term, so a constructor for that case must negate the residues it stores.
 
 ## Horizontal Vanishing
 

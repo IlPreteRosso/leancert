@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: LeanCert Contributors
 -/
 import LeanCert
-import LeanCert.Examples.Li2Base
+import LeanCert.Examples.Li2Bounds
 import LeanCert.Engine.Integrate
 import LeanCert.Validity.IntegrationDyadic
 
@@ -28,9 +28,13 @@ The proof uses:
 
 ## Module Structure
 
-The shared definitions and analytic lemmas are in `Li2Base.lean`. Public bounds
-are re-exported from `Li2Bounds.lean` and point at the verified theorems in this
-file.
+The shared definitions and analytic lemmas are in `Li2Base.lean`. The public
+interface is `Li2Bounds.lean`, which states the bounds with `sorry` so that
+downstream projects (e.g. PNT+) do not pay this file's build cost — the
+lightweight-interface/heavy-verification split agreed with PNT+ (PR #774).
+This file imports the interface and ends with a statement-identity check
+that fails compilation if the interface statements ever drift from the
+verified theorems proven here.
 
 ## Verification Status
 
@@ -906,12 +910,28 @@ theorem li2_lower_verified : (1039:ℚ)/1000 ≤ li2 := li2_bounds_verified.1
 /-- Upper bound extraction from verified bounds. -/
 theorem li2_upper_verified : li2 ≤ (106:ℚ)/100 := li2_bounds_verified.2
 
-/-! ### Consistency Checks -/
-
-/-- Consistency: the verified lower bound has the same statement as `Li2.li2_lower`. -/
-example : (1039:ℚ)/1000 ≤ li2 := li2_lower_verified
-
-/-- Consistency: the verified upper bound has the same statement as `Li2.li2_upper`. -/
-example : li2 ≤ (106:ℚ)/100 := li2_upper_verified
-
 end Li2Verified
+
+/-! ### Statement-identity check (drift protection)
+
+The lightweight interface `Li2Bounds.lean` states `Li2.li2_lower` and
+`Li2.li2_upper` with `sorry`. The check below fails compilation if the
+interface statements differ syntactically from the verified statements, so a
+statement edit in `Li2Bounds.lean` does not ship without re-verification
+here. -/
+
+open Lean in
+run_meta do
+  let env ← getEnv
+  let check (iName vName : Name) : MetaM Unit := do
+    let some i := env.find? iName
+      | throwError "statement-identity check: missing interface theorem {iName}"
+    let some v := env.find? vName
+      | throwError "statement-identity check: missing verified theorem {vName}"
+    unless i.type == v.type do
+      throwError "Statement drift between interface and verified theorem:\n\
+        {iName} : {i.type}\n\
+        {vName} : {v.type}\n\
+        Update the interface in Li2Bounds.lean and the verification here together."
+  check ``Li2.li2_lower ``Li2Verified.li2_lower_verified
+  check ``Li2.li2_upper ``Li2Verified.li2_upper_verified

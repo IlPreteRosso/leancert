@@ -187,7 +187,9 @@ noncomputable def primeHarmonicSum (N : Nat) : ℝ :=
 def primeHarmonicSumRat (N : Nat) : ℚ :=
   ∑ p ∈ primesLE N, 1 / (p : ℚ)
 
-/-- Prime logarithmic Dirichlet truncation `∑_{p ≤ N} log p / p`. -/
+/-- Prime logarithmic Dirichlet truncation `∑_{p ≤ N} log p / p`.
+The same sum as `LeanCert.ANT.mertensLogSum` (defined in `Mertens.lean`),
+stated through the `finiteDirichletSum` interface. -/
 noncomputable def logPrimeOverPrimeSum (N : Nat) : ℝ :=
   finiteDirichletSum (primesLE N) (fun p => Real.log p) fun p => 1 / (p : ℝ)
 
