@@ -130,24 +130,20 @@ noncomputable def topHorizontalIntegral (F : ℂ → ℂ) (σ₀ σ₁ T : ℝ) 
 noncomputable def bottomHorizontalIntegral (F : ℂ → ℂ) (σ₀ σ₁ T : ℝ) : ℂ :=
   ∫ x : ℝ in σ₁..σ₀, F (x - T * I)
 
-/-- Finite pole data in a vertical strip. -/
-structure StripPoleCert (F : ℂ → ℂ) (σ₀ σ₁ : ℝ) where
-  poles : Finset ℂ
-  in_strip : ∀ ρ ∈ poles, σ₀ < ρ.re ∧ ρ.re < σ₁
-  residue : ℂ → ℂ
-
-/-- Sum of finite residue data. -/
-noncomputable def stripResidueSum {F : ℂ → ℂ} {σ₀ σ₁ : ℝ}
-    (P : StripPoleCert F σ₀ σ₁) : ℂ :=
-  ∑ ρ ∈ P.poles, P.residue ρ
-
 /--
 Finite rectangle shift certificate.
 
 This structure intentionally stores the finite rectangle identity as data.  A
 future residue-theorem constructor can produce this field, while the rest of the
 contour-shift engine can already use it.
--/
+
+Sign convention: with the residue term as written, `rectangle_identity`
+matches the positively-oriented rectangle residue theorem when `σ₁ < σ₀`
+(a leftward shift of the vertical line). For `σ₀ < σ₁` the positively-oriented
+residue theorem yields the opposite sign on the residue term, so a constructor
+for that case must negate the residues it stores. The structure does not
+constrain the ordering of `σ₀, σ₁`; the orientation is carried by the proof
+of the identity field. -/
 structure RectangleShiftCert (F : ℂ → ℂ) (σ₀ σ₁ T : ℝ) where
   poles : Finset ℂ
   residue : ℂ → ℂ
@@ -214,7 +210,16 @@ Infinite contour-shift certificate.
 This is the main reusable certificate object: finite rectangle identities are
 provided for each height, horizontal sides vanish, vertical sides converge, and
 finite pole data is stable across the sequence.
--/
+
+The conclusions derived from this certificate (`shift_identity`,
+`shift_identity'`) are relative to the chosen height sequence `T`: the limits
+`leftValue`/`rightValue` are limits of symmetric vertical integrals along
+`T n`, not improper vertical-line integrals, and certificates for the same
+`F, σ₀, σ₁` with different height sequences are not identified here. The
+fields `hT_pos` and `hT_tendsto` are not used by `shift_identity`; they are
+required so that a certificate remains eligible for a future bridge from
+sequence-relative limits to improper vertical-line integrals without changing
+this type. -/
 structure ContourShiftCert (F : ℂ → ℂ) (σ₀ σ₁ : ℝ) where
   T : ℕ → ℝ
   hT_pos : ∀ n, 0 < T n
@@ -262,7 +267,10 @@ private theorem rectangle_identity_stable {F : ℂ → ℂ} {σ₀ σ₁ : ℝ}
     exact Finset.sum_congr rfl (fun ρ hρ => C.same_residue n ρ)
   simpa [ContourShiftCert.residueSum, hsum] using h
 
-/-- Limit-passing contour-shift identity, existential-limit form. -/
+/-- Limit-passing contour-shift identity, existential-limit form.
+
+Note: the limits are along the certificate's chosen height sequence `C.T`;
+see the `ContourShiftCert` docstring for the semantic boundary. -/
 theorem shift_identity {F : ℂ → ℂ} {σ₀ σ₁ : ℝ}
     (C : ContourShiftCert F σ₀ σ₁) :
     ∃ L₀ L₁ : ℂ,

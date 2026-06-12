@@ -158,8 +158,6 @@ export LeanCert.Analysis.ContourShift (
   verticalIntegral
   topHorizontalIntegral
   bottomHorizontalIntegral
-  StripPoleCert
-  stripResidueSum
   RectangleShiftCert
   HorizontalVanishCert
   HorizontalBoundCert

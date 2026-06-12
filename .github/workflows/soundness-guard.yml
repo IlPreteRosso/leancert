@@ -19,21 +19,29 @@ jobs:
 
       - name: Guard - no user axioms in LeanCert
         run: |
-          if find LeanCert -name '*.lean' -print0 | xargs -0 grep -nE '^[[:space:]]*axiom[[:space:]]+'; then
+          # Modifier-tolerant: also catches `private axiom`, `protected axiom`,
+          # `@[attr] axiom`, etc. on one line. The whole-environment sweep in
+          # Tests/AxiomAudit.lean is the semantic backstop for anything a
+          # textual pattern can miss.
+          if find LeanCert -name '*.lean' -print0 | xargs -0 grep -nE \
+            '^[[:space:]]*((@\[[^]]*\]|private|protected|noncomputable|unsafe)[[:space:]]+)*axiom[[:space:]]+'; then
             echo "Found forbidden axiom declaration(s) in LeanCert/"
             exit 1
           fi
 
       - name: Guard - no non-allowlisted sorry in LeanCert
         run: |
-          # Track only actual placeholder terms (not prose mentions).
-          # Allowlist:
-          # - LeanCert/Examples/** (intentional interface placeholders)
-          # - LeanCert/Test/** (test-only)
-          hits="$(find LeanCert \
-            -path 'LeanCert/Examples' -prune -o \
-            -path 'LeanCert/Test' -prune -o \
-            -name '*.lean' -print0 | xargs -0 grep -nE '^[[:space:]]*sorry[[:space:]]*$' || true)"
+          # Textual layer: catches standalone `sorry` lines and the common
+          # inline forms (`:= sorry`, `by sorry`, `exact sorry`, `; sorry`).
+          # The semantic layer is the sorryAx sweep in Tests/AxiomAudit.lean,
+          # which pins an exact allowlist of declarations.
+          # Allowlist (single file): LeanCert/Examples/Li2Bounds.lean — the
+          # PNT+ lightweight-interface split; its sorries are pinned by name
+          # in Tests/AxiomAudit.lean and statement-identity-checked by the
+          # Li2Verified target.
+          hits="$(find LeanCert -name '*.lean' \
+            ! -path 'LeanCert/Examples/Li2Bounds.lean' -print0 | \
+            xargs -0 grep -nE '^[[:space:]]*sorry\b|:=[[:space:]]*sorry\b|\b(by|exact)[[:space:]]+sorry\b|;[[:space:]]*sorry\b' || true)"
           if [ -n "$hits" ]; then
             echo "Found non-allowlisted sorry placeholder(s):"
             echo "$hits"
@@ -63,7 +71,8 @@ jobs:
           lake build LeanCert \
             LeanCert.Engine.Eval LeanCert.Engine.Pisano LeanCert.Engine.PentagonLucas \
             LeanCert.Engine.TaylorModel.Log1p LeanCert.Engine.TaylorModel.TrigReduced \
-            LeanCert.Core.HermiteBounds LeanCert.Core.LogBounds
+            LeanCert.Core.HermiteBounds LeanCert.Core.LogBounds \
+            LeanCert.Examples.Li2Bounds
 
       - name: Guard - core axiom/sorry audit
         run: lake env lean Tests/AxiomAudit.lean

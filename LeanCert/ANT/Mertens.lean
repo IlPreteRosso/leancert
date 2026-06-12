@@ -19,7 +19,8 @@ namespace LeanCert.ANT
 open scoped BigOperators
 open LeanCert.Engine.ChebyshevTheta
 
-/-- Semantic finite Mertens log sum `∑_{p ≤ N} log p / p`. -/
+/-- Semantic finite Mertens log sum `∑_{p ≤ N} log p / p`.
+The same sum as `LeanCert.ANT.logPrimeOverPrimeSum` in `Dirichlet.lean`. -/
 noncomputable def mertensLogSum (N : Nat) : ℝ :=
   ∑ p ∈ primesLE N, Real.log p / (p : ℝ)
 
@@ -39,7 +40,8 @@ def thetaPrefixLowerRat (depth k : Nat) : ℚ :=
 def thetaPrefixUpperRat (depth k : Nat) : ℚ :=
   ∑ n ∈ Finset.range k, logPrimeUB n depth
 
-/-- The Abel-side weighted sum for `∑_{p ≤ N} log p / p`. -/
+/-- The Abel-side weighted sum for `∑_{p ≤ N} log p / p`. Equals
+`mertensLogSum`; see `mertensAbelSum_eq_mertensLogSum`. -/
 noncomputable def mertensAbelSum (N : Nat) : ℝ :=
   weightedSum thetaIncrement invNatRat 2 (N + 1)
 
@@ -92,6 +94,33 @@ theorem verify_mertensAbel_interval {N depth : Nat} (hN : 2 < N + 1) (lo hi : �
   exact verify_abelBound_interval thetaIncrement invNatRat
     (thetaPrefixLowerRat depth) (thetaPrefixUpperRat depth) hN
     (thetaPrefix_envelope depth) lo hi hcheck
+
+/-- `mertensAbelSum` and `mertensLogSum` agree: there are no primes below `2`,
+so the prime-gated sum over `[2, N+1)` equals the sum over `primesLE N`.
+Allows Abel-certified bounds to be used as bounds on `mertensLogSum`. -/
+theorem mertensAbelSum_eq_mertensLogSum (N : Nat) :
+    mertensAbelSum N = mertensLogSum N := by
+  unfold mertensAbelSum mertensLogSum weightedSum
+  have hset : primesLE N = (Finset.Ico 2 (N + 1)).filter Nat.Prime := by
+    ext p
+    simp only [primesLE, Finset.mem_filter, Finset.mem_range, Finset.mem_Ico]
+    exact ⟨fun ⟨hlt, hp⟩ => ⟨⟨hp.two_le, hlt⟩, hp⟩, fun ⟨⟨_, hlt⟩, hp⟩ => ⟨hlt, hp⟩⟩
+  rw [hset, Finset.sum_filter]
+  apply Finset.sum_congr rfl
+  intro i _
+  unfold thetaIncrement invNatRat
+  by_cases hi : i.Prime
+  · rw [if_pos hi, if_pos hi]
+    push_cast
+    ring
+  · simp [hi]
+
+/-- Golden theorem for Abel-certified bounds on `mertensLogSum`. -/
+theorem verify_mertensAbel_interval_logSum {N depth : Nat} (hN : 2 < N + 1)
+    (lo hi : ℚ) (hcheck : checkMertensAbelInterval N depth lo hi = true) :
+    (lo : ℝ) ≤ mertensLogSum N ∧ mertensLogSum N ≤ (hi : ℝ) := by
+  rw [← mertensAbelSum_eq_mertensLogSum]
+  exact verify_mertensAbel_interval hN lo hi hcheck
 
 /-- Lower correctness for the finite Mertens log-sum certificate. -/
 theorem mertensLogSumLowerRat_le (N depth : Nat) :

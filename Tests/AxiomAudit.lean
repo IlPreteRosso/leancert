@@ -4,6 +4,8 @@ import LeanCert
 -- explicitly so the whole-library axiom sweep below actually covers them.
 -- `LeanCert.Test.*` and `LeanCert.Examples.*` are deliberately excluded:
 -- `native_decide` is a legitimate user-facing engine there.
+-- Exception: `Li2Bounds` (the PNT+-facing lightweight interface) IS imported,
+-- so the sorryAx sweep below can pin its sanctioned sorries exactly.
 import LeanCert.Engine.Eval
 import LeanCert.Engine.Pisano
 import LeanCert.Engine.PentagonLucas
@@ -11,6 +13,7 @@ import LeanCert.Engine.TaylorModel.Log1p
 import LeanCert.Engine.TaylorModel.TrigReduced
 import LeanCert.Core.HermiteBounds
 import LeanCert.Core.LogBounds
+import LeanCert.Examples.Li2Bounds
 
 /-!
 Axiom/sorry guardrail for the certified interval evaluation path.
@@ -121,3 +124,41 @@ run_meta do
   unless offenders.isEmpty do
     throwError "Axioms minted inside LeanCert (library-internal native_decide leak?):\n\
       {offenders.toList}"
+
+/-! ### Whole-library sorryAx sweep (exact allowlist)
+
+`lake build` only *warns* on `sorry`, and the textual CI guard cannot see
+inline `:= by sorry` forms or tactic-generated holes. This sweep runs
+`collectAxioms` (the `#print axioms` engine) on every public constant declared
+in a `LeanCert.*` module and fails if any of them depends on `sorryAx` —
+except the four explicitly sanctioned `Li2` interface declarations (the
+lightweight-interface/heavy-verification split used by PNT+; see
+`LeanCert/Examples/Li2Bounds.lean`). Their verified counterparts and a
+statement-identity check live in the `Li2Verified` CI target.
+
+Internal (name-mangled) constants are skipped: a sorry inside an internal
+auxiliary taints every public declaration that uses it, so the public sweep
+already covers everything importable. -/
+
+open Lean in
+run_meta do
+  let env ← getEnv
+  let allowed : Array Name :=
+    #[``Li2.li2_lower, ``Li2.li2_upper, ``Li2.li2_bounds, ``Li2.li2_approx_1045]
+  let moduleNames := env.header.moduleNames
+  let isLeanCertModule (n : Name) : Bool :=
+    match env.getModuleIdxFor? n with
+    | some idx =>
+      match moduleNames[idx]? with
+      | some m => m.getRoot == `LeanCert
+      | none => false
+    | none => false
+  let mut offenders : Array Name := #[]
+  for (n, _) in env.constants.toList do
+    if isLeanCertModule n && !n.isInternal && !allowed.contains n then
+      let axs ← collectAxioms n
+      if axs.contains ``sorryAx then
+        offenders := offenders.push n
+  unless offenders.isEmpty do
+    throwError "Declarations depending on sorryAx outside the sanctioned Li2 \
+      interface (see LeanCert/Examples/Li2Bounds.lean):\n{offenders.toList}"

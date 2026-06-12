@@ -14,6 +14,11 @@ import Mathlib.Tactic.IntervalCases
 This file introduces the finite prime truncations and the directed prime limit as
 an infimum over the truncation values.  The tail-sandwich certificates live on
 top of these definitions.
+
+`primeLambda` is defined as the infimum of the finite-truncation values, and
+the theorems in this development are about that object. The identification of
+the infimum with the infinite prime-product integral `∫₀¹ ∏_p (1 - u^p) du`
+is not formalized here; see the `primeLambda` docstring.
 -/
 
 namespace LeanCert.QProduct
@@ -47,7 +52,14 @@ def primeSandwichLowerRat (N m : Nat) : ℚ :=
 noncomputable def primeSandwichLowerFun (N m : Nat) (u : ℝ) : ℝ :=
   qProd (primesLE N) u - qProd ((primesLE N).filter (fun p => p ≠ 2)) u * u ^ m
 
-/-- Prime q-product directed limit, represented as the infimum of truncations. -/
+/-- Prime q-product directed limit, defined as the infimum of the
+finite-truncation values `primeFRat N`.
+
+The truncations are antitone (`primeFRat_antitone`) and bounded below by `0`,
+so this infimum coincides with the limit of the truncation sequence. The
+identification of that limit with the infinite prime-product integral
+`∫₀¹ ∏_p (1 - u^p) du` is not formalized; theorems about `primeLambda` are
+theorems about the truncation infimum. -/
 noncomputable def primeLambda : ℝ :=
   sInf (Set.range fun N : Nat => (primeFRat N : ℝ))
 
