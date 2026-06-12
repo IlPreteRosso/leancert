@@ -8,6 +8,9 @@ import LeanCert.QProduct.Finite
 import LeanCert.QProduct.Stability
 import LeanCert.QProduct.Certificate
 import LeanCert.QProduct.PrimeLambda
+import LeanCert.QProduct.LimitCert
+import LeanCert.QProduct.Differences
+import LeanCert.QProduct.InfiniteProduct
 
 /-!
 # QProduct
