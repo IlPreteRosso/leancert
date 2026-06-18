@@ -372,7 +372,7 @@ theorem analyticAt_sinc_zero : AnalyticAt ℝ sinc 0 := by
   have horder_ne_zero : analyticOrderAt sin (0 : ℝ) ≠ 0 :=
     hsin_an.analyticOrderAt_ne_zero.mpr sin_zero
   -- From the order, we get an analytic g with sin(z) = z * g(z) near 0
-  have horder : (1 : ℕ) ≤ analyticOrderAt sin (0 : ℝ) := ENat.one_le_iff_ne_zero.mpr horder_ne_zero
+  have horder : (1 : ℕ) ≤ analyticOrderAt sin (0 : ℝ) := Order.one_le_iff_ne_zero.mpr horder_ne_zero
   rw [natCast_le_analyticOrderAt hsin_an] at horder
   simp only [pow_one, sub_zero] at horder
   obtain ⟨g, hg_an, hg_eq⟩ := horder
