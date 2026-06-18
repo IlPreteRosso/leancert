@@ -284,7 +284,7 @@ theorem symmetricLogComb_le_four_thirds (t : ℝ) (ht_pos : 0 < t) (ht_le : t �
         log (1 + t / (1 - t)) = log ((1 - t + t) / (1 - t)) := by
           congr
           field_simp [h1mt_ne]
-        _ = log ((1 : ℝ) / (1 - t)) := by ring
+        _ = log ((1 : ℝ) / (1 - t)) := by congr 1; ring
         _ = log ((1 - t)⁻¹) := by field_simp [h1mt_ne]
         _ = -log (1 - t) := by simpa using log_inv h1mt_ne
     rw [hleft, hright] at h
@@ -371,11 +371,9 @@ theorem tendsto_log_one_add_div_self :
 theorem tendsto_log_one_sub_div_self :
     Filter.Tendsto (fun t => log (1 - t) / t) (nhdsWithin 0 (Set.Ioi 0)) (nhds (-1)) := by
   have hderiv : HasDerivAt (fun x : ℝ => log (1 - x)) (-1) 0 := by
-    have hlog : HasDerivAt log 1 1 := by simpa using hasDerivAt_log (one_ne_zero)
     have hneg : HasDerivAt (fun x : ℝ => 1 - x) (-1) 0 := by
-      simpa using (hasDerivAt_const (0 : ℝ) (1 : ℝ)).sub (hasDerivAt_id 0)
-    have hlog' : HasDerivAt log 1 (1 - 0) := by simp only [sub_zero]; exact hlog
-    simpa using hlog'.comp 0 hneg
+      simpa using (hasDerivAt_id (0 : ℝ)).const_sub 1
+    simpa using hneg.log (by norm_num : (1 : ℝ) - 0 ≠ 0)
   have htendsto := hderiv.tendsto_slope_zero_right
   simp only [sub_zero, log_one, smul_eq_mul, inv_mul_eq_div] at htendsto
   convert htendsto using 2 with t
@@ -449,9 +447,7 @@ theorem symmetricLogComb_tendsto_one :
       (nhdsWithin 0 (Set.Ioi 0)) (nhds 1) := by
     have hne : (-1 : ℝ) ≠ 0 := by norm_num
     have := h1.div hprod hne
-    simp only [neg_div_neg_eq] at this
-    convert this using 1
-    norm_num
+    rwa [neg_div_neg_eq, div_one] at this
   exact hdiv
 
 end LeanCert.Core

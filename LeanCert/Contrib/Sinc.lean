@@ -315,9 +315,9 @@ theorem sinc_eq_integral (x : ℝ) : sinc x = ∫ t in (0 : ℝ)..1, cos (t * x)
       intro t
       have : HasDerivAt (fun u => sin (u * x)) (x * cos (t * x)) t := by
         have := Real.hasDerivAt_sin (t * x)
-        convert HasDerivAt.comp t this (hasDerivAt_mul_const x) using 1
+        convert! HasDerivAt.comp t this (hasDerivAt_mul_const x) using 1
         ring
-      convert this.div_const x using 1
+      convert! this.div_const x using 1
       field_simp
     -- The antiderivative is sin(tx)/x, which is continuous
     have hcont_anti : ContinuousOn (fun t => sin (t * x) / x) (Set.Icc 0 1) :=
@@ -372,7 +372,7 @@ theorem analyticAt_sinc_zero : AnalyticAt ℝ sinc 0 := by
   have horder_ne_zero : analyticOrderAt sin (0 : ℝ) ≠ 0 :=
     hsin_an.analyticOrderAt_ne_zero.mpr sin_zero
   -- From the order, we get an analytic g with sin(z) = z * g(z) near 0
-  have horder : (1 : ℕ) ≤ analyticOrderAt sin (0 : ℝ) := ENat.one_le_iff_ne_zero.mpr horder_ne_zero
+  have horder : (1 : ℕ) ≤ analyticOrderAt sin (0 : ℝ) := Order.one_le_iff_ne_zero.mpr horder_ne_zero
   rw [natCast_le_analyticOrderAt hsin_an] at horder
   simp only [pow_one, sub_zero] at horder
   obtain ⟨g, hg_an, hg_eq⟩ := horder
