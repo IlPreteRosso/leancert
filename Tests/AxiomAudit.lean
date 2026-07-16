@@ -52,6 +52,10 @@ assert_no_sorry LeanCert.Engine.evalIntervalWith_dyadic_correct
 assert_no_sorry LeanCert.Engine.evalIntervalWith_affine_correct
 assert_no_sorry LeanCert.Engine.evalIntervalWith_correct
 assert_no_sorry LeanCert.evalInterval_correct
+assert_no_sorry LeanCert.evalInterval1_correct
+assert_no_sorry LeanCert.Backend.Rational.eval_correct
+assert_no_sorry LeanCert.Backend.Dyadic.eval_correct
+assert_no_sorry LeanCert.Backend.Affine.eval_correct
 assert_no_sorry LeanCert.ML.mem_erfGELUIntervalRat
 assert_no_sorry LeanCert.ML.mem_erfGELUInterval
 assert_no_sorry LeanCert.ML.AffineLayer.forwardInterval_correct

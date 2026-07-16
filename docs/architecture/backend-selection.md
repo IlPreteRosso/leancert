@@ -8,8 +8,8 @@ not the recommended application entry point. JSON callers use the ordinary
 `backend` field.
 
 The public `IntervalOutcome` contains only the backend-independent rational
-enclosure and the concrete backend used. Backend-native Dyadic and Affine
-representations belong to the advanced backend APIs.
+enclosure and the concrete backend used. Backend-native results are available
+through the checked `LeanCert.Backend.Rational`, `.Dyadic`, and `.Affine` APIs.
 
 Supported selector values are `auto`, `rational`, `dyadic`, and `affine`.
 
@@ -40,13 +40,20 @@ open LeanCert
 
 def unit : IntervalRat := ⟨0, 1, by norm_num⟩
 
+def preciseDyadic : EvalOptions := {
+  backend := .dyadic
+  precisionOptions := { dyadicExponent := -80, taylorDepth := 12 }
+}
+
 #eval evalInterval (.exp (.var 0)) [unit]
 #eval evalInterval (.exp (.var 0)) [unit] { backend := .affine }
+#eval evalInterval (.exp (.var 0)) [unit] preciseDyadic
 ```
 
-The historical suffixed JSON methods (`eval_interval_dyadic`,
-`eval_interval_affine`, `global_min_dyadic`, and so on) are compatibility
-aliases. New clients should use the generic method and selector.
+The historical `eval_interval_dyadic` and `eval_interval_affine` JSON methods
+were removed; use `eval_interval` with the `backend` selector. Suffixed global
+optimization methods remain temporary compatibility aliases until the global
+configuration API is consolidated.
 
 At the Lean API level, division-capable guided optimization and
 counterexample search now return `EvalResult`: `globalMinimizeGuidedDiv`,

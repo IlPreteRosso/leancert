@@ -60,7 +60,7 @@ structure BackendOptions where
 structure IntervalOutcome where
   interval : IntervalRat
   backend : ConcreteBackend
-  deriving Repr
+  deriving Repr, DecidableEq
 
 /-- Whether a concrete backend has a certified implementation for an operation. -/
 def backendSupports : ConcreteBackend → BackendOperation → Bool

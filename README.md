@@ -88,13 +88,22 @@ open LeanCert
 
 def unit : IntervalRat := ⟨0, 1, by norm_num⟩
 
+def preciseDyadic : EvalOptions := {
+  backend := .dyadic
+  precisionOptions := { dyadicExponent := -80, taylorDepth := 12 }
+}
+
 #eval evalInterval (.exp (.var 0)) [unit]
 #eval evalInterval (.exp (.var 0)) [unit] { backend := .affine }
+#eval evalInterval (.exp (.var 0)) [unit] preciseDyadic
 ```
 
 `LeanCert.evalInterval_correct` is the backend-independent golden theorem for
 every successful result. Domain and configuration failures are returned as
 structured `EvalError` values rather than permissive intervals.
+Clients needing native results can use `LeanCert.Backend.Rational.eval`,
+`LeanCert.Backend.Dyadic.eval`, or `LeanCert.Backend.Affine.eval`; each has a
+local `eval_correct` theorem and the same checked failure discipline.
 
 ## Discovery Workflow
 

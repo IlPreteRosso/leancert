@@ -22,6 +22,7 @@ import LeanCert.Core.IntervalDyadic
 import LeanCert.Engine.IntervalEval
 import LeanCert.Engine.Eval.Backend
 import LeanCert.API.Eval
+import LeanCert.API.Backend
 import LeanCert.Engine.IntervalEvalReal
 import LeanCert.Engine.AD
 import LeanCert.Engine.Integrate
@@ -196,8 +197,6 @@ export LeanCert.Engine (
   EvalConfig
   -- Legacy evaluator names remain available during the façade migration.
   -- The unsafe `Engine.evalInterval` name is intentionally not re-exported.
-  evalInterval1
-  evalInterval1_correct
   evalIntervalCore
   evalIntervalCore1
   evalIntervalCore_correct
