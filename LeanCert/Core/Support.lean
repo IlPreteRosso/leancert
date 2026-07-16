@@ -172,6 +172,54 @@ def Expr.checkSupported : Expr → Bool
   | .neg e | .exp e | .sin e | .cos e => e.checkSupported
   | _ => false
 
+/-- The executable support check recognizes exactly the differentiable
+`ExprSupported` fragment used by the checked AD/monotonicity backend. -/
+theorem Expr.checkSupported_eq_true_iff (e : Expr) :
+    e.checkSupported = true ↔ ExprSupported e := by
+  induction e with
+  | const q => simp [Expr.checkSupported, ExprSupported.const]
+  | var i => simp [Expr.checkSupported, ExprSupported.var]
+  | add e₁ e₂ ih₁ ih₂ =>
+      simp only [Expr.checkSupported, Bool.and_eq_true, ih₁, ih₂]
+      constructor
+      · rintro ⟨h₁, h₂⟩
+        exact .add h₁ h₂
+      · intro h
+        cases h
+        exact ⟨by assumption, by assumption⟩
+  | mul e₁ e₂ ih₁ ih₂ =>
+      simp only [Expr.checkSupported, Bool.and_eq_true, ih₁, ih₂]
+      constructor
+      · rintro ⟨h₁, h₂⟩
+        exact .mul h₁ h₂
+      · intro h
+        cases h
+        exact ⟨by assumption, by assumption⟩
+  | neg e ih | exp e ih | sin e ih | cos e ih =>
+      simp only [Expr.checkSupported, ih]
+      constructor
+      · intro h
+        first | exact .neg h | exact .exp h | exact .sin h | exact .cos h
+      · intro h
+        cases h
+        assumption
+  | inv e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | log e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | atan e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | arsinh e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | atanh e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | sinc e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | erf e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | sinh e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | cosh e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | tanh e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | sqrt e ih => exact ⟨by simp [Expr.checkSupported], fun h => by cases h⟩
+  | namedConst c =>
+      constructor
+      · simp [Expr.checkSupported]
+      · intro h
+        cases h
+
 /-- Computable recognition of `ExprSupportedCore`. -/
 def Expr.checkSupportedCore : Expr → Bool
   | .const _ | .var _ | .namedConst _ => true

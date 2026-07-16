@@ -61,6 +61,87 @@ def evalWithDerivCore (e : Expr) (ρ : IntervalEnv) (idx : Nat) (cfg : EvalConfi
 def derivIntervalCoreN (e : Expr) (ρ : IntervalEnv) (idx : Nat) (cfg : EvalConfig := {}) : IntervalRat :=
   (evalWithDerivCore e ρ idx cfg).der
 
+/-- Correctness of the computable derivative evaluator for an arbitrary
+coordinate of a multivariate expression. -/
+theorem evalDualCore_der_correct_idx (e : Expr) (hsupp : ExprSupported e)
+    (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) (idx : Nat)
+    (hρ : ∀ i, ρ_real i ∈ ρ_int i) (x : ℝ) (hx : x ∈ ρ_int idx)
+    (cfg : EvalConfig) :
+    deriv (Expr.evalAlong e ρ_real idx) x ∈
+      (evalDualCore e (mkDualEnvCore ρ_int idx) cfg).der := by
+  have hmem : ∀ i, Expr.updateVar ρ_real idx x i ∈
+      (mkDualEnvCore ρ_int idx i).val := by
+    simpa only [mkDualEnvCore, mkDualEnv] using
+      (updateVar_mem_mkDualEnv_val ρ_real ρ_int idx x hx hρ)
+  induction hsupp generalizing x with
+  | const q =>
+      simp only [Expr.evalAlong_const', deriv_const, evalDualCore, DualInterval.const]
+      exact_mod_cast IntervalRat.mem_singleton 0
+  | var i =>
+      by_cases hi : i = idx
+      · subst i
+        simp only [Expr.evalAlong_var_active, evalDualCore, mkDualEnvCore,
+          ↓reduceIte, DualInterval.varActive, deriv_id]
+        exact_mod_cast IntervalRat.mem_singleton 1
+      · simp only [Expr.evalAlong_var_passive _ _ _ hi, deriv_const, evalDualCore,
+          mkDualEnvCore, if_neg hi, DualInterval.varPassive]
+        exact_mod_cast IntervalRat.mem_singleton 0
+  | add h₁ h₂ ih₁ ih₂ =>
+      have hd₁ := evalAlong_differentiable _ h₁ ρ_real idx
+      have hd₂ := evalAlong_differentiable _ h₂ ρ_real idx
+      simp only [Expr.evalAlong_add_pi, deriv_add (hd₁ x) (hd₂ x), evalDualCore,
+        DualInterval.add]
+      exact IntervalRat.mem_add (ih₁ x hx hmem) (ih₂ x hx hmem)
+  | mul h₁ h₂ ih₁ ih₂ =>
+      have hd₁ := evalAlong_differentiable _ h₁ ρ_real idx
+      have hd₂ := evalAlong_differentiable _ h₂ ρ_real idx
+      simp only [Expr.evalAlong_mul_pi, deriv_mul (hd₁ x) (hd₂ x), evalDualCore,
+        DualInterval.mul]
+      have hdom₁ := evalDomainValidDual_of_ExprSupported _ h₁
+        (mkDualEnvCore ρ_int idx) cfg
+      have hdom₂ := evalDomainValidDual_of_ExprSupported _ h₂
+        (mkDualEnvCore ρ_int idx) cfg
+      have hval₁ := evalDualCore_val_correct _ h₁.toCore
+        (Expr.updateVar ρ_real idx x) (mkDualEnvCore ρ_int idx) cfg hmem hdom₁
+      have hval₂ := evalDualCore_val_correct _ h₂.toCore
+        (Expr.updateVar ρ_real idx x) (mkDualEnvCore ρ_int idx) cfg hmem hdom₂
+      exact IntervalRat.mem_add (IntervalRat.mem_mul (ih₁ x hx hmem) hval₂)
+        (IntervalRat.mem_mul hval₁ (ih₂ x hx hmem))
+  | neg hs ih =>
+      have hd := evalAlong_differentiable _ hs ρ_real idx
+      simp only [Expr.evalAlong_neg_pi, deriv.neg, evalDualCore, DualInterval.neg]
+      exact IntervalRat.mem_neg (ih x hx hmem)
+  | @sin e' hs ih =>
+      have hd := evalAlong_differentiable e' hs ρ_real idx
+      simp only [Expr.evalAlong_sin, deriv_sin (hd.differentiableAt), evalDualCore,
+        DualInterval.sinCore]
+      have hdom := evalDomainValidDual_of_ExprSupported e' hs
+        (mkDualEnvCore ρ_int idx) cfg
+      have hval := evalDualCore_val_correct e' hs.toCore
+        (Expr.updateVar ρ_real idx x) (mkDualEnvCore ρ_int idx) cfg hmem hdom
+      exact IntervalRat.mem_mul
+        (IntervalRat.mem_cosComputable hval cfg.taylorDepth) (ih x hx hmem)
+  | @cos e' hs ih =>
+      have hd := evalAlong_differentiable e' hs ρ_real idx
+      simp only [Expr.evalAlong_cos, deriv_cos (hd.differentiableAt), evalDualCore,
+        DualInterval.cosCore]
+      have hdom := evalDomainValidDual_of_ExprSupported e' hs
+        (mkDualEnvCore ρ_int idx) cfg
+      have hval := evalDualCore_val_correct e' hs.toCore
+        (Expr.updateVar ρ_real idx x) (mkDualEnvCore ρ_int idx) cfg hmem hdom
+      exact IntervalRat.mem_mul
+        (IntervalRat.mem_neg (IntervalRat.mem_sinComputable hval cfg.taylorDepth)) (ih x hx hmem)
+  | @exp e' hs ih =>
+      have hd := evalAlong_differentiable e' hs ρ_real idx
+      simp only [Expr.evalAlong_exp, deriv_exp (hd.differentiableAt), evalDualCore,
+        DualInterval.expCore]
+      have hdom := evalDomainValidDual_of_ExprSupported e' hs
+        (mkDualEnvCore ρ_int idx) cfg
+      have hval := evalDualCore_val_correct e' hs.toCore
+        (Expr.updateVar ρ_real idx x) (mkDualEnvCore ρ_int idx) cfg hmem hdom
+      exact IntervalRat.mem_mul
+        (IntervalRat.mem_expComputable hval cfg.taylorDepth) (ih x hx hmem)
+
 /-- Computable version of gradient interval for Core expressions.
     This can be used with `native_decide` for verified optimization. -/
 def gradientIntervalCore (e : Expr) (B : Box) (cfg : EvalConfig := {}) : List IntervalRat :=
@@ -355,6 +436,58 @@ theorem pruneBoxForMin_length (B : Box) (grad : List IntervalRat) :
     (pruneBoxForMin B grad).1.length = B.length := by
   simp only [pruneBoxForMin, List.length_map, List.length_zipIdx]
 
+/-- A positive computable derivative enclosure makes the objective increasing
+along the selected coordinate. -/
+theorem increasing_min_at_left_idx_core (e : Expr) (hsupp : ExprSupported e)
+    (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) (idx : Nat)
+    (hρ : ∀ i, ρ_real i ∈ ρ_int i) (cfg : EvalConfig)
+    (hpos : 0 < (derivIntervalCoreN e ρ_int idx cfg).lo) :
+    ∀ x ∈ ρ_int idx,
+      Expr.evalAlong e ρ_real idx (ρ_int idx).lo ≤ Expr.evalAlong e ρ_real idx x := by
+  have hdiff := evalAlong_differentiable e hsupp ρ_real idx
+  have hmono : StrictMonoOn (Expr.evalAlong e ρ_real idx)
+      (Set.Icc ((ρ_int idx).lo : ℝ) ((ρ_int idx).hi : ℝ)) := by
+    apply strictMonoOn_of_deriv_pos (convex_Icc _ _)
+    · exact hdiff.continuous.continuousOn
+    · intro x hx
+      rw [interior_Icc] at hx
+      have hx' : x ∈ ρ_int idx := ⟨le_of_lt hx.1, le_of_lt hx.2⟩
+      have hmem := evalDualCore_der_correct_idx e hsupp ρ_real ρ_int idx hρ x hx' cfg
+      exact lt_of_lt_of_le (by exact_mod_cast hpos) ((IntervalRat.mem_def _ _).mp hmem).1
+  intro x hx
+  rcases hx with ⟨hlo, hhi⟩
+  by_cases heq : ((ρ_int idx).lo : ℝ) = x
+  · exact heq ▸ le_rfl
+  · exact le_of_lt (hmono
+      ⟨le_rfl, by exact_mod_cast (ρ_int idx).le⟩ ⟨hlo, hhi⟩
+      (lt_of_le_of_ne hlo heq))
+
+/-- A negative computable derivative enclosure makes the objective decreasing
+along the selected coordinate. -/
+theorem decreasing_min_at_right_idx_core (e : Expr) (hsupp : ExprSupported e)
+    (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) (idx : Nat)
+    (hρ : ∀ i, ρ_real i ∈ ρ_int i) (cfg : EvalConfig)
+    (hneg : (derivIntervalCoreN e ρ_int idx cfg).hi < 0) :
+    ∀ x ∈ ρ_int idx,
+      Expr.evalAlong e ρ_real idx (ρ_int idx).hi ≤ Expr.evalAlong e ρ_real idx x := by
+  have hdiff := evalAlong_differentiable e hsupp ρ_real idx
+  have hmono : StrictAntiOn (Expr.evalAlong e ρ_real idx)
+      (Set.Icc ((ρ_int idx).lo : ℝ) ((ρ_int idx).hi : ℝ)) := by
+    apply strictAntiOn_of_deriv_neg (convex_Icc _ _)
+    · exact hdiff.continuous.continuousOn
+    · intro x hx
+      rw [interior_Icc] at hx
+      have hx' : x ∈ ρ_int idx := ⟨le_of_lt hx.1, le_of_lt hx.2⟩
+      have hmem := evalDualCore_der_correct_idx e hsupp ρ_real ρ_int idx hρ x hx' cfg
+      exact lt_of_le_of_lt ((IntervalRat.mem_def _ _).mp hmem).2 (by exact_mod_cast hneg)
+  intro x hx
+  rcases hx with ⟨hlo, hhi⟩
+  by_cases heq : x = ((ρ_int idx).hi : ℝ)
+  · exact heq ▸ le_rfl
+  · exact le_of_lt (hmono ⟨hlo, hhi⟩
+      ⟨by exact_mod_cast (ρ_int idx).le, le_rfl⟩
+      (lt_of_le_of_ne hhi heq))
+
 /-- **Main correctness theorem for pruneBoxForMin:**
 
     After pruning, for any point ρ in the original box B, there exists a point ρ'
@@ -371,8 +504,9 @@ theorem pruneBoxForMin_length (B : Box) (grad : List IntervalRat) :
     The proof then shows f(ρ') ≤ f(ρ) by induction on coordinates, using
     the monotonicity lemmas `increasing_min_at_left_idx` and `decreasing_min_at_right_idx`.
 -/
-theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box) :
-    let grad := gradientIntervalN e B B.length
+theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box)
+    (cfg : EvalConfig := {}) :
+    let grad := gradientIntervalCore e B cfg
     let B' := (pruneBoxForMin B grad).1
     ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
       ∃ (ρ' : Nat → ℝ), Box.envMem ρ' B' ∧ (∀ i, i ≥ B'.length → ρ' i = 0) ∧
@@ -633,8 +767,8 @@ theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box) :
               simp only [dif_neg h2]
 
             -- The gradient at coord m is strictly positive
-            have hgrad_di : derivInterval e (Box.toEnv B) m = di := by
-              simp only [grad, gradientIntervalN] at hgrad_m
+            have hgrad_di : derivIntervalCoreN e (Box.toEnv B) m cfg = di := by
+              simp only [grad, gradientIntervalCore] at hgrad_m
               rw [List.getElem?_map, List.getElem?_range hm] at hgrad_m
               simp only [Option.map_some] at hgrad_m
               exact Option.some.inj hgrad_m
@@ -654,14 +788,15 @@ theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box) :
                 exact hρ_seq_m_zero j (not_lt.mp hj)
 
             -- Convert isStrictlyPositive to 0 < lo
-            have hpos : 0 < (derivInterval e ρ_int m).lo := by
+            have hpos : 0 < (derivIntervalCoreN e ρ_int m cfg).lo := by
               simp only [ρ_int]
               rw [hgrad_di]
               simp only [isStrictlyPositive, canPruneToLo] at hlo
               exact decide_eq_true_iff.mp hlo
 
             -- Apply the monotonicity theorem for increasing functions
-            have hmono := increasing_min_at_left_idx e hsupp (ρ_seq m) ρ_int m hρ_int hpos
+            have hmono := increasing_min_at_left_idx_core e hsupp (ρ_seq m) ρ_int m
+              hρ_int cfg hpos
 
             -- ρ_seq m at coord m is in the interval
             have hρ_m_mem : ρ_seq m m ∈ ρ_int m := hρ_int m
@@ -733,8 +868,8 @@ theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box) :
                 have h2 : ¬(j < B.length) := not_lt.mpr hjge
                 simp only [dif_neg h2]
 
-              have hgrad_di : derivInterval e (Box.toEnv B) m = di := by
-                simp only [grad, gradientIntervalN] at hgrad_m
+              have hgrad_di : derivIntervalCoreN e (Box.toEnv B) m cfg = di := by
+                simp only [grad, gradientIntervalCore] at hgrad_m
                 rw [List.getElem?_map, List.getElem?_range hm] at hgrad_m
                 simp only [Option.map_some] at hgrad_m
                 exact Option.some.inj hgrad_m
@@ -754,14 +889,15 @@ theorem pruneBoxForMin_correct (e : Expr) (hsupp : ExprSupported e) (B : Box) :
                   exact hρ_seq_m_zero j (not_lt.mp hj)
 
               -- Convert isStrictlyNegative to hi < 0
-              have hneg : (derivInterval e ρ_int m).hi < 0 := by
+              have hneg : (derivIntervalCoreN e ρ_int m cfg).hi < 0 := by
                 simp only [ρ_int]
                 rw [hgrad_di]
                 simp only [isStrictlyNegative, canPruneToHi] at hhi
                 exact decide_eq_true_iff.mp hhi
 
               -- Apply the monotonicity theorem for decreasing functions
-              have hmono := decreasing_min_at_right_idx e hsupp (ρ_seq m) ρ_int m hρ_int hneg
+              have hmono := decreasing_min_at_right_idx_core e hsupp (ρ_seq m) ρ_int m
+                hρ_int cfg hneg
 
               -- ρ_seq m at coord m is in the interval
               have hρ_m_mem : ρ_seq m m ∈ ρ_int m := hρ_int m

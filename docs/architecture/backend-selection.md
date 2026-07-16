@@ -61,10 +61,12 @@ optimization, integration, bisection, and candidate-certification requests
 with another value are rejected as invalid configuration rather than silently
 ignoring the option.
 
-Checked global optimization currently requires `useMonotonicity: false` (the
-default). An explicit request for monotonicity pruning is rejected because the
-derivative backend supports a smaller expression language; it is not silently
-ignored or applied outside its theorem's hypotheses.
+Checked global optimization supports `useMonotonicity`. For the differentiable
+`const/var/add/mul/neg/exp/sin/cos` fragment, a computable interval-AD gradient
+may fix monotone coordinates to the minimizing endpoint. The checked loop's
+invariant carries a representative point in the pruned box and a proof that its
+objective value is no larger than the original point. Expressions outside that
+AD fragment remain certified and simply receive no monotonicity reduction.
 
 Checked branch-and-bound computes its lower bound from the current partition
 of terminal and active boxes. Subdivision can therefore tighten dependency-

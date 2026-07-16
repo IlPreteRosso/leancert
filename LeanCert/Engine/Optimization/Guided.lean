@@ -202,7 +202,9 @@ def globalMinimizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) :
         if gridVal < mcVal then gridBest else mcBest
       else mcBest
     let candidate ← certifyCandidateDiv e B heuristicBest cfg.toGlobalOptConfig
-    minimizeLoopCheckedWith (evalOnBoxRationalChecked e) cfg.maxIterations
+    minimizeLoopCheckedWith (evalOnBoxRationalChecked e)
+      (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
+      cfg.maxIterations
       cfg.tolerance root.lo [(root.lo, B)] []
       (min root.hi candidate.hi) B cfg.maxIterations
 

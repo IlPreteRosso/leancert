@@ -55,9 +55,6 @@ private def affineConfig (cfg : BackendGlobalOptConfig) : GlobalOptConfigAffine 
 
 private def globalOptimizeWith (minimize : Bool) (cfg : BackendGlobalOptConfig)
     (e : Expr) (box : Box) : EvalResult GlobalOutcome := do
-  if cfg.useMonotonicity then
-    throw (.unsupportedFeature
-      "checked global optimization does not yet support monotonicity pruning")
   let backend ← resolveBackend cfg.backend .globalOptimization
   let result ← match backend with
     | .rational =>
@@ -94,26 +91,22 @@ theorem globalMinimizeWith_lower_correct (cfg : BackendGlobalOptConfig)
     (hsuccess : globalMinimizeWith cfg e box = .ok outcome) :
     ∀ rho, Box.envMem rho box → (∀ i, i ≥ box.length → rho i = 0) →
       (outcome.result.bound.lo : ℝ) ≤ Expr.eval rho e := by
-  have hmono : cfg.useMonotonicity = false := by
-    by_contra h
-    have : cfg.useMonotonicity = true := Bool.eq_true_of_not_eq_false h
-    simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, this] at hsuccess
   cases hbackend : resolveBackend cfg.backend .globalOptimization with
   | error err =>
-      simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend] at hsuccess
+      simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend] at hsuccess
   | ok backend =>
       cases backend with
       | rational =>
           have hdepth : cfg.taylorDepth = 10 := by
             by_contra h
-            simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, h] at hsuccess
+            simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, h] at hsuccess
           cases hrun : globalMinimizeRationalChecked e box (rationalConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, hdepth,
+              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, hdepth,
                 hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, hdepth,
+                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, hdepth,
                   hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
@@ -124,14 +117,14 @@ theorem globalMinimizeWith_lower_correct (cfg : BackendGlobalOptConfig)
           have hprec : cfg.dyadicPrecision ≤ 0 := by
             by_contra h
             have hpos : cfg.dyadicPrecision > 0 := lt_of_not_ge h
-            simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, hpos] at hsuccess
+            simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, hpos] at hsuccess
           cases hrun : globalMinimizeDyadicChecked e box (dyadicConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend,
+              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend,
                 show ¬cfg.dyadicPrecision > 0 from not_lt.mpr hprec, hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend,
+                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend,
                   show ¬cfg.dyadicPrecision > 0 from not_lt.mpr hprec, hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
@@ -141,10 +134,10 @@ theorem globalMinimizeWith_lower_correct (cfg : BackendGlobalOptConfig)
       | affine =>
           cases hrun : globalMinimizeAffineChecked e box (affineConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, hrun] at hsuccess
+              simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hmono, hbackend, hrun] at hsuccess
+                simp [Except.bind, bind, globalMinimizeWith, globalOptimizeWith, hbackend, hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
               subst result
@@ -157,25 +150,21 @@ theorem globalMaximizeWith_upper_correct (cfg : BackendGlobalOptConfig)
     (hsuccess : globalMaximizeWith cfg e box = .ok outcome) :
     ∀ rho, Box.envMem rho box → (∀ i, i ≥ box.length → rho i = 0) →
       Expr.eval rho e ≤ (outcome.result.bound.hi : ℝ) := by
-  have hmono : cfg.useMonotonicity = false := by
-    by_contra h
-    have : cfg.useMonotonicity = true := Bool.eq_true_of_not_eq_false h
-    simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, this] at hsuccess
   cases hbackend : resolveBackend cfg.backend .globalOptimization with
-  | error err => simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend] at hsuccess
+  | error err => simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend] at hsuccess
   | ok backend =>
       cases backend with
       | rational =>
           have hdepth : cfg.taylorDepth = 10 := by
             by_contra h
-            simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, h] at hsuccess
+            simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, h] at hsuccess
           cases hrun : globalMaximizeRationalChecked e box (rationalConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, hdepth,
+              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, hdepth,
                 hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, hdepth,
+                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, hdepth,
                   hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
@@ -186,14 +175,14 @@ theorem globalMaximizeWith_upper_correct (cfg : BackendGlobalOptConfig)
           have hprec : cfg.dyadicPrecision ≤ 0 := by
             by_contra h
             have hpos : cfg.dyadicPrecision > 0 := lt_of_not_ge h
-            simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, hpos] at hsuccess
+            simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, hpos] at hsuccess
           cases hrun : globalMaximizeDyadicChecked e box (dyadicConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend,
+              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend,
                 show ¬cfg.dyadicPrecision > 0 from not_lt.mpr hprec, hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend,
+                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend,
                   show ¬cfg.dyadicPrecision > 0 from not_lt.mpr hprec, hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
@@ -203,10 +192,10 @@ theorem globalMaximizeWith_upper_correct (cfg : BackendGlobalOptConfig)
       | affine =>
           cases hrun : globalMaximizeAffineChecked e box (affineConfig cfg) with
           | error err =>
-              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, hrun] at hsuccess
+              simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, hrun] at hsuccess
           | ok result =>
               have hout : outcome.result = result := by
-                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hmono, hbackend, hrun] at hsuccess
+                simp [Except.bind, bind, globalMaximizeWith, globalOptimizeWith, hbackend, hrun] at hsuccess
                 injection hsuccess with h
                 exact congrArg GlobalOutcome.result h.symm
               subst result

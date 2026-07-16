@@ -215,6 +215,11 @@ def jsonBackendIs (expected : String) (j : Json) : Bool :=
   | .ok actual => actual = expected
   | .error _ => false
 
+def jsonNatFieldIs (field : String) (expected : Nat) (j : Json) : Bool :=
+  match j.getObjValAs? Nat field with
+  | .ok actual => actual = expected
+  | .error _ => false
+
 -- A reciprocal singularity is an error, never a finite pseudo-interval.
 #guard jsonStatusIs "domain_error" (handleEvalInterval {
   expr := Expr.inv (Expr.var 0), box := #[zeroOneRaw]
@@ -264,14 +269,37 @@ def jsonBackendIs (expected : String) (j : Json) : Bool :=
   expr := Expr.var 0, interval := zeroOneRaw
 })
 
--- Optimization shares the selector: auto is Dyadic, and an option that the
--- checked optimizer cannot implement is rejected instead of silently ignored.
+-- Optimization shares the selector: auto is Dyadic. Checked monotonicity
+-- pruning fixes x to its low endpoint, so the one-dimensional queue finishes
+-- in one iteration instead of being split.
 #guard jsonBackendIs "dyadic" (handleGlobalMin {
   expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1
 })
 
-#guard jsonStatusIs "unsupported_feature" (handleGlobalMin {
+#guard jsonStatusIs "certified" (handleGlobalMin {
   expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonNatFieldIs "remainingBoxes" 0 (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonStatusIs "certified" (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], backend := .rational, maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonStatusIs "certified" (handleGlobalMax {
+  expr := Expr.var 0, box := #[zeroOneRaw], backend := .affine, maxIters := 1,
+  useMonotonicity := true
+})
+
+-- Expressions outside the differentiable AD subset still optimize safely;
+-- the optional monotonicity pre-pass is a checked no-op for them.
+#guard jsonStatusIs "certified" (handleGlobalMin {
+  expr := Expr.sqrt (Expr.var 0), box := #[zeroOneRaw], maxIters := 1,
   useMonotonicity := true
 })
 
