@@ -81,6 +81,21 @@ Dyadic-first for evaluation and global optimization, while operations that do
 not yet have a certified Dyadic implementation (root finding and integration)
 use Rational. See [Interval Backend Selection](docs/architecture/backend-selection.md).
 
+```lean
+import LeanCert
+
+open LeanCert
+
+def unit : IntervalRat := ⟨0, 1, by norm_num⟩
+
+#eval evalInterval (.exp (.var 0)) [unit]
+#eval evalInterval (.exp (.var 0)) [unit] { backend := .affine }
+```
+
+`LeanCert.evalInterval_correct` is the backend-independent golden theorem for
+every successful result. Domain and configuration failures are returned as
+structured `EvalError` values rather than permissive intervals.
+
 ## Discovery Workflow
 
 LeanCert includes editor commands for exploring bounds before committing to a theorem.

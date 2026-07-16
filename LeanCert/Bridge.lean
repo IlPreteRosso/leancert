@@ -8,7 +8,7 @@ import LeanCert.Core.Expr
 import LeanCert.Engine.IntervalEval
 import LeanCert.Engine.IntervalEvalDyadic
 import LeanCert.Engine.IntervalEvalAffine
-import LeanCert.Engine.Eval.Backend
+import LeanCert.API.Eval
 import LeanCert.Engine.Optimization.Global
 import LeanCert.Engine.Optimization.Backend
 import LeanCert.Engine.Optimization.Gradient
@@ -727,30 +727,19 @@ instance : FromJson DerivIntervalRequest where
 /-- Handle interval evaluation request -/
 def handleEvalInterval (req : EvalRequest) : Json :=
   let intervals := req.box.toList.map RawInterval.toInterval
-  let options : BackendOptions := {
+  let options : EvalOptions := {
     backend := req.backend
     taylorDepth := req.taylorDepth
     dyadicPrecision := req.precision
     maxNoiseSymbols := req.maxNoiseSymbols
   }
-  match evalIntervalWith options req.expr intervals with
+  match LeanCert.evalInterval req.expr intervals options with
   | .ok result =>
-      let fields := [
+      Json.mkObj [
         ("status", Json.str "certified"),
         ("backend", Json.str (concreteBackendName result.backend)),
         ("lo", toJson (toRawRat result.interval.lo)),
         ("hi", toJson (toRawRat result.interval.hi))]
-      let fields := match result.dyadic with
-        | some I => fields ++ [("dyadic", Json.mkObj [
-            ("lo", toJson (toRawDyadic I.lo)),
-            ("hi", toJson (toRawDyadic I.hi))])]
-        | none => fields
-      let fields := match result.affine with
-        | some a => fields ++ [("affine", Json.mkObj [
-            ("c0", toJson (toRawRat a.c0)),
-            ("radius", toJson (toRawRat a.deviationBound))])]
-        | none => fields
-      Json.mkObj fields
   | .error err => evalFailureJson err
 
 /-- Handle high-performance Dyadic interval evaluation request.
@@ -759,8 +748,8 @@ This evaluator uses Dyadic arithmetic (n * 2^e) instead of rationals,
 preventing denominator explosion for deep expressions. It's 10-100x
 faster for complex expressions like neural networks or nested Taylor series.
 
-The unified result retains both exact Dyadic endpoints and Rational endpoints
-for compatibility with the existing API. -/
+The unified public result reports the certified Rational enclosure and the
+backend used. Backend-native payloads belong to advanced backend APIs. -/
 def handleEvalIntervalDyadic (req : EvalDyadicRequest) : Json :=
   handleEvalInterval {
     expr := req.expr
@@ -879,13 +868,13 @@ def handleGlobalMaxAffine (req : OptimizeAffineRequest) : Json :=
 def handleCheckBound (req : CheckBoundRequest) : Json :=
   let intervals := req.box.toList.map RawInterval.toInterval
   let bound := req.bound.toRat
-  let options : BackendOptions := {
+  let options : EvalOptions := {
     backend := req.backend
     taylorDepth := req.taylorDepth
     dyadicPrecision := req.precision
     maxNoiseSymbols := req.maxNoiseSymbols
   }
-  match evalIntervalWith options req.expr intervals with
+  match LeanCert.evalInterval req.expr intervals options with
   | .error err => Json.mkObj [
       ("status", evalFailureStatus err),
       ("verified", false),
