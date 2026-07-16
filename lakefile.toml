@@ -90,6 +90,7 @@ precompileModules = false
 [[lean_lib]]
 name = "FunctionalTests"
 roots = [
+  "LeanCert.Test.AffineCoverTest",
   "LeanCert.Test.AsympCheckers",
   "LeanCert.Test.AsympEnv",
   "LeanCert.Test.AsympTransforms",

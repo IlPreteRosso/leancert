@@ -14,8 +14,11 @@ Run with: `lake exe check-compat`
 
 open System
 
-/-- LeanCert's expected Mathlib version -/
-def expectedMathlibRev : String := "v4.29.1"
+/-- LeanCert's expected resolved Mathlib commit, matching `lakefile.toml`.
+
+The executable smoke test runs this checker in CI, so updating the Mathlib pin
+without updating this public compatibility contract fails immediately. -/
+def expectedMathlibCommit : String := "81a5d257c8e410db227a6665ed08f64fea08e997"
 
 /-- Extract mathlib rev from lake-manifest.json content -/
 def extractMathlibRev (content : String) : Option (String × String) := do
@@ -57,13 +60,15 @@ def main (args : List String) : IO UInt32 := do
       IO.eprintln "Make sure your project depends on mathlib"
       return 1
     | some (commit, inputRev) =>
-      let isCompatible := inputRev == expectedMathlibRev
+      -- Compare resolved commits rather than input spellings: a tag and an
+      -- exact hash that resolve to the same Mathlib tree are compatible.
+      let isCompatible := commit == expectedMathlibCommit
 
       if args.contains "--json" then
         -- JSON output for programmatic use
         let result := Lean.Json.mkObj [
           ("compatible", Lean.Json.bool isCompatible),
-          ("expected_rev", Lean.Json.str expectedMathlibRev),
+          ("expected_rev", Lean.Json.str expectedMathlibCommit),
           ("found_rev", Lean.Json.str inputRev),
           ("found_commit", Lean.Json.str commit)
         ]
@@ -73,7 +78,7 @@ def main (args : List String) : IO UInt32 := do
         IO.println "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         IO.println "  LeanCert Mathlib Compatibility Check"
         IO.println "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        IO.println s!"  LeanCert expects: {expectedMathlibRev}"
+        IO.println s!"  LeanCert expects: {expectedMathlibCommit}"
         IO.println s!"  Your project has: {inputRev}"
         if commit != inputRev then
           IO.println s!"  (commit: {commit.take 12}...)"
@@ -85,7 +90,7 @@ def main (args : List String) : IO UInt32 := do
           IO.println "  ✗ Version mismatch detected!"
           IO.println ""
           IO.println "  To fix, either:"
-          IO.println s!"  1. Set mathlib rev to '{expectedMathlibRev}' in your lakefile.toml"
+          IO.println s!"  1. Set mathlib rev to '{expectedMathlibCommit}' in your lakefile.toml"
           IO.println "  2. Or update lake-manifest.json mathlib entry to match"
           IO.println ""
           IO.println "  Then run: rm -rf .lake && lake update && lake build"
