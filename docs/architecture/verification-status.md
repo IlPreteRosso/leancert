@@ -198,8 +198,8 @@ branches:
 
 These return `none` for unsupported partial operations such as `inv`, `log`, and
 `atanh`, so callers cannot accidentally treat a fallback interval as a
-certificate. The affine backend still has a legacy total interface; new code
-should use its strict variants.
+certificate. Total fallback evaluators are confined to `LeanCert.Internal.*`;
+new code should use checked or strict variants.
 
 ### Neural Network Verification
 

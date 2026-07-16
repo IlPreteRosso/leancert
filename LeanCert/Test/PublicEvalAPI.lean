@@ -55,6 +55,11 @@ def usedOptimizationBackend (expected : ConcreteBackend)
   | .ok outcome => decide (outcome.backend = expected)
   | .error _ => false
 
+def optimizationFailed (result : EvalResult GlobalOutcome) : Bool :=
+  match result with
+  | .ok _ => false
+  | .error _ => true
+
 #guard usedBackend .dyadic (evalInterval identity [unitInterval])
 #guard usedBackend .rational
   (evalInterval identity [unitInterval] { backend := .rational })
@@ -80,6 +85,7 @@ def usedOptimizationBackend (expected : ConcreteBackend)
   (globalMaximize identity [unitInterval] (optimizationOptions .dyadic))
 #guard usedOptimizationBackend .affine
   (globalMaximize identity [unitInterval] (optimizationOptions .affine))
+#guard optimizationFailed (globalMinimize (.inv identity) [crossesZero])
 
 example (e : Expr) (box : List IntervalRat) (options : EvalOptions) (outcome : IntervalOutcome)
     (hsuccess : evalInterval e box options = .ok outcome)
@@ -115,13 +121,13 @@ example (result : Engine.Affine.AffineForm)
 example (outcome : GlobalOutcome)
     (hsuccess : globalMinimize identity [unitInterval] = .ok outcome)
     (rho : Nat → ℝ) (hrho : BoxEnvMem rho [unitInterval]) :
-    (outcome.result.bound.lo : ℝ) ≤ Expr.eval rho identity :=
+    (outcome.result.lowerBound : ℝ) ≤ Expr.eval rho identity :=
   globalMinimize_correct hsuccess hrho
 
 example (outcome : GlobalOutcome)
     (hsuccess : globalMaximize identity [unitInterval] = .ok outcome)
     (rho : Nat → ℝ) (hrho : BoxEnvMem rho [unitInterval]) :
-    Expr.eval rho identity ≤ (outcome.result.bound.hi : ℝ) :=
+    Expr.eval rho identity ≤ (outcome.result.upperBound : ℝ) :=
   globalMaximize_correct hsuccess hrho
 
 end LeanCert.Test.PublicEvalAPI

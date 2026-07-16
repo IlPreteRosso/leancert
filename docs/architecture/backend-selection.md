@@ -66,6 +66,10 @@ def optimizationOptions : GlobalOptOptions := {
 #eval globalMinimize (.mul (.var 0) (.var 0)) [unit] optimizationOptions
 ```
 
+The public `GlobalResult` contains only stable summary data: lower and upper
+bounds, the best box, and the iteration count. Resumable priority-queue state
+remains part of the advanced engine API.
+
 At the Lean API level, division-capable guided optimization and
 counterexample search now return `EvalResult`: `globalMinimizeGuidedDiv`,
 `globalMaximizeGuidedDiv`, `findViolationDiv`, and `findViolationLowerDiv` can
