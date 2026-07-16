@@ -19,7 +19,7 @@ The key insight is that the checker runs in the Lean kernel using computable rat
 ## Core Theorems
 
 Golden Theorems are defined across multiple files:
-- `Validity/Bounds.lean` - Rational arithmetic (default)
+- `Validity/Bounds.lean` - Rational arithmetic (the tactic-level default)
 - `Validity/DyadicBounds.lean` - Dyadic arithmetic (fast)
 - `Validity/AffineBounds.lean` - Affine arithmetic (tight bounds)
 - `Validity/Monotonicity.lean` - Monotonicity via automatic differentiation
@@ -112,7 +112,10 @@ theorem integrateInterval1Dyadic_correct (e : Expr) (hsupp : ExprSupportedWithIn
       integrateInterval1Dyadic e I cfg
 ```
 
-The dyadic integration path supports `ExprSupportedWithInv` (including `inv`, `log`, `atanh`) and uses `evalIntervalDyadic` which is total — domain violations produce wide bounds that safely cause the checker to return `false`.
+The theorem-level dyadic integration path supports `ExprSupportedWithInv`
+(including `inv`, `log`, `atanh`) under explicit domain-validity hypotheses.
+Public computational endpoints use checked evaluators and return a domain error
+instead of exposing finite fallback bounds.
 
 ```lean
 theorem integratePartitionDyadic_correct (e : Expr) (hsupp : ExprSupportedWithInv e)
@@ -389,9 +392,12 @@ LeanCert provides three arithmetic backends, each with different tradeoffs:
 | **Dyadic** | `Validity/DyadicBounds.lean` | Fast | Fixed-precision | Deep expressions, neural networks |
 | **Affine** | `Validity/AffineBounds.lean` | Medium | Correlation-aware | Dependency-heavy expressions |
 
-### Rational Backend (Default)
+### Rational Backend (Tactic Default)
 
-The standard backend using arbitrary-precision rationals. Guarantees exact intermediate results but can suffer from denominator explosion on deep expressions.
+The standard theorem/tactic backend uses arbitrary-precision rationals. It
+guarantees exact intermediate results but can suffer from denominator
+explosion on deep expressions. The unified programmatic selector defaults to
+the checked Dyadic backend for evaluation and optimization.
 
 ### Dyadic Backend
 

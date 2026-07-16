@@ -47,6 +47,19 @@ assert_no_sorry LeanCert.Engine.mem_erfPointComputable
 assert_no_sorry LeanCert.Engine.evalIntervalChecked_correct
 assert_no_sorry LeanCert.Engine.evalIntervalAffineChecked_correct
 assert_no_sorry LeanCert.Engine.evalIntervalDyadicChecked_correct
+assert_no_sorry LeanCert.Engine.evalIntervalWith_rational_correct
+assert_no_sorry LeanCert.Engine.evalIntervalWith_dyadic_correct
+assert_no_sorry LeanCert.Engine.evalIntervalWith_affine_correct
+assert_no_sorry LeanCert.ML.mem_erfGELUIntervalRat
+assert_no_sorry LeanCert.ML.mem_erfGELUInterval
+assert_no_sorry LeanCert.ML.AffineLayer.forwardInterval_correct
+assert_no_sorry LeanCert.ML.ErfGELUFFN.forwardInterval_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMinimizeCheckedWith_lower_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMinimizeRationalChecked_lo_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMinimizeDyadicChecked_lo_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMinimizeAffineChecked_lo_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMinimizeWith_lower_correct
+assert_no_sorry LeanCert.Engine.Optimization.globalMaximizeWith_upper_correct
 
 /-! ### Exact axiom pinning (catches `native_decide` / `ofReduceBool` creep) -/
 
@@ -73,6 +86,34 @@ info: 'LeanCert.Engine.evalIntervalDyadicChecked_correct' depends on axioms: [pr
 -/
 #guard_msgs in
 #print axioms LeanCert.Engine.evalIntervalDyadicChecked_correct
+
+/--
+info: 'LeanCert.Engine.Optimization.globalMinimizeWith_lower_correct' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms LeanCert.Engine.Optimization.globalMinimizeWith_lower_correct
+
+/--
+info: 'LeanCert.Engine.Optimization.globalMaximizeWith_upper_correct' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms LeanCert.Engine.Optimization.globalMaximizeWith_upper_correct
+
+/--
+info: 'LeanCert.Engine.evalIntervalWith_affine_correct' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms LeanCert.Engine.evalIntervalWith_affine_correct
+
+/--
+info: 'LeanCert.ML.ErfGELUFFN.forwardInterval_correct' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms LeanCert.ML.ErfGELUFFN.forwardInterval_correct
 
 /--
 info: 'LeanCert.Core.MathConst.mem_interval' depends on axioms: [propext, Classical.choice, Quot.sound]

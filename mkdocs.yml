@@ -87,6 +87,7 @@ nav:
     - Distillation: ml/distillation.md
   - Architecture and Trust:
     - Golden Theorems: architecture/golden-theorems.md
+    - Interval Backend Selection: architecture/backend-selection.md
     - Table Certificates: architecture/table-certificates.md
     - Root Finding: architecture/root-finding.md
     - Verification Status: architecture/verification-status.md

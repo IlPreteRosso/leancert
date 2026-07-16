@@ -55,7 +55,7 @@ open Li2
 /-- Dyadic precision config for Li2 integration. Uses -200 bit precision
     with Taylor depth 20 to achieve sufficient accuracy for 3000-partition bounds. -/
 def li2DyadicConfig : LeanCert.Engine.DyadicConfig :=
-  ⟨-200, 20, 0⟩
+  LeanCert.Engine.DyadicConfig.mk (-200) 20
 
 /-! ### Helper definitions for certified integral bounds via native_decide -/
 

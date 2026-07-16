@@ -98,6 +98,15 @@ def insertByBound (queue : List (ℚ × Box)) (lb : ℚ) (B : Box) : List (ℚ �
     if lb ≤ lb' then (lb, B) :: queue
     else (lb', B') :: insertByBound rest lb B
 
+theorem mem_insertByBound_iff (queue : List (ℚ × Box)) (lb : ℚ) (B : Box)
+    (entry : ℚ × Box) :
+    entry ∈ insertByBound queue lb B ↔ entry = (lb, B) ∨ entry ∈ queue := by
+  induction queue with
+  | nil => simp [insertByBound]
+  | cons head tail ih =>
+      simp only [insertByBound]
+      split <;> simp [ih, or_assoc, or_left_comm]
+
 /-- Pop the box with smallest lower bound -/
 def popBest (queue : List (ℚ × Box)) : Option ((ℚ × Box) × List (ℚ × Box)) :=
   match queue with
@@ -195,14 +204,6 @@ def evalOnBoxCore (e : Expr) (B : Box) (cfg : GlobalOptConfig) : IntervalRat :=
   evalIntervalCore e (Box.toEnv B) { taylorDepth := cfg.taylorDepth }
 
 
-/-- Evaluate expression on a box (computable version with division support).
-    This is used by the Python bridge for applications where division is common.
-    WARNING: No correctness theorem; the underlying `evalIntervalCoreWithDiv`
-    returns wide fallback bounds (not sound enclosures) when a denominator
-    interval straddles zero. Search/heuristic use only — never on a proof path. -/
-def evalOnBoxCoreDiv (e : Expr) (B : Box) (cfg : GlobalOptConfig) : IntervalRat :=
-  evalIntervalCoreWithDiv e (Box.toEnv B) { taylorDepth := cfg.taylorDepth }
-
 /-- One step of branch-and-bound (computable version) with explicit bestLB tracking.
     When `cfg.useMonotonicity` is true, applies gradient-based pruning before evaluation. -/
 def minimizeStepCore (e : Expr) (cfg : GlobalOptConfig)
@@ -270,72 +271,6 @@ def globalMinimizeCore (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) : Glob
 /-- Global maximization (computable version) -/
 def globalMaximizeCore (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) : GlobalResult :=
   let result := globalMinimizeCore (Expr.neg e) B cfg
-  { bound := { lo := -result.bound.hi
-               hi := -result.bound.lo
-               bestBox := result.bound.bestBox
-               iterations := result.bound.iterations }
-    remainingBoxes := result.remainingBoxes.map fun (lb, box) => (-lb, box) }
-
-/-! ### Division-supporting versions for Python bridge
-
-These variants use evalIntervalCoreWithDiv which handles division (inv) properly.
-They have the same structure as the standard versions but support expressions with division. -/
-
-/-- One step of branch-and-bound with division support -/
-def minimizeStepCoreDiv (e : Expr) (cfg : GlobalOptConfig)
-    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
-    Option (List (ℚ × Box) × ℚ × ℚ × Box) :=
-  match popBest queue with
-  | none => none
-  | some ((lb, B), rest) =>
-    if lb > bestUB then
-      some (rest, bestLB, bestUB, bestBox)
-    else
-      let B_curr :=
-        if cfg.useMonotonicity then
-          let grad := gradientIntervalCore e B { taylorDepth := cfg.taylorDepth }
-          (pruneBoxForMin B grad).1
-        else B
-      let I := evalOnBoxCoreDiv e B_curr cfg
-      let newBestLB := min bestLB I.lo
-      let (newBestUB, newBestBox) :=
-        if I.hi < bestUB then (I.hi, B_curr) else (bestUB, bestBox)
-      if Box.maxWidth B_curr ≤ cfg.tolerance then
-        some (rest, newBestLB, newBestUB, newBestBox)
-      else
-        let (B1, B2) := Box.splitWidest B_curr
-        let I1 := evalOnBoxCoreDiv e B1 cfg
-        let I2 := evalOnBoxCoreDiv e B2 cfg
-        let queue' := rest
-        let queue' := if I1.lo ≤ newBestUB then insertByBound queue' I1.lo B1 else queue'
-        let queue' := if I2.lo ≤ newBestUB then insertByBound queue' I2.lo B2 else queue'
-        some (queue', newBestLB, newBestUB, newBestBox)
-
-/-- Run branch-and-bound loop with division support -/
-def minimizeLoopCoreDiv (e : Expr) (cfg : GlobalOptConfig)
-    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) (iters : Nat) :
-    GlobalResult :=
-  match iters with
-  | 0 =>
-    { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations }
-      remainingBoxes := queue }
-  | n + 1 =>
-    match minimizeStepCoreDiv e cfg queue bestLB bestUB bestBox with
-    | none =>
-      { bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := cfg.maxIterations - n - 1 }
-        remainingBoxes := [] }
-    | some (queue', bestLB', bestUB', bestBox') =>
-      minimizeLoopCoreDiv e cfg queue' bestLB' bestUB' bestBox' n
-
-/-- Global minimization with division support -/
-def globalMinimizeCoreDiv (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) : GlobalResult :=
-  let I := evalOnBoxCoreDiv e B cfg
-  let initialQueue : List (ℚ × Box) := [(I.lo, B)]
-  minimizeLoopCoreDiv e cfg initialQueue I.lo I.hi B cfg.maxIterations
-
-/-- Global maximization with division support -/
-def globalMaximizeCoreDiv (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) : GlobalResult :=
-  let result := globalMinimizeCoreDiv (Expr.neg e) B cfg
   { bound := { lo := -result.bound.hi
                hi := -result.bound.lo
                bestBox := result.bound.bestBox
@@ -1263,7 +1198,6 @@ def evalOnBoxDyadic (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic) : Interva
   let dyadicCfg : DyadicConfig := {
     precision := cfg.precision,
     taylorDepth := cfg.taylorDepth,
-    roundAfterOps := 0
   }
   let result := evalIntervalDyadic e dyadicEnv dyadicCfg
   result.toIntervalRat
@@ -1507,7 +1441,7 @@ theorem evalOnBoxDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (hprec : cfg.precision ≤ 0 := by norm_num)
     (hdom : evalDomainValidDyadic e
       (fun i => Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision)
-      { precision := cfg.precision, taylorDepth := cfg.taylorDepth, roundAfterOps := 0 }) :
+      { precision := cfg.precision, taylorDepth := cfg.taylorDepth }) :
     (evalOnBoxDyadic e B cfg).lo ≤ Expr.eval ρ e := by
   -- Build the Dyadic environment from the box
   set dyadicEnv : IntervalDyadicEnv := fun i =>
@@ -1515,7 +1449,6 @@ theorem evalOnBoxDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
   set dyadicCfg : DyadicConfig := {
     precision := cfg.precision,
     taylorDepth := cfg.taylorDepth,
-    roundAfterOps := 0
   }
   have henv : envMemDyadic ρ dyadicEnv := by
     intro i
@@ -1543,7 +1476,7 @@ theorem globalMinimizeDyadic_lo_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (hprec : cfg.precision ≤ 0 := by norm_num)
     (hdom : evalDomainValidDyadic e
       (fun i => Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision)
-      { precision := cfg.precision, taylorDepth := cfg.taylorDepth, roundAfterOps := 0 }) :
+      { precision := cfg.precision, taylorDepth := cfg.taylorDepth }) :
     ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
       (globalMinimizeDyadic e B cfg).bound.lo ≤ Expr.eval ρ e := by
   intro ρ hρ hzero
@@ -1567,7 +1500,7 @@ theorem globalMaximizeDyadic_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
     (hprec : cfg.precision ≤ 0 := by norm_num)
     (hdom : evalDomainValidDyadic e
       (fun i => Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision)
-      { precision := cfg.precision, taylorDepth := cfg.taylorDepth, roundAfterOps := 0 }) :
+      { precision := cfg.precision, taylorDepth := cfg.taylorDepth }) :
     ∀ (ρ : Nat → ℝ), Box.envMem ρ B → (∀ i, i ≥ B.length → ρ i = 0) →
       Expr.eval ρ e ≤ (globalMaximizeDyadic e B cfg).bound.hi := by
   intro ρ hρ hzero
@@ -1576,7 +1509,7 @@ theorem globalMaximizeDyadic_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
   -- Domain validity for neg e is the same as for e
   have hdom_neg : evalDomainValidDyadic (Expr.neg e)
       (fun i => Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision)
-      { precision := cfg.precision, taylorDepth := cfg.taylorDepth, roundAfterOps := 0 } := by
+      { precision := cfg.precision, taylorDepth := cfg.taylorDepth } := by
     simp only [evalDomainValidDyadic]; exact hdom
   have hmin := globalMinimizeDyadic_lo_correct (Expr.neg e) hneg_supp B cfg hprec hdom_neg ρ hρ hzero
   simp only [Expr.eval_neg] at hmin
@@ -1816,63 +1749,381 @@ theorem globalMaximizeAffine_hi_correct (e : Expr) (hsupp : ExprSupportedCore e)
 /-! ### Checked branch-and-bound
 
 These entry points never consume a finite fallback from a legacy evaluator.
-Domain failures are propagated to the caller. Monotonicity pruning is omitted
-here because its derivative backend has a smaller supported language; it can be
-reintroduced behind its own checked interface. -/
+Domain failures are propagated to the caller. Optional monotonicity pruning is
+implemented through a checked computable-AD pre-pass; unsupported derivative
+expressions use the identity pruner. -/
 
-/-- One backend-independent checked branch-and-bound step. -/
-def minimizeStepCheckedWith (evalBox : Box → EvalResult IntervalRat) (tolerance : ℚ)
-    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
-    EvalResult (Option (List (ℚ × Box) × ℚ × ℚ × Box)) :=
+theorem Box.envMem_splitWidest_cases (B : Box) (rho : Nat → ℝ)
+    (hrho : Box.envMem rho B) :
+    Box.envMem rho (Box.splitWidest B).1 ∨
+      Box.envMem rho (Box.splitWidest B).2 := by
+  unfold Box.splitWidest
+  by_cases hdim : Box.widestDim B < B.length
+  · exact Box.envMem_split_cases B (Box.widestDim B) hdim rho hrho
+  · simp [Box.split, hdim, hrho]
+
+theorem Box.splitWidest_fst_length (B : Box) :
+    (Box.splitWidest B).1.length = B.length := by
+  unfold Box.splitWidest Box.split
+  split <;> simp
+
+theorem Box.splitWidest_snd_length (B : Box) :
+    (Box.splitWidest B).2.length = B.length := by
+  unfold Box.splitWidest Box.split
+  split <;> simp
+
+/-- Minimum lower endpoint stored in a collection of bounded boxes. The
+fallback is used only for an empty internal state. -/
+def minimumStoredBound (fallback : ℚ) : List (ℚ × Box) → ℚ
+  | [] => fallback
+  | [entry] => entry.1
+  | entry :: next :: rest =>
+      min entry.1 (minimumStoredBound fallback (next :: rest))
+
+theorem minimumStoredBound_le_of_mem (fallback : ℚ) (boxes : List (ℚ × Box))
+    (entry : ℚ × Box) (hentry : entry ∈ boxes) :
+    minimumStoredBound fallback boxes ≤ entry.1 := by
+  induction boxes with
+  | nil => simp at hentry
+  | cons head tail ih =>
+      cases tail with
+      | nil =>
+          simp only [List.mem_singleton] at hentry
+          subst entry
+          exact le_rfl
+      | cons next rest =>
+          simp only [List.mem_cons] at hentry
+          rcases hentry with rfl | htail
+          · exact min_le_left _ _
+          · exact le_trans (min_le_right _ _) (ih (by simpa using htail))
+
+/-- One backend-independent checked branch-and-bound step.
+
+`finished` stores terminal boxes. Keeping their local lower bounds
+separate from the active queue lets the global lower bound rise as the active
+partition is refined; the former implementation retained the root lower bound
+forever. -/
+def minimizeStepCheckedWith (evalBox : Box → EvalResult IntervalRat)
+    (pruneBox : Box → Box) (tolerance : ℚ)
+    (queue finished : List (ℚ × Box)) (bestUB : ℚ) (bestBox : Box) :
+    EvalResult (Option (List (ℚ × Box) × List (ℚ × Box) × ℚ × Box)) :=
   match popBest queue with
   | none => .ok none
-  | some ((lb, B), rest) =>
-    if lb > bestUB then
-      .ok (some (rest, bestLB, bestUB, bestBox))
-    else do
-      let I ← evalBox B
-      let newBestLB := min bestLB I.lo
-      let (newBestUB, newBestBox) :=
-        if I.hi < bestUB then (I.hi, B) else (bestUB, bestBox)
-      if Box.maxWidth B ≤ tolerance then
-        return some (rest, newBestLB, newBestUB, newBestBox)
-      let (B₁, B₂) := Box.splitWidest B
-      let I₁ ← evalBox B₁
-      let I₂ ← evalBox B₂
-      let queue' := if I₁.lo ≤ newBestUB then insertByBound rest I₁.lo B₁ else rest
-      let queue' := if I₂.lo ≤ newBestUB then insertByBound queue' I₂.lo B₂ else queue'
-      return some (queue', newBestLB, newBestUB, newBestBox)
+  | some ((_, sourceB), rest) => do
+    let B := pruneBox sourceB
+    let I ← evalBox B
+    let newBestUB := min bestUB I.hi
+    if B.isEmpty || Box.maxWidth B ≤ tolerance then
+      return some (rest, (I.lo, B) :: finished, newBestUB, bestBox)
+    let (B₁, B₂) := Box.splitWidest B
+    let I₁ ← evalBox B₁
+    let I₂ ← evalBox B₂
+    let queue' := insertByBound rest I₁.lo B₁
+    let queue' := insertByBound queue' I₂.lo B₂
+    return some (queue', finished, newBestUB, bestBox)
+
+/-- Every point of the original box is represented by a current partition
+cell whose stored lower endpoint is valid for that point. -/
+def CheckedLowerInvariant (value : (Nat → ℝ) → ℝ) (original : Box)
+    (queue finished : List (ℚ × Box)) : Prop :=
+  ∀ rho, Box.envMem rho original → (∀ i, i ≥ original.length → rho i = 0) →
+    ∃ rho' entry, entry ∈ finished ++ queue ∧
+      Box.envMem rho' entry.2 ∧
+      (∀ i, i ≥ original.length → rho' i = 0) ∧
+      entry.2.length = original.length ∧
+      (entry.1 : ℝ) ≤ value rho' ∧ value rho' ≤ value rho
+
+theorem minimizeStepCheckedWith_preserves_lower
+    (evalBox : Box → EvalResult IntervalRat) (pruneBox : Box → Box)
+    (tolerance : ℚ)
+    (value : (Nat → ℝ) → ℝ) (original : Box)
+    (queue finished : List (ℚ × Box)) (bestUB : ℚ) (bestBox : Box)
+    (queue' finished' : List (ℚ × Box)) (bestUB' : ℚ) (bestBox' : Box)
+    (hevalSound : ∀ B I, evalBox B = .ok I →
+      B.length = original.length → ∀ rho, Box.envMem rho B →
+        (∀ i, i ≥ original.length → rho i = 0) → (I.lo : ℝ) ≤ value rho)
+    (hpruneSound : ∀ B, B.length = original.length →
+      ∀ rho, Box.envMem rho B →
+        (∀ i, i ≥ original.length → rho i = 0) →
+        ∃ rho', Box.envMem rho' (pruneBox B) ∧
+          (∀ i, i ≥ original.length → rho' i = 0) ∧
+          (pruneBox B).length = original.length ∧ value rho' ≤ value rho)
+    (hinv : CheckedLowerInvariant value original queue finished)
+    (hstep : minimizeStepCheckedWith evalBox pruneBox tolerance queue finished bestUB bestBox =
+      .ok (some (queue', finished', bestUB', bestBox'))) :
+    CheckedLowerInvariant value original queue' finished' := by
+  cases queue with
+  | nil => simp [minimizeStepCheckedWith, popBest] at hstep
+  | cons head rest =>
+    rcases head with ⟨lb, sourceB⟩
+    simp only [minimizeStepCheckedWith, popBest] at hstep
+    set B := pruneBox sourceB with hB
+    cases hevalB : evalBox B with
+    | error err => simp [hevalB, Except.bind, bind] at hstep
+    | ok I =>
+      simp [hevalB, Except.bind, bind] at hstep
+      split at hstep
+      · cases hstep
+        intro rho hrho hzero
+        obtain ⟨rho', entry, hentry, hmem, hzero', hlen, hbound, hvalue⟩ :=
+          hinv rho hrho hzero
+        have hold : entry ∈ finished ∨ entry = (lb, sourceB) ∨ entry ∈ queue' := by
+          simpa [List.mem_append, or_assoc] using hentry
+        rcases hold with hfinished | hcurrent | hrest
+        · exact ⟨rho', entry, by simp [hfinished], hmem, hzero', hlen, hbound, hvalue⟩
+        · subst entry
+          obtain ⟨rho'', hmem'', hzero'', hlen'', hle⟩ :=
+            hpruneSound sourceB hlen rho' hmem hzero'
+          refine ⟨rho'', (I.lo, B), by simp, ?_, hzero'', ?_, ?_, le_trans hle hvalue⟩
+          · simpa [hB] using hmem''
+          · simpa [hB] using hlen''
+          · exact hevalSound B I hevalB (by simpa [hB] using hlen'') rho''
+              (by simpa [hB] using hmem'') hzero''
+        · exact ⟨rho', entry, by simp [hrest], hmem, hzero', hlen, hbound, hvalue⟩
+      · cases hevalOne : evalBox (Box.splitWidest B).1 with
+        | error err => simp [hevalOne] at hstep
+        | ok Ione =>
+          simp [hevalOne] at hstep
+          cases hevalTwo : evalBox (Box.splitWidest B).2 with
+          | error err => simp [hevalTwo] at hstep
+          | ok Itwo =>
+            simp [hevalTwo] at hstep
+            cases hstep
+            intro rho hrho hzero
+            obtain ⟨rho', entry, hentry, hmem, hzero', hlen, hbound, hvalue⟩ :=
+              hinv rho hrho hzero
+            by_cases hcurrent : entry = (lb, sourceB)
+            · subst entry
+              obtain ⟨rho'', hmem'', hzero'', hlen'', hle⟩ :=
+                hpruneSound sourceB hlen rho' hmem hzero'
+              have hmemB : Box.envMem rho'' B := by simpa [hB] using hmem''
+              have hlenB : B.length = original.length := by simpa [hB] using hlen''
+              rcases Box.envMem_splitWidest_cases B rho'' hmemB with hleft | hright
+              · refine ⟨rho'', (Ione.lo, (Box.splitWidest B).1), ?_, hleft, hzero'', ?_,
+                  hevalSound _ Ione hevalOne ?_ rho'' hleft hzero'', le_trans hle hvalue⟩
+                simp [mem_insertByBound_iff]
+                · exact Box.splitWidest_fst_length B |>.trans hlenB
+                · exact Box.splitWidest_fst_length B |>.trans hlenB
+              · refine ⟨rho'', (Itwo.lo, (Box.splitWidest B).2), ?_, hright, hzero'', ?_,
+                  hevalSound _ Itwo hevalTwo ?_ rho'' hright hzero'', le_trans hle hvalue⟩
+                simp [mem_insertByBound_iff]
+                · exact Box.splitWidest_snd_length B |>.trans hlenB
+                · exact Box.splitWidest_snd_length B |>.trans hlenB
+            · refine ⟨rho', entry, ?_, hmem, hzero', hlen, hbound, hvalue⟩
+              have hold : entry ∈ finished ∨ entry ∈ rest := by
+                simpa [List.mem_append, hcurrent, or_assoc] using hentry
+              rcases hold with hfinished | hrest
+              · simp [hfinished]
+              · simp [mem_insertByBound_iff, hrest]
 
 /-- Checked branch-and-bound loop. -/
 def minimizeLoopCheckedWith (evalBox : Box → EvalResult IntervalRat)
-    (maxIterations : Nat) (tolerance : ℚ)
-    (queue : List (ℚ × Box)) (bestLB bestUB : ℚ) (bestBox : Box) :
+    (pruneBox : Box → Box)
+    (maxIterations : Nat) (tolerance fallbackLB : ℚ)
+    (queue finished : List (ℚ × Box)) (bestUB : ℚ) (bestBox : Box) :
     Nat → EvalResult GlobalResult
   | 0 => .ok {
-      bound := { lo := bestLB, hi := bestUB, bestBox := bestBox, iterations := maxIterations }
+      bound := {
+        lo := minimumStoredBound fallbackLB (finished ++ queue)
+        hi := bestUB, bestBox := bestBox, iterations := maxIterations }
       remainingBoxes := queue }
   | n + 1 => do
-      let step ← minimizeStepCheckedWith evalBox tolerance queue bestLB bestUB bestBox
+      let step ← minimizeStepCheckedWith evalBox pruneBox tolerance queue finished bestUB bestBox
       match step with
       | none => return {
-          bound := { lo := bestLB, hi := bestUB, bestBox := bestBox,
+          bound := {
+            lo := minimumStoredBound fallbackLB finished
+            hi := bestUB, bestBox := bestBox,
                      iterations := maxIterations - n - 1 }
           remainingBoxes := [] }
-      | some (queue', bestLB', bestUB', bestBox') =>
-          minimizeLoopCheckedWith evalBox maxIterations tolerance
-            queue' bestLB' bestUB' bestBox' n
+      | some (queue', finished', bestUB', bestBox') =>
+          minimizeLoopCheckedWith evalBox pruneBox maxIterations tolerance fallbackLB
+            queue' finished' bestUB' bestBox' n
+
+theorem minimizeStepCheckedWith_eq_ok_none_iff
+    (evalBox : Box → EvalResult IntervalRat) (pruneBox : Box → Box) (tolerance : ℚ)
+    (queue finished : List (ℚ × Box)) (bestUB : ℚ) (bestBox : Box) :
+    minimizeStepCheckedWith evalBox pruneBox tolerance queue finished bestUB bestBox = .ok none ↔
+      queue = [] := by
+  constructor
+  · intro hstep
+    cases queue with
+    | nil => rfl
+    | cons head rest =>
+        rcases head with ⟨lb, sourceB⟩
+        simp only [minimizeStepCheckedWith, popBest] at hstep
+        set B := pruneBox sourceB with hB
+        cases hevalB : evalBox B with
+        | error err => simp [hevalB, Except.bind, bind] at hstep
+        | ok I =>
+            simp [hevalB, Except.bind, bind] at hstep
+            split at hstep
+            · injection hstep with hnone
+              simp at hnone
+            · cases hevalOne : evalBox (Box.splitWidest B).1 with
+              | error err => simp [hevalOne] at hstep
+              | ok Ione =>
+                  simp [hevalOne] at hstep
+                  cases hevalTwo : evalBox (Box.splitWidest B).2 with
+                  | error err => simp [hevalTwo] at hstep
+                  | ok Itwo =>
+                      simp [hevalTwo] at hstep
+                      injection hstep with hnone
+                      simp at hnone
+  · intro hqueue
+    subst queue
+    rfl
+
+theorem CheckedLowerInvariant.minimumStoredBound_correct
+    (value : (Nat → ℝ) → ℝ) (original : Box)
+    (queue finished : List (ℚ × Box)) (fallback : ℚ)
+    (hinv : CheckedLowerInvariant value original queue finished)
+    (rho : Nat → ℝ) (hrho : Box.envMem rho original)
+    (hzero : ∀ i, i ≥ original.length → rho i = 0) :
+    (minimumStoredBound fallback (finished ++ queue) : ℝ) ≤ value rho := by
+  obtain ⟨rho', entry, hentry, _, _, _, hbound, hvalue⟩ := hinv rho hrho hzero
+  have hmin := minimumStoredBound_le_of_mem fallback (finished ++ queue) entry hentry
+  exact le_trans (le_trans (by exact_mod_cast hmin) hbound) hvalue
+
+theorem minimizeLoopCheckedWith_lower_correct
+    (evalBox : Box → EvalResult IntervalRat) (pruneBox : Box → Box)
+    (maxIterations : Nat) (tolerance fallbackLB : ℚ)
+    (value : (Nat → ℝ) → ℝ) (original : Box)
+    (hevalSound : ∀ B I, evalBox B = .ok I →
+      B.length = original.length → ∀ rho, Box.envMem rho B →
+        (∀ i, i ≥ original.length → rho i = 0) → (I.lo : ℝ) ≤ value rho) :
+    (∀ B, B.length = original.length → ∀ rho, Box.envMem rho B →
+      (∀ i, i ≥ original.length → rho i = 0) →
+      ∃ rho', Box.envMem rho' (pruneBox B) ∧
+        (∀ i, i ≥ original.length → rho' i = 0) ∧
+        (pruneBox B).length = original.length ∧ value rho' ≤ value rho) →
+    ∀ (iters : Nat) (queue finished : List (ℚ × Box)) (bestUB : ℚ)
+      (bestBox : Box) (result : GlobalResult),
+      CheckedLowerInvariant value original queue finished →
+      minimizeLoopCheckedWith evalBox pruneBox maxIterations tolerance fallbackLB
+          queue finished bestUB bestBox iters = .ok result →
+      ∀ rho, Box.envMem rho original →
+        (∀ i, i ≥ original.length → rho i = 0) →
+        (result.bound.lo : ℝ) ≤ value rho := by
+  intro hpruneSound iters
+  induction iters with
+  | zero =>
+      intro queue finished bestUB bestBox result hinv hsuccess rho hrho hzero
+      simp [minimizeLoopCheckedWith] at hsuccess
+      subst result
+      exact CheckedLowerInvariant.minimumStoredBound_correct
+        value original queue finished fallbackLB hinv rho hrho hzero
+  | succ n ih =>
+      intro queue finished bestUB bestBox result hinv hsuccess rho hrho hzero
+      simp only [minimizeLoopCheckedWith] at hsuccess
+      cases hstep : minimizeStepCheckedWith evalBox pruneBox tolerance queue finished bestUB bestBox with
+      | error err => simp [hstep, Except.bind, bind] at hsuccess
+      | ok step =>
+          simp [hstep, Except.bind, bind] at hsuccess
+          cases step with
+          | none =>
+              have hqueue : queue = [] :=
+                (minimizeStepCheckedWith_eq_ok_none_iff
+                  evalBox pruneBox tolerance queue finished bestUB bestBox).mp hstep
+              subst queue
+              injection hsuccess with hresult
+              subst result
+              simpa using (CheckedLowerInvariant.minimumStoredBound_correct
+                value original [] finished fallbackLB hinv rho hrho hzero)
+          | some state =>
+              rcases state with ⟨queue', finished', bestUB', bestBox'⟩
+              have hinv' := minimizeStepCheckedWith_preserves_lower evalBox pruneBox tolerance
+                value original queue finished bestUB bestBox queue' finished' bestUB' bestBox'
+                hevalSound hpruneSound hinv hstep
+              exact ih queue' finished' bestUB' bestBox' result hinv' hsuccess rho hrho hzero
 
 /-- Checked minimization parameterized by a sound finite-enclosure backend. -/
+def checkedMonotonicityPruner (e : Expr) (enabled : Bool) (cfg : EvalConfig) :
+    Box → Box := fun B =>
+  if enabled && e.checkSupported then
+    (pruneBoxForMin B (gradientIntervalCore e B cfg)).1
+  else B
+
+theorem checkedMonotonicityPruner_correct (e : Expr) (enabled : Bool)
+    (cfg : EvalConfig) (B : Box) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      ∃ rho', Box.envMem rho' (checkedMonotonicityPruner e enabled cfg B) ∧
+        (∀ i, i ≥ B.length → rho' i = 0) ∧
+        (checkedMonotonicityPruner e enabled cfg B).length = B.length ∧
+        Expr.eval rho' e ≤ Expr.eval rho e := by
+  intro rho hrho hzero
+  by_cases henabled : enabled = true
+  · by_cases hsupport : e.checkSupported = true
+    · have hsupp : ExprSupported e :=
+        (Expr.checkSupported_eq_true_iff e).mp hsupport
+      obtain ⟨rho', hmem, hzero', hvalue⟩ :=
+        pruneBoxForMin_correct e hsupp B (cfg := cfg) rho hrho hzero
+      have hlen := pruneBoxForMin_length B (gradientIntervalCore e B cfg)
+      refine ⟨rho', ?_, ?_, ?_, hvalue⟩
+      · simpa [checkedMonotonicityPruner, henabled, hsupport] using hmem
+      · intro i hi
+        exact hzero' i (by simpa [hlen] using hi)
+      · simpa [checkedMonotonicityPruner, henabled, hsupport] using hlen
+    · exact ⟨rho, by simpa [checkedMonotonicityPruner, henabled, hsupport] using hrho,
+        hzero, by simp [checkedMonotonicityPruner, henabled, hsupport], le_rfl⟩
+  · exact ⟨rho, by simpa [checkedMonotonicityPruner, henabled] using hrho,
+      hzero, by simp [checkedMonotonicityPruner, henabled], le_rfl⟩
+
+theorem checkedMonotonicityPruner_correct_of_length (e : Expr) (enabled : Bool)
+    (cfg : EvalConfig) (original B : Box) (hlen : B.length = original.length)
+    (rho : Nat → ℝ) (hrho : Box.envMem rho B)
+    (hzero : ∀ i, i ≥ original.length → rho i = 0) :
+    ∃ rho', Box.envMem rho' (checkedMonotonicityPruner e enabled cfg B) ∧
+      (∀ i, i ≥ original.length → rho' i = 0) ∧
+      (checkedMonotonicityPruner e enabled cfg B).length = original.length ∧
+      Expr.eval rho' e ≤ Expr.eval rho e := by
+  obtain ⟨rho', hmem, hzero', hlen', hvalue⟩ :=
+    checkedMonotonicityPruner_correct e enabled cfg B rho hrho
+      (fun i hi => hzero i (by simpa [hlen] using hi))
+  exact ⟨rho', hmem, fun i hi => hzero' i (by simpa [hlen] using hi),
+    hlen'.trans hlen, hvalue⟩
+
 def globalMinimizeCheckedWith (evalBox : Box → EvalResult IntervalRat)
-    (B : Box) (maxIterations : Nat) (tolerance : ℚ) : EvalResult GlobalResult := do
+    (pruneBox : Box → Box) (B : Box) (maxIterations : Nat) (tolerance : ℚ) :
+    EvalResult GlobalResult := do
   let I ← evalBox B
-  minimizeLoopCheckedWith evalBox maxIterations tolerance
-    [(I.lo, B)] I.lo I.hi B maxIterations
+  minimizeLoopCheckedWith evalBox pruneBox maxIterations tolerance I.lo
+    [(I.lo, B)] [] I.hi B maxIterations
+
+theorem globalMinimizeCheckedWith_lower_correct
+    (evalBox : Box → EvalResult IntervalRat) (pruneBox : Box → Box) (B : Box)
+    (maxIterations : Nat) (tolerance : ℚ)
+    (value : (Nat → ℝ) → ℝ)
+    (hevalSound : ∀ box I, evalBox box = .ok I →
+      box.length = B.length → ∀ rho, Box.envMem rho box →
+        (∀ i, i ≥ B.length → rho i = 0) → (I.lo : ℝ) ≤ value rho)
+    (hpruneSound : ∀ box, box.length = B.length →
+      ∀ rho, Box.envMem rho box → (∀ i, i ≥ B.length → rho i = 0) →
+        ∃ rho', Box.envMem rho' (pruneBox box) ∧
+          (∀ i, i ≥ B.length → rho' i = 0) ∧
+          (pruneBox box).length = B.length ∧ value rho' ≤ value rho)
+    (result : GlobalResult)
+    (hsuccess : globalMinimizeCheckedWith evalBox pruneBox B maxIterations tolerance = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      (result.bound.lo : ℝ) ≤ value rho := by
+  cases heval : evalBox B with
+  | error err =>
+      simp [globalMinimizeCheckedWith, heval, Except.bind, bind] at hsuccess
+  | ok I =>
+      simp [globalMinimizeCheckedWith, heval, Except.bind, bind] at hsuccess
+      have hinv : CheckedLowerInvariant value B [(I.lo, B)] [] := by
+        intro rho hrho hzero
+        exact ⟨rho, (I.lo, B), by simp, hrho, hzero, rfl,
+          hevalSound B I heval rfl rho hrho hzero, le_rfl⟩
+      exact minimizeLoopCheckedWith_lower_correct evalBox pruneBox maxIterations tolerance I.lo
+        value B hevalSound hpruneSound maxIterations [(I.lo, B)] [] I.hi B result hinv hsuccess
 
 /-- Checked maximization parameterized by a sound finite-enclosure backend. -/
 def globalMaximizeCheckedWith (evalBox : Expr → Box → EvalResult IntervalRat)
-    (e : Expr) (B : Box) (maxIterations : Nat) (tolerance : ℚ) : EvalResult GlobalResult := do
-  let result ← globalMinimizeCheckedWith (evalBox (Expr.neg e)) B maxIterations tolerance
+    (pruneBox : Expr → Box → Box) (e : Expr) (B : Box) (maxIterations : Nat)
+    (tolerance : ℚ) : EvalResult GlobalResult := do
+  let result ← globalMinimizeCheckedWith (evalBox (Expr.neg e)) (pruneBox (Expr.neg e))
+    B maxIterations tolerance
   return {
     bound := { lo := -result.bound.hi
                hi := -result.bound.lo
@@ -1880,17 +2131,108 @@ def globalMaximizeCheckedWith (evalBox : Expr → Box → EvalResult IntervalRat
                iterations := result.bound.iterations }
     remainingBoxes := result.remainingBoxes.map fun (lb, box) => (-lb, box) }
 
+theorem globalMaximizeCheckedWith_upper_correct
+    (evalBox : Expr → Box → EvalResult IntervalRat)
+    (pruneBox : Expr → Box → Box)
+    (e : Expr) (B : Box) (maxIterations : Nat) (tolerance : ℚ)
+    (hevalSound : ∀ box I, evalBox (Expr.neg e) box = .ok I →
+      box.length = B.length → ∀ rho, Box.envMem rho box →
+        (∀ i, i ≥ B.length → rho i = 0) →
+        (I.lo : ℝ) ≤ Expr.eval rho (Expr.neg e))
+    (hpruneSound : ∀ box, box.length = B.length →
+      ∀ rho, Box.envMem rho box → (∀ i, i ≥ B.length → rho i = 0) →
+        ∃ rho', Box.envMem rho' (pruneBox (Expr.neg e) box) ∧
+          (∀ i, i ≥ B.length → rho' i = 0) ∧
+          (pruneBox (Expr.neg e) box).length = B.length ∧
+          Expr.eval rho' (Expr.neg e) ≤ Expr.eval rho (Expr.neg e))
+    (result : GlobalResult)
+    (hsuccess : globalMaximizeCheckedWith evalBox pruneBox e B maxIterations tolerance = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      Expr.eval rho e ≤ (result.bound.hi : ℝ) := by
+  cases hmin : globalMinimizeCheckedWith (evalBox (Expr.neg e)) (pruneBox (Expr.neg e))
+      B maxIterations tolerance with
+  | error err =>
+      simp [globalMaximizeCheckedWith, hmin, Except.bind, bind] at hsuccess
+  | ok minResult =>
+      have hresult : result = {
+          bound := { lo := -minResult.bound.hi
+                     hi := -minResult.bound.lo
+                     bestBox := minResult.bound.bestBox
+                     iterations := minResult.bound.iterations }
+          remainingBoxes := minResult.remainingBoxes.map fun (lb, box) => (-lb, box) } := by
+        simp [globalMaximizeCheckedWith, hmin, Except.bind, bind] at hsuccess
+        injection hsuccess with h
+        exact h.symm
+      subst result
+      intro rho hrho hzero
+      have hlower := globalMinimizeCheckedWith_lower_correct
+        (evalBox (Expr.neg e)) (pruneBox (Expr.neg e)) B maxIterations tolerance
+        (fun rho => Expr.eval rho (Expr.neg e)) hevalSound hpruneSound minResult hmin rho hrho hzero
+      simp only [Expr.eval_neg] at hlower
+      rw [Rat.cast_neg]
+      linarith
+
 /-- Checked rational evaluation on a box. -/
 def evalOnBoxRationalChecked (e : Expr) (B : Box) : EvalResult IntervalRat :=
   evalIntervalChecked e (Box.toEnv B)
 
 def globalMinimizeRationalChecked (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) :
     EvalResult GlobalResult :=
-  globalMinimizeCheckedWith (evalOnBoxRationalChecked e) B cfg.maxIterations cfg.tolerance
+  globalMinimizeCheckedWith (evalOnBoxRationalChecked e)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
+    B cfg.maxIterations cfg.tolerance
 
 def globalMaximizeRationalChecked (e : Expr) (B : Box) (cfg : GlobalOptConfig := {}) :
     EvalResult GlobalResult :=
-  globalMaximizeCheckedWith evalOnBoxRationalChecked e B cfg.maxIterations cfg.tolerance
+  globalMaximizeCheckedWith evalOnBoxRationalChecked
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B cfg.maxIterations cfg.tolerance
+
+theorem evalOnBoxRationalChecked_lo_correct (e : Expr) (B : Box)
+    (I : IntervalRat) (hsuccess : evalOnBoxRationalChecked e B = .ok I)
+    (rho : Nat → ℝ) (hrho : Box.envMem rho B)
+    (hzero : ∀ i, i ≥ B.length → rho i = 0) :
+    (I.lo : ℝ) ≤ Expr.eval rho e := by
+  have henv := Box.envMem_toEnv rho B hrho hzero
+  have hmem := evalIntervalChecked_correct e (Box.toEnv B) I hsuccess rho henv
+  exact ((IntervalRat.mem_def _ _).mp hmem).1
+
+theorem globalMinimizeRationalChecked_lo_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfig) (result : GlobalResult)
+    (hsuccess : globalMinimizeRationalChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      (result.bound.lo : ℝ) ≤ Expr.eval rho e := by
+  intro rho hrho hzero
+  apply globalMinimizeCheckedWith_lower_correct
+    (evalOnBoxRationalChecked e)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
+    B cfg.maxIterations cfg.tolerance (fun rho => Expr.eval rho e)
+  intro box I heval hlen rho' hrho' hzero'
+  exact evalOnBoxRationalChecked_lo_correct e box I heval rho' hrho'
+    (fun i hi => hzero' i (by simpa [hlen] using hi))
+  · intro box hlen rho' hrho' hzero'
+    exact checkedMonotonicityPruner_correct_of_length e cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho' hrho' hzero'
+  · exact hsuccess
+  · exact hrho
+  · exact hzero
+
+theorem globalMaximizeRationalChecked_hi_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfig) (result : GlobalResult)
+    (hsuccess : globalMaximizeRationalChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      Expr.eval rho e ≤ (result.bound.hi : ℝ) := by
+  apply globalMaximizeCheckedWith_upper_correct evalOnBoxRationalChecked
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B
+    cfg.maxIterations cfg.tolerance
+  intro box I heval hlen rho hrho hzero
+  exact evalOnBoxRationalChecked_lo_correct (Expr.neg e) box I heval rho hrho
+    (fun i hi => hzero i (by simpa [hlen] using hi))
+  · intro box hlen rho hrho hzero
+    exact checkedMonotonicityPruner_correct_of_length (Expr.neg e) cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho hrho hzero
+  exact hsuccess
 
 /-- Checked Dyadic evaluation on a box. -/
 def evalOnBoxDyadicChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic) :
@@ -1899,7 +2241,7 @@ def evalOnBoxDyadicChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic) :
     let I := B.getD i (IntervalRat.singleton 0)
     Core.IntervalDyadic.ofIntervalRat I cfg.precision
   let dcfg : DyadicConfig := {
-    precision := cfg.precision, taylorDepth := cfg.taylorDepth, roundAfterOps := 0 }
+    precision := cfg.precision, taylorDepth := cfg.taylorDepth }
   match evalIntervalDyadicChecked e ρ dcfg with
   | .ok I => .ok I.toIntervalRat
   | .error err => .error err
@@ -1907,12 +2249,92 @@ def evalOnBoxDyadicChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic) :
 def globalMinimizeDyadicChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic := {}) :
     EvalResult GlobalResult :=
   globalMinimizeCheckedWith (fun box => evalOnBoxDyadicChecked e box cfg)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
     B cfg.maxIterations cfg.tolerance
 
 def globalMaximizeDyadicChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigDyadic := {}) :
     EvalResult GlobalResult :=
   globalMaximizeCheckedWith (fun e box => evalOnBoxDyadicChecked e box cfg)
-    e B cfg.maxIterations cfg.tolerance
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B cfg.maxIterations cfg.tolerance
+
+theorem evalOnBoxDyadicChecked_lo_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigDyadic) (hprec : cfg.precision ≤ 0)
+    (I : IntervalRat) (hsuccess : evalOnBoxDyadicChecked e B cfg = .ok I)
+    (rho : Nat → ℝ) (hrho : Box.envMem rho B)
+    (hzero : ∀ i, i ≥ B.length → rho i = 0) :
+    (I.lo : ℝ) ≤ Expr.eval rho e := by
+  let rhoD : IntervalDyadicEnv := fun i =>
+    Core.IntervalDyadic.ofIntervalRat (B.getD i (IntervalRat.singleton 0)) cfg.precision
+  let dcfg : DyadicConfig := {
+    precision := cfg.precision, taylorDepth := cfg.taylorDepth }
+  have henv : envMemDyadic rho rhoD := by
+    intro i
+    by_cases hi : i < B.length
+    · have hmem : rho i ∈ B[i]'hi := hrho ⟨i, hi⟩
+      simpa [rhoD, List.getD, List.getElem?_eq_getElem hi, Option.getD] using
+        (Core.IntervalDyadic.mem_ofIntervalRat hmem cfg.precision hprec)
+    · have hmem0 : (0 : ℝ) ∈ IntervalRat.singleton 0 := by
+        exact_mod_cast IntervalRat.mem_singleton 0
+      simpa [rhoD, List.getD, List.getElem?_eq_none (not_lt.mp hi), Option.getD,
+        hzero i (Nat.le_of_not_lt hi)] using
+        (Core.IntervalDyadic.mem_ofIntervalRat hmem0 cfg.precision hprec)
+  cases heval : evalIntervalDyadicChecked e rhoD dcfg with
+  | error err =>
+      change (match evalIntervalDyadicChecked e rhoD dcfg with
+        | Except.ok J => Except.ok J.toIntervalRat
+        | Except.error err => Except.error err) = (Except.ok I : EvalResult IntervalRat) at hsuccess
+      rw [heval] at hsuccess
+      contradiction
+  | ok resultD =>
+      have hresult : I = resultD.toIntervalRat := by
+        change (match evalIntervalDyadicChecked e rhoD dcfg with
+          | Except.ok J => Except.ok J.toIntervalRat
+          | Except.error err => Except.error err) = (Except.ok I : EvalResult IntervalRat) at hsuccess
+        rw [heval] at hsuccess
+        injection hsuccess with h
+        exact h.symm
+      subst I
+      have hmem := evalIntervalDyadicChecked_correct e rho rhoD henv dcfg hprec resultD heval
+      exact ((IntervalRat.mem_def _ _).mp
+        (Core.IntervalDyadic.mem_toIntervalRat.mp hmem)).1
+
+theorem globalMinimizeDyadicChecked_lo_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigDyadic) (hprec : cfg.precision ≤ 0)
+    (result : GlobalResult)
+    (hsuccess : globalMinimizeDyadicChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      (result.bound.lo : ℝ) ≤ Expr.eval rho e := by
+  apply globalMinimizeCheckedWith_lower_correct
+    (fun box => evalOnBoxDyadicChecked e box cfg)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
+    B cfg.maxIterations cfg.tolerance (fun rho => Expr.eval rho e)
+  intro box I heval hlen rho hrho hzero
+  exact evalOnBoxDyadicChecked_lo_correct e box cfg hprec I heval rho hrho
+    (fun i hi => hzero i (by simpa [hlen] using hi))
+  · intro box hlen rho hrho hzero
+    exact checkedMonotonicityPruner_correct_of_length e cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho hrho hzero
+  · exact hsuccess
+
+theorem globalMaximizeDyadicChecked_hi_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigDyadic) (hprec : cfg.precision ≤ 0)
+    (result : GlobalResult)
+    (hsuccess : globalMaximizeDyadicChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      Expr.eval rho e ≤ (result.bound.hi : ℝ) := by
+  apply globalMaximizeCheckedWith_upper_correct
+    (fun expr box => evalOnBoxDyadicChecked expr box cfg)
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B
+      cfg.maxIterations cfg.tolerance
+  intro box I heval hlen rho hrho hzero
+  exact evalOnBoxDyadicChecked_lo_correct (Expr.neg e) box cfg hprec I heval rho hrho
+    (fun i hi => hzero i (by simpa [hlen] using hi))
+  · intro box hlen rho hrho hzero
+    exact checkedMonotonicityPruner_correct_of_length (Expr.neg e) cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho hrho hzero
+  exact hsuccess
 
 /-- Checked affine evaluation on a box. -/
 def evalOnBoxAffineChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine) :
@@ -1926,11 +2348,158 @@ def evalOnBoxAffineChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine) :
 def globalMinimizeAffineChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine := {}) :
     EvalResult GlobalResult :=
   globalMinimizeCheckedWith (fun box => evalOnBoxAffineChecked e box cfg)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
     B cfg.maxIterations cfg.tolerance
 
 def globalMaximizeAffineChecked (e : Expr) (B : Box) (cfg : GlobalOptConfigAffine := {}) :
     EvalResult GlobalResult :=
   globalMaximizeCheckedWith (fun e box => evalOnBoxAffineChecked e box cfg)
-    e B cfg.maxIterations cfg.tolerance
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B cfg.maxIterations cfg.tolerance
+
+/-- Every real point of a rational box has the standard affine-noise
+representation used by `toAffineEnv`. -/
+theorem exists_noise_toAffineEnv (B : Box) (rho : Nat → ℝ)
+    (hrho : Box.envMem rho B)
+    (hzero : ∀ i, i ≥ B.length → rho i = 0) :
+    ∃ eps : AffineForm.NoiseAssignment,
+      AffineForm.validNoise eps ∧ envMemAffine rho (toAffineEnv B) eps := by
+  let eps : AffineForm.NoiseAssignment := List.ofFn (fun i : Fin B.length =>
+    let I := B.getD i.val (IntervalRat.singleton 0)
+    let mid := ((I.lo + I.hi) / 2 : ℚ)
+    let rad := ((I.hi - I.lo) / 2 : ℚ)
+    if hr : (rad : ℝ) = 0 then 0 else (rho i.val - mid) / rad)
+  have hvalid : AffineForm.validNoise eps := by
+    apply validNoise_ofFn
+    intro ⟨i, hi⟩
+    simp only
+    set I := B.getD i (IntervalRat.singleton 0)
+    set mid := ((I.lo + I.hi) / 2 : ℚ)
+    set rad := ((I.hi - I.lo) / 2 : ℚ)
+    split_ifs with hrad
+    · exact ⟨by linarith, by linarith⟩
+    · have hrhoi : rho i ∈ I := by
+        have h := hrho ⟨i, hi⟩
+        simpa [I, List.getD, List.getElem?_eq_getElem hi, Option.getD] using h
+      have habs := abs_sub_mid_le_rad hrhoi
+      have hrad_nonneg : (0 : ℝ) ≤ rad := by
+        have hI := I.le
+        have hq : (0 : ℚ) ≤ (I.hi - I.lo) / 2 := by linarith
+        exact_mod_cast hq
+      have hrad_pos : (0 : ℝ) < rad := lt_of_le_of_ne hrad_nonneg (Ne.symm hrad)
+      rw [abs_le] at habs
+      constructor
+      · calc
+          -1 = -(rad : ℝ) / rad := by field_simp
+          _ ≤ (rho i - mid) / rad :=
+            div_le_div_of_nonneg_right habs.1 (le_of_lt hrad_pos)
+      · calc
+          (rho i - mid) / rad ≤ (rad : ℝ) / rad :=
+            div_le_div_of_nonneg_right habs.2 (le_of_lt hrad_pos)
+          _ = 1 := by field_simp
+  have henv : envMemAffine rho (toAffineEnv B) eps := by
+    intro i
+    simp only [AffineForm.mem_affine, toAffineEnv]
+    set I := B.getD i (IntervalRat.singleton 0)
+    set mid := ((I.lo + I.hi) / 2 : ℚ)
+    set rad := ((I.hi - I.lo) / 2 : ℚ)
+    simp only [AffineForm.ofInterval, AffineForm.evalLinear]
+    use 0
+    constructor
+    · norm_num
+    · simp only [add_zero]
+      rw [linearSum_ofFn_basis]
+      by_cases hi : i < B.length
+      · have hI_eq : B.getD i (IntervalRat.singleton 0) = I := rfl
+        have hrad_eq : ((I.hi - I.lo) / 2 : ℚ) = rad := rfl
+        by_cases hrad : (rad : ℝ) = 0
+        · simp only [hI_eq, hrad_eq]
+          rw [dif_pos hrad]
+          simp only [hrad]
+          have hrhoi : rho i ∈ I := by
+            have h := hrho ⟨i, hi⟩
+            simpa [I, List.getD, List.getElem?_eq_getElem hi, Option.getD] using h
+          have habs := abs_sub_mid_le_rad hrhoi
+          rw [abs_le] at habs
+          have hle : rho i - mid ≤ 0 := by linarith [habs.2, hrad]
+          have hge : 0 ≤ rho i - mid := by linarith [habs.1, hrad]
+          linarith
+        · simp only [hI_eq, hrad_eq]
+          rw [dif_neg hrad, dif_pos hi]
+          field_simp [hrad]
+          ring
+      · have hzeroi : rho i = 0 := hzero i (not_lt.mp hi)
+        have hI : I = IntervalRat.singleton 0 := by
+          simp [I, List.getElem?_eq_none (not_lt.mp hi), Option.getD]
+        simp only [hI, IntervalRat.singleton, hzeroi]
+        ring
+  exact ⟨eps, hvalid, henv⟩
+
+theorem evalOnBoxAffineChecked_lo_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigAffine) (I : IntervalRat)
+    (hsuccess : evalOnBoxAffineChecked e B cfg = .ok I)
+    (rho : Nat → ℝ) (hrho : Box.envMem rho B)
+    (hzero : ∀ i, i ≥ B.length → rho i = 0) :
+    (I.lo : ℝ) ≤ Expr.eval rho e := by
+  let acfg : AffineConfig := {
+    taylorDepth := cfg.taylorDepth, maxNoiseSymbols := cfg.maxNoiseSymbols }
+  obtain ⟨eps, hvalid, henv⟩ := exists_noise_toAffineEnv B rho hrho hzero
+  cases heval : evalIntervalAffineChecked e (toAffineEnv B) acfg with
+  | error err =>
+      change (match evalIntervalAffineChecked e (toAffineEnv B) acfg with
+        | Except.ok a => Except.ok a.toInterval
+        | Except.error err => Except.error err) =
+          (Except.ok I : EvalResult IntervalRat) at hsuccess
+      rw [heval] at hsuccess
+      contradiction
+  | ok a =>
+      have hresult : I = a.toInterval := by
+        change (match evalIntervalAffineChecked e (toAffineEnv B) acfg with
+          | Except.ok a => Except.ok a.toInterval
+          | Except.error err => Except.error err) =
+            (Except.ok I : EvalResult IntervalRat) at hsuccess
+        rw [heval] at hsuccess
+        injection hsuccess with h
+        exact h.symm
+      subst I
+      have hmemAffine := evalIntervalAffineChecked_correct e rho (toAffineEnv B) eps
+        hvalid henv acfg a heval
+      exact ((IntervalRat.mem_def _ _).mp
+        (AffineForm.mem_toInterval_weak hvalid hmemAffine)).1
+
+theorem globalMinimizeAffineChecked_lo_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigAffine) (result : GlobalResult)
+    (hsuccess : globalMinimizeAffineChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      (result.bound.lo : ℝ) ≤ Expr.eval rho e := by
+  apply globalMinimizeCheckedWith_lower_correct
+    (fun box => evalOnBoxAffineChecked e box cfg)
+    (checkedMonotonicityPruner e cfg.useMonotonicity { taylorDepth := cfg.taylorDepth })
+    B cfg.maxIterations cfg.tolerance (fun rho => Expr.eval rho e)
+  intro box I heval hlen rho hrho hzero
+  exact evalOnBoxAffineChecked_lo_correct e box cfg I heval rho hrho
+    (fun i hi => hzero i (by simpa [hlen] using hi))
+  · intro box hlen rho hrho hzero
+    exact checkedMonotonicityPruner_correct_of_length e cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho hrho hzero
+  · exact hsuccess
+
+theorem globalMaximizeAffineChecked_hi_correct (e : Expr) (B : Box)
+    (cfg : GlobalOptConfigAffine) (result : GlobalResult)
+    (hsuccess : globalMaximizeAffineChecked e B cfg = .ok result) :
+    ∀ rho, Box.envMem rho B → (∀ i, i ≥ B.length → rho i = 0) →
+      Expr.eval rho e ≤ (result.bound.hi : ℝ) := by
+  apply globalMaximizeCheckedWith_upper_correct
+    (fun expr box => evalOnBoxAffineChecked expr box cfg)
+    (fun expr => checkedMonotonicityPruner expr cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth }) e B
+      cfg.maxIterations cfg.tolerance
+  intro box I heval hlen rho hrho hzero
+  exact evalOnBoxAffineChecked_lo_correct (Expr.neg e) box cfg I heval rho hrho
+    (fun i hi => hzero i (by simpa [hlen] using hi))
+  · intro box hlen rho hrho hzero
+    exact checkedMonotonicityPruner_correct_of_length (Expr.neg e) cfg.useMonotonicity
+      { taylorDepth := cfg.taylorDepth } B box hlen rho hrho hzero
+  exact hsuccess
 
 end LeanCert.Engine.Optimization

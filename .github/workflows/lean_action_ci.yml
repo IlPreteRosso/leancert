@@ -20,6 +20,12 @@ jobs:
       - name: Build FunctionalTests (full regression suite)
         run: lake build FunctionalTests
 
+      - name: Check every test module is wired into a Lake target
+        run: python3 scripts/check_test_wiring.py
+
+      - name: Build and smoke-test public executables
+        run: python3 scripts/smoke_test_executables.py
+
       - name: Build Li2Verified (heavy numerical verification)
         run: lake build Li2Verified
 

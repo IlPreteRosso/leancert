@@ -196,7 +196,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM KernelVerifyResul
         let body ← mkAppM ``IntervalDyadic.ofIntervalRat #[intervalRatExpr, precExpr]
         mkLambdaFVars #[i] body
 
-      let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+      let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
       let evalExpr ← mkAppM ``evalIntervalDyadic #[ast, envExpr, cfgExpr]
       let checkExpr ← mkAppM ``IntervalDyadic.upperBoundedBy #[evalExpr, cExpr]
 
@@ -259,7 +259,7 @@ def fastBoundKernel (prec : Int) (taylorDepth : Nat) : TacticM KernelVerifyResul
         let body ← mkAppM ``IntervalDyadic.ofIntervalRat #[intervalRatExpr, precExpr]
         mkLambdaFVars #[i] body
 
-      let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+      let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
       let evalExpr ← mkAppM ``evalIntervalDyadic #[ast, envExpr, cfgExpr]
       let checkExpr ← mkAppM ``IntervalDyadic.lowerBoundedBy #[evalExpr, cExpr]
 

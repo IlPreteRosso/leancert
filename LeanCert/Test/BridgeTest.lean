@@ -210,6 +210,16 @@ def jsonStatusIs (expected : String) (j : Json) : Bool :=
   | .ok actual => actual = expected
   | .error _ => false
 
+def jsonBackendIs (expected : String) (j : Json) : Bool :=
+  match j.getObjValAs? String "backend" with
+  | .ok actual => actual = expected
+  | .error _ => false
+
+def jsonNatFieldIs (field : String) (expected : Nat) (j : Json) : Bool :=
+  match j.getObjValAs? Nat field with
+  | .ok actual => actual = expected
+  | .error _ => false
+
 -- A reciprocal singularity is an error, never a finite pseudo-interval.
 #guard jsonStatusIs "domain_error" (handleEvalInterval {
   expr := Expr.inv (Expr.var 0), box := #[zeroOneRaw]
@@ -232,5 +242,118 @@ def jsonStatusIs (expected : String) (j : Json) : Bool :=
 #guard jsonStatusIs "certified" (handleEvalInterval {
   expr := Expr.atanh (Expr.var 0), box := #[halfRaw]
 })
+
+-- The generic endpoint defaults to the checked Dyadic fast path.
+#guard jsonBackendIs "dyadic" (handleEvalInterval {
+  expr := Expr.add (Expr.var 0) (Expr.const 1), box := #[halfRaw]
+})
+
+-- Explicit choices are honored and never silently changed.
+#guard jsonBackendIs "rational" (handleEvalInterval {
+  expr := Expr.add (Expr.var 0) (Expr.const 1), box := #[halfRaw],
+  backend := .rational
+})
+
+-- Certified Dyadic outward rounding requires a nonpositive precision.
+#guard jsonStatusIs "invalid_configuration" (handleEvalInterval {
+  expr := Expr.var 0, box := #[halfRaw], backend := .dyadic, precision := 1
+})
+
+-- Operations without a certified Dyadic implementation reject an explicit
+-- request; auto uses the certified Rational implementation.
+#guard jsonStatusIs "unsupported_backend" (handleIntegrate {
+  expr := Expr.var 0, interval := zeroOneRaw, backend := .dyadic
+})
+
+#guard jsonBackendIs "rational" (handleIntegrate {
+  expr := Expr.var 0, interval := zeroOneRaw
+})
+
+-- Optimization shares the selector: auto is Dyadic. Checked monotonicity
+-- pruning fixes x to its low endpoint, so the one-dimensional queue finishes
+-- in one iteration instead of being split.
+#guard jsonBackendIs "dyadic" (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1
+})
+
+#guard jsonStatusIs "certified" (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonNatFieldIs "remainingBoxes" 0 (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonStatusIs "certified" (handleGlobalMin {
+  expr := Expr.var 0, box := #[zeroOneRaw], backend := .rational, maxIters := 1,
+  useMonotonicity := true
+})
+
+#guard jsonStatusIs "certified" (handleGlobalMax {
+  expr := Expr.var 0, box := #[zeroOneRaw], backend := .affine, maxIters := 1,
+  useMonotonicity := true
+})
+
+-- Expressions outside the differentiable AD subset still optimize safely;
+-- the optional monotonicity pre-pass is a checked no-op for them.
+#guard jsonStatusIs "certified" (handleGlobalMin {
+  expr := Expr.sqrt (Expr.var 0), box := #[zeroOneRaw], maxIters := 1,
+  useMonotonicity := true
+})
+
+-- Rational-only tuning is rejected when the checked implementation has a
+-- fixed verified depth, instead of being silently ignored.
+#guard jsonStatusIs "invalid_configuration" (handleEvalInterval {
+  expr := Expr.var 0, box := #[zeroOneRaw], backend := .rational,
+  taylorDepth := 11
+})
+
+#guard jsonStatusIs "invalid_configuration" (handleIntegrate {
+  expr := Expr.var 0, interval := zeroOneRaw, taylorDepth := 11
+})
+
+-- Unique-root responses follow the unified status/backend contract.
+#guard jsonBackendIs "rational" (handleFindUniqueRoot {
+  expr := Expr.var 0, interval := zeroOneRaw
+})
+
+#guard jsonStatusIs "unsupported_feature" (handleFindUniqueRoot {
+  expr := Expr.var 1, interval := zeroOneRaw
+})
+
+-- Subdivision must improve the global lower bound rather than retaining the
+-- historical root enclosure forever. One split changes x-x from [-2,2] to a
+-- strictly tighter lower bound for every backend.
+open LeanCert.Engine LeanCert.Engine.Optimization
+
+def dependencyExpr : LeanCert.Core.Expr :=
+  LeanCert.Core.Expr.add (LeanCert.Core.Expr.var 0)
+    (LeanCert.Core.Expr.neg (LeanCert.Core.Expr.var 0))
+def dependencyBox : Box := [RawInterval.toInterval {
+  lo := { n := -1, d := 1 }, hi := { n := 1, d := 1 } }]
+
+def dependencyTightens (backend : BackendChoice) : Bool :=
+  match globalMinimizeWith {
+      backend := backend, maxIterations := 1, tolerance := 0 } dependencyExpr dependencyBox with
+  | .ok outcome => outcome.result.bound.lo > (-2 : ℚ)
+  | .error _ => false
+
+#guard dependencyTightens .rational
+#guard dependencyTightens .dyadic
+#guard dependencyTightens .affine
+
+-- Domain failures propagate through each concrete optimization backend.
+def singularOptimizationFails (backend : BackendChoice) : Bool :=
+  match globalMinimizeWith {
+      backend := backend, maxIterations := 1 }
+      (LeanCert.Core.Expr.inv (LeanCert.Core.Expr.var 0)) dependencyBox with
+  | .error _ => true
+  | .ok _ => false
+
+#guard singularOptimizationFails .rational
+#guard singularOptimizationFails .dyadic
+#guard singularOptimizationFails .affine
 
 end LeanCert.Test.BridgeTest

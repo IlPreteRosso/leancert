@@ -129,7 +129,7 @@ private def finSumWitnessIccCore (wGoal : WitnessGoal) (evalTermSyn hmemSyn : Sy
     -- Build configuration
     let precExpr := toExpr prec
     let depthExpr := toExpr (10 : Nat)
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     -- Elaborate user's evalTerm
     let evalTermTy ← mkArrow (Lean.mkConst ``Nat)
@@ -190,7 +190,7 @@ private def finSumWitnessListCore (wGoal : WitnessGoalList) (evalTermSyn hmemSyn
 
     let precExpr := toExpr prec
     let depthExpr := toExpr (10 : Nat)
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     let evalTermTy ← mkArrow (Lean.mkConst ``Nat)
       (← mkArrow (Lean.mkConst ``DyadicConfig) (Lean.mkConst ``IntervalDyadic))
@@ -311,7 +311,7 @@ private def finSumWitnessAutoIccCore (wGoal : WitnessGoal) (evalTermSyn : Syntax
 
     let precExpr := toExpr prec
     let depthExpr := toExpr (10 : Nat)
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     let evalTermTy ← mkArrow (Lean.mkConst ``Nat)
       (← mkArrow (Lean.mkConst ``DyadicConfig) (Lean.mkConst ``IntervalDyadic))
@@ -375,7 +375,7 @@ private def finSumWitnessAutoListCore (wGoal : WitnessGoalList) (evalTermSyn : S
 
     let precExpr := toExpr prec
     let depthExpr := toExpr (10 : Nat)
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     let evalTermTy ← mkArrow (Lean.mkConst ``Nat)
       (← mkArrow (Lean.mkConst ``DyadicConfig) (Lean.mkConst ``IntervalDyadic))
