@@ -76,6 +76,11 @@ example : forall x in Set.Icc (0 : Real) 1,
   certify_kernel
 ```
 
+Programmatic interval evaluation uses a single backend selector. `auto` is
+Dyadic-first for evaluation and global optimization, while operations that do
+not yet have a certified Dyadic implementation (root finding and integration)
+use Rational. See [Interval Backend Selection](docs/architecture/backend-selection.md).
+
 ## Discovery Workflow
 
 LeanCert includes editor commands for exploring bounds before committing to a theorem.

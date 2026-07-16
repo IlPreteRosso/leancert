@@ -8,7 +8,9 @@ import LeanCert.Core.Expr
 import LeanCert.Engine.IntervalEval
 import LeanCert.Engine.IntervalEvalDyadic
 import LeanCert.Engine.IntervalEvalAffine
+import LeanCert.Engine.Eval.Backend
 import LeanCert.Engine.Optimization.Global
+import LeanCert.Engine.Optimization.Backend
 import LeanCert.Engine.Optimization.Gradient
 import LeanCert.Engine.Integrate
 import LeanCert.Validity.Bounds
@@ -123,6 +125,10 @@ def evalErrorToJson : EvalError → Json
       ("interval", toJson (toRawInterval I))]
   | .unsupportedBackend operation => Json.mkObj [
       ("kind", "unsupported_backend"), ("operation", operation)]
+  | .unsupportedFeature feature => Json.mkObj [
+      ("kind", "unsupported_feature"), ("feature", feature)]
+  | .invalidConfiguration message => Json.mkObj [
+      ("kind", "invalid_configuration"), ("message", message)]
   | .nestedFailure operation cause => Json.mkObj [
       ("kind", "nested_failure"), ("operation", operation),
       ("cause", evalErrorToJson cause)]
@@ -133,9 +139,17 @@ def certifiedIntervalJson (I : IntervalRat) : Json := Json.mkObj [
   ("lo", toJson (toRawRat I.lo)),
   ("hi", toJson (toRawRat I.hi))]
 
+/-- Stable public status for a checked-evaluation failure. -/
+def evalFailureStatus : EvalError → String
+  | .unsupportedBackend _ => "unsupported_backend"
+  | .unsupportedFeature _ => "unsupported_feature"
+  | .invalidConfiguration _ => "invalid_configuration"
+  | .nestedFailure _ cause => evalFailureStatus cause
+  | _ => "domain_error"
+
 /-- Standard failed checked-evaluation response. -/
 def evalFailureJson (err : EvalError) : Json := Json.mkObj [
-  ("status", "domain_error"),
+  ("status", evalFailureStatus err),
   ("error", evalErrorToJson err)]
 
 /-! ### Dyadic Serialization -/
@@ -193,26 +207,23 @@ def toRawDyadicInterval (i : Core.IntervalDyadic) : RawDyadicInterval :=
 structure RawDyadicConfig where
   precision : Int := -53
   taylorDepth : Nat := 10
-  roundAfterOps : Nat := 0
   deriving Repr, Inhabited
 
 instance : FromJson RawDyadicConfig where
   fromJson? j := do
     let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    let roundAfterOps := (j.getObjValAs? Nat "roundAfterOps").toOption.getD 0
-    return { precision, taylorDepth, roundAfterOps }
+    return { precision, taylorDepth }
 
 instance : ToJson RawDyadicConfig where
   toJson c := Json.mkObj [
     ("precision", toJson c.precision),
-    ("taylorDepth", toJson c.taylorDepth),
-    ("roundAfterOps", toJson c.roundAfterOps)
+    ("taylorDepth", toJson c.taylorDepth)
   ]
 
 /-- Convert RawDyadicConfig to DyadicConfig -/
 def RawDyadicConfig.toDyadicConfig (r : RawDyadicConfig) : DyadicConfig :=
-  { precision := r.precision, taylorDepth := r.taylorDepth, roundAfterOps := r.roundAfterOps }
+  { precision := r.precision, taylorDepth := r.taylorDepth }
 
 /-! ### Affine Config Serialization -/
 
@@ -349,11 +360,34 @@ instance : FromJson LExpr where
 
 /-! ## 3. Request Structures -/
 
+/-- Parse a backend name shared by all numerical endpoints. -/
+def backendChoiceFromJson (j : Json) : Except String BackendChoice := do
+  let name ← FromJson.fromJson? (α := String) j
+  match name with
+  | "auto" => return .auto
+  | "rational" => return .rational
+  | "dyadic" => return .dyadic
+  | "affine" => return .affine
+  | _ => throw s!"unknown backend '{name}'; expected auto, rational, dyadic, or affine"
+
+def backendChoiceField (j : Json) : Except String BackendChoice :=
+  match j.getObjVal? "backend" with
+  | .ok value => backendChoiceFromJson value
+  | .error _ => .ok .auto
+
+def concreteBackendName : ConcreteBackend → String
+  | .rational => "rational"
+  | .dyadic => "dyadic"
+  | .affine => "affine"
+
 /-- Request for interval evaluation -/
 structure EvalRequest where
   expr : LExpr
   box  : Array RawInterval
+  backend : BackendChoice := .auto
   taylorDepth : Nat := 10
+  precision : Int := -53
+  maxNoiseSymbols : Nat := 0
 
 instance : FromJson EvalRequest where
   fromJson? j := do
@@ -363,16 +397,29 @@ instance : FromJson EvalRequest where
       | Json.arr arr => arr.mapM (FromJson.fromJson? (α := RawInterval))
       | _ => throw "box must be an array"
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, box := boxArr, taylorDepth }
+    let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
+    let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      box := boxArr
+      backend := backend
+      taylorDepth := taylorDepth
+      precision := precision
+      maxNoiseSymbols := maxNoiseSymbols
+    }
 
 /-- Request for global optimization -/
 structure OptimizeRequest where
   expr : LExpr
   box  : Array RawInterval
+  backend : BackendChoice := .auto
   maxIters : Nat := 1000
   tolerance : RawRat := { n := 1, d := 1000 }
-  useMonotonicity : Bool := true
+  useMonotonicity : Bool := false
   taylorDepth : Nat := 10
+  precision : Int := -53
+  maxNoiseSymbols : Nat := 0
 
 instance : FromJson OptimizeRequest where
   fromJson? j := do
@@ -383,17 +430,33 @@ instance : FromJson OptimizeRequest where
       | _ => throw "box must be an array"
     let maxIters := (j.getObjValAs? Nat "maxIters").toOption.getD 1000
     let tolerance := (j.getObjValAs? RawRat "tolerance").toOption.getD { n := 1, d := 1000 }
-    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD true
+    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD false
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, box := boxArr, maxIters, tolerance, useMonotonicity, taylorDepth }
+    let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
+    let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      box := boxArr
+      backend := backend
+      maxIters := maxIters
+      tolerance := tolerance
+      useMonotonicity := useMonotonicity
+      taylorDepth := taylorDepth
+      precision := precision
+      maxNoiseSymbols := maxNoiseSymbols
+    }
 
 /-- Request for bound checking -/
 structure CheckBoundRequest where
   expr : LExpr
   box  : Array RawInterval
+  backend : BackendChoice := .auto
   bound : RawRat
   isUpperBound : Bool  -- true for upper bound, false for lower bound
   taylorDepth : Nat := 10
+  precision : Int := -53
+  maxNoiseSymbols : Nat := 0
 
 instance : FromJson CheckBoundRequest where
   fromJson? j := do
@@ -405,12 +468,25 @@ instance : FromJson CheckBoundRequest where
     let bound ← j.getObjValAs? RawRat "bound"
     let isUpperBound ← j.getObjValAs? Bool "isUpperBound"
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, box := boxArr, bound, isUpperBound, taylorDepth }
+    let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
+    let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      box := boxArr
+      backend := backend
+      bound := bound
+      isUpperBound := isUpperBound
+      taylorDepth := taylorDepth
+      precision := precision
+      maxNoiseSymbols := maxNoiseSymbols
+    }
 
 /-- Request for numerical integration -/
 structure IntegrateRequest where
   expr : LExpr
   interval : RawInterval
+  backend : BackendChoice := .auto
   partitions : Nat := 10
   taylorDepth : Nat := 10
 
@@ -420,12 +496,20 @@ instance : FromJson IntegrateRequest where
     let interval ← j.getObjValAs? RawInterval "interval"
     let partitions := (j.getObjValAs? Nat "partitions").toOption.getD 10
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, interval, partitions, taylorDepth }
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      interval := interval
+      backend := backend
+      partitions := partitions
+      taylorDepth := taylorDepth
+    }
 
 /-- Request for root finding -/
 structure FindRootsRequest where
   expr : LExpr
   interval : RawInterval
+  backend : BackendChoice := .auto
   maxIter : Nat := 1000
   tolerance : RawRat := { n := 1, d := 1000 }
   taylorDepth : Nat := 10
@@ -437,12 +521,21 @@ instance : FromJson FindRootsRequest where
     let maxIter := (j.getObjValAs? Nat "maxIter").toOption.getD 1000
     let tolerance := (j.getObjValAs? RawRat "tolerance").toOption.getD { n := 1, d := 1000 }
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, interval, maxIter, tolerance, taylorDepth }
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      interval := interval
+      backend := backend
+      maxIter := maxIter
+      tolerance := tolerance
+      taylorDepth := taylorDepth
+    }
 
 /-- Request for unique root finding via Newton contraction -/
 structure FindUniqueRootRequest where
   expr : LExpr
   interval : RawInterval
+  backend : BackendChoice := .auto
   taylorDepth : Nat := 10
 
 instance : FromJson FindUniqueRootRequest where
@@ -450,17 +543,26 @@ instance : FromJson FindUniqueRootRequest where
     let expr ← j.getObjValAs? LExpr "expr"
     let interval ← j.getObjValAs? RawInterval "interval"
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, interval, taylorDepth }
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      interval := interval
+      backend := backend
+      taylorDepth := taylorDepth
+    }
 
 /-- Request for adaptive verification using optimization -/
 structure VerifyAdaptiveRequest where
   expr : LExpr
   box : Array RawInterval
+  backend : BackendChoice := .auto
   bound : RawRat
   isUpperBound : Bool
   maxIters : Nat := 1000
   tolerance : RawRat := { n := 1, d := 1000 }
   taylorDepth : Nat := 10
+  precision : Int := -53
+  maxNoiseSymbols : Nat := 0
 
 instance : FromJson VerifyAdaptiveRequest where
   fromJson? j := do
@@ -474,7 +576,21 @@ instance : FromJson VerifyAdaptiveRequest where
     let maxIters := (j.getObjValAs? Nat "maxIters").toOption.getD 1000
     let tolerance := (j.getObjValAs? RawRat "tolerance").toOption.getD { n := 1, d := 1000 }
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
-    return { expr, box := boxArr, bound, isUpperBound, maxIters, tolerance, taylorDepth }
+    let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
+    let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
+    let backend ← backendChoiceField j
+    return {
+      expr := expr
+      box := boxArr
+      backend := backend
+      bound := bound
+      isUpperBound := isUpperBound
+      maxIters := maxIters
+      tolerance := tolerance
+      taylorDepth := taylorDepth
+      precision := precision
+      maxNoiseSymbols := maxNoiseSymbols
+    }
 
 /-- Request for high-performance Dyadic interval evaluation -/
 structure EvalDyadicRequest where
@@ -514,7 +630,7 @@ structure OptimizeDyadicRequest where
   box  : Array RawInterval
   maxIters : Nat := 1000
   tolerance : RawRat := { n := 1, d := 1000 }
-  useMonotonicity : Bool := true
+  useMonotonicity : Bool := false
   taylorDepth : Nat := 10
   precision : Int := -53
 
@@ -527,7 +643,7 @@ instance : FromJson OptimizeDyadicRequest where
       | _ => throw "box must be an array"
     let maxIters := (j.getObjValAs? Nat "maxIters").toOption.getD 1000
     let tolerance := (j.getObjValAs? RawRat "tolerance").toOption.getD { n := 1, d := 1000 }
-    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD true
+    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD false
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
     let precision := (j.getObjValAs? Int "precision").toOption.getD (-53)
     return { expr, box := boxArr, maxIters, tolerance, useMonotonicity, taylorDepth, precision }
@@ -538,7 +654,7 @@ structure OptimizeAffineRequest where
   box  : Array RawInterval
   maxIters : Nat := 1000
   tolerance : RawRat := { n := 1, d := 1000 }
-  useMonotonicity : Bool := true
+  useMonotonicity : Bool := false
   taylorDepth : Nat := 10
   maxNoiseSymbols : Nat := 0
 
@@ -551,7 +667,7 @@ instance : FromJson OptimizeAffineRequest where
       | _ => throw "box must be an array"
     let maxIters := (j.getObjValAs? Nat "maxIters").toOption.getD 1000
     let tolerance := (j.getObjValAs? RawRat "tolerance").toOption.getD { n := 1, d := 1000 }
-    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD true
+    let useMonotonicity := (j.getObjValAs? Bool "useMonotonicity").toOption.getD false
     let taylorDepth := (j.getObjValAs? Nat "taylorDepth").toOption.getD 10
     let maxNoiseSymbols := (j.getObjValAs? Nat "maxNoiseSymbols").toOption.getD 0
     return { expr, box := boxArr, maxIters, tolerance, useMonotonicity, taylorDepth, maxNoiseSymbols }
@@ -610,13 +726,31 @@ instance : FromJson DerivIntervalRequest where
 
 /-- Handle interval evaluation request -/
 def handleEvalInterval (req : EvalRequest) : Json :=
-  -- Convert raw box to IntervalEnv
   let intervals := req.box.toList.map RawInterval.toInterval
-  let env : IntervalEnv := fun i => intervals.getD i (IntervalRat.singleton 0)
-
-  -- The checked evaluator never substitutes finite sentinels for singularities.
-  match evalIntervalChecked req.expr env with
-  | .ok result => certifiedIntervalJson result
+  let options : BackendOptions := {
+    backend := req.backend
+    taylorDepth := req.taylorDepth
+    dyadicPrecision := req.precision
+    maxNoiseSymbols := req.maxNoiseSymbols
+  }
+  match evalIntervalWith options req.expr intervals with
+  | .ok result =>
+      let fields := [
+        ("status", Json.str "certified"),
+        ("backend", Json.str (concreteBackendName result.backend)),
+        ("lo", toJson (toRawRat result.interval.lo)),
+        ("hi", toJson (toRawRat result.interval.hi))]
+      let fields := match result.dyadic with
+        | some I => fields ++ [("dyadic", Json.mkObj [
+            ("lo", toJson (toRawDyadic I.lo)),
+            ("hi", toJson (toRawDyadic I.hi))])]
+        | none => fields
+      let fields := match result.affine with
+        | some a => fields ++ [("affine", Json.mkObj [
+            ("c0", toJson (toRawRat a.c0)),
+            ("radius", toJson (toRawRat a.deviationBound))])]
+        | none => fields
+      Json.mkObj fields
   | .error err => evalFailureJson err
 
 /-- Handle high-performance Dyadic interval evaluation request.
@@ -625,31 +759,16 @@ This evaluator uses Dyadic arithmetic (n * 2^e) instead of rationals,
 preventing denominator explosion for deep expressions. It's 10-100x
 faster for complex expressions like neural networks or nested Taylor series.
 
-The result is returned both as Dyadic (exact) and as Rational (for
-compatibility with the existing API). -/
+The unified result retains both exact Dyadic endpoints and Rational endpoints
+for compatibility with the existing API. -/
 def handleEvalIntervalDyadic (req : EvalDyadicRequest) : Json :=
-  -- Convert raw box to Dyadic interval environment
-  let intervals := req.box.toList.map RawInterval.toInterval
-  let cfg := req.config.toDyadicConfig
-
-  -- Create Dyadic environment from rational intervals
-  let dyadicEnv : IntervalDyadicEnv := fun i =>
-    let irat := intervals.getD i (IntervalRat.singleton 0)
-    Core.IntervalDyadic.ofIntervalRat irat cfg.precision
-
-  match evalIntervalDyadicChecked req.expr dyadicEnv cfg with
-  | .error err => evalFailureJson err
-  | .ok result =>
-    let resultRat := result.toIntervalRat
-    Json.mkObj [
-      ("status", "certified"),
-      ("lo", toJson (toRawRat resultRat.lo)),
-      ("hi", toJson (toRawRat resultRat.hi)),
-      ("dyadic", Json.mkObj [
-        ("lo", toJson (toRawDyadic result.lo)),
-        ("hi", toJson (toRawDyadic result.hi))
-      ])
-    ]
+  handleEvalInterval {
+    expr := req.expr
+    box := req.box
+    backend := .dyadic
+    taylorDepth := req.config.taylorDepth
+    precision := req.config.precision
+  }
 
 /-- Handle Affine interval evaluation request.
 
@@ -661,26 +780,13 @@ solving the "dependency problem" in interval arithmetic. For example:
 Affine arithmetic gives 50-90% tighter bounds for expressions with repeated
 variables, which is common in neural network verification. -/
 def handleEvalIntervalAffine (req : EvalAffineRequest) : Json :=
-  -- Convert raw box to Affine environment
-  let intervals := req.box.toList.map RawInterval.toInterval
-  let cfg := req.config.toAffineConfig
-
-  -- Create Affine environment from rational intervals
-  let affineEnv := toAffineEnv intervals
-
-  match evalIntervalAffineChecked req.expr affineEnv cfg with
-  | .error err => evalFailureJson err
-  | .ok result =>
-    let resultInterval := result.toInterval
-    Json.mkObj [
-      ("status", "certified"),
-      ("lo", toJson (toRawRat resultInterval.lo)),
-      ("hi", toJson (toRawRat resultInterval.hi)),
-      ("affine", Json.mkObj [
-        ("c0", toJson (toRawRat result.c0)),
-        ("radius", toJson (toRawRat result.deviationBound))
-      ])
-    ]
+  handleEvalInterval {
+    expr := req.expr
+    box := req.box
+    backend := .affine
+    taylorDepth := req.config.taylorDepth
+    maxNoiseSymbols := req.config.maxNoiseSymbols
+  }
 
 /-- Serialize a checked optimization result. -/
 def checkedGlobalResultJson : EvalResult GlobalResult → Json
@@ -695,99 +801,104 @@ def checkedGlobalResultJson : EvalResult GlobalResult → Json
         ("remainingBoxes", toJson result.remainingBoxes.length),
         ("bestBox", bestBoxJson)]
 
+def checkedGlobalBackendResultJson : EvalResult GlobalOutcome → Json
+  | .error err => evalFailureJson err
+  | .ok outcome =>
+      let result := outcome.result
+      let bestBoxJson := Json.arr
+        (result.bound.bestBox.map (fun i => toJson (toRawInterval i))).toArray
+      Json.mkObj [
+        ("status", "certified"),
+        ("backend", concreteBackendName outcome.backend),
+        ("lo", toJson (toRawRat result.bound.lo)),
+        ("hi", toJson (toRawRat result.bound.hi)),
+        ("remainingBoxes", toJson result.remainingBoxes.length),
+        ("bestBox", bestBoxJson)]
+
 /-- Handle global minimization request -/
 def handleGlobalMin (req : OptimizeRequest) : Json :=
   let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfig := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
+  let cfg : BackendGlobalOptConfig := {
+    backend := req.backend
     taylorDepth := req.taylorDepth
+    dyadicPrecision := req.precision
+    maxNoiseSymbols := req.maxNoiseSymbols
+    maxIterations := req.maxIters
+    tolerance := req.tolerance.toRat
+    useMonotonicity := req.useMonotonicity
   }
-
-  checkedGlobalResultJson (globalMinimizeRationalChecked req.expr box cfg)
+  checkedGlobalBackendResultJson (globalMinimizeWith cfg req.expr box)
 
 /-- Handle global maximization request -/
 def handleGlobalMax (req : OptimizeRequest) : Json :=
   let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfig := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
+  let cfg : BackendGlobalOptConfig := {
+    backend := req.backend
     taylorDepth := req.taylorDepth
+    dyadicPrecision := req.precision
+    maxNoiseSymbols := req.maxNoiseSymbols
+    maxIterations := req.maxIters
+    tolerance := req.tolerance.toRat
+    useMonotonicity := req.useMonotonicity
   }
-
-  checkedGlobalResultJson (globalMaximizeRationalChecked req.expr box cfg)
+  checkedGlobalBackendResultJson (globalMaximizeWith cfg req.expr box)
 
 /-- Handle global minimization request with Dyadic backend -/
 def handleGlobalMinDyadic (req : OptimizeDyadicRequest) : Json :=
-  let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfigDyadic := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
-    taylorDepth := req.taylorDepth,
-    precision := req.precision
-  }
-
-  checkedGlobalResultJson (globalMinimizeDyadicChecked req.expr box cfg)
+  handleGlobalMin {
+    expr := req.expr, box := req.box, backend := .dyadic,
+    maxIters := req.maxIters, tolerance := req.tolerance,
+    useMonotonicity := req.useMonotonicity, taylorDepth := req.taylorDepth,
+    precision := req.precision }
 
 /-- Handle global maximization request with Dyadic backend -/
 def handleGlobalMaxDyadic (req : OptimizeDyadicRequest) : Json :=
-  let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfigDyadic := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
-    taylorDepth := req.taylorDepth,
-    precision := req.precision
-  }
-
-  checkedGlobalResultJson (globalMaximizeDyadicChecked req.expr box cfg)
+  handleGlobalMax {
+    expr := req.expr, box := req.box, backend := .dyadic,
+    maxIters := req.maxIters, tolerance := req.tolerance,
+    useMonotonicity := req.useMonotonicity, taylorDepth := req.taylorDepth,
+    precision := req.precision }
 
 /-- Handle global minimization request with Affine backend -/
 def handleGlobalMinAffine (req : OptimizeAffineRequest) : Json :=
-  let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfigAffine := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
-    taylorDepth := req.taylorDepth,
-    maxNoiseSymbols := req.maxNoiseSymbols
-  }
-
-  checkedGlobalResultJson (globalMinimizeAffineChecked req.expr box cfg)
+  handleGlobalMin {
+    expr := req.expr, box := req.box, backend := .affine,
+    maxIters := req.maxIters, tolerance := req.tolerance,
+    useMonotonicity := req.useMonotonicity, taylorDepth := req.taylorDepth,
+    maxNoiseSymbols := req.maxNoiseSymbols }
 
 /-- Handle global maximization request with Affine backend -/
 def handleGlobalMaxAffine (req : OptimizeAffineRequest) : Json :=
-  let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfigAffine := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := req.useMonotonicity,
-    taylorDepth := req.taylorDepth,
-    maxNoiseSymbols := req.maxNoiseSymbols
-  }
-
-  checkedGlobalResultJson (globalMaximizeAffineChecked req.expr box cfg)
+  handleGlobalMax {
+    expr := req.expr, box := req.box, backend := .affine,
+    maxIters := req.maxIters, tolerance := req.tolerance,
+    useMonotonicity := req.useMonotonicity, taylorDepth := req.taylorDepth,
+    maxNoiseSymbols := req.maxNoiseSymbols }
 
 /-- Handle bound checking request -/
 def handleCheckBound (req : CheckBoundRequest) : Json :=
   let intervals := req.box.toList.map RawInterval.toInterval
-  let env : IntervalEnv := fun i => intervals.getD i (IntervalRat.singleton 0)
   let bound := req.bound.toRat
-  match evalIntervalChecked req.expr env with
+  let options : BackendOptions := {
+    backend := req.backend
+    taylorDepth := req.taylorDepth
+    dyadicPrecision := req.precision
+    maxNoiseSymbols := req.maxNoiseSymbols
+  }
+  match evalIntervalWith options req.expr intervals with
   | .error err => Json.mkObj [
-      ("status", "domain_error"),
+      ("status", evalFailureStatus err),
       ("verified", false),
       ("error", evalErrorToJson err)]
-  | .ok result =>
+  | .ok outcome =>
+    let result := outcome.interval
     let verified := if req.isUpperBound then
       decide (result.hi ≤ bound)
     else
       decide (bound ≤ result.lo)
     Json.mkObj [
       ("status", "certified"),
+      ("backend", concreteBackendName outcome.backend),
       ("verified", toJson verified),
       ("computed_lo", toJson (toRawRat result.lo)),
       ("computed_hi", toJson (toRawRat result.hi))]
@@ -818,9 +929,19 @@ def integrateIntervalChecked (e : LExpr) (I : IntervalRat) (n : Nat) : EvalResul
 def handleIntegrate (req : IntegrateRequest) : Json :=
   let I := req.interval.toInterval
   let n := max 1 req.partitions
-  match integrateIntervalChecked req.expr I n with
-  | .ok result => certifiedIntervalJson result
+  if req.taylorDepth != 10 then
+    evalFailureJson (.invalidConfiguration
+      "checked Rational integration has fixed Taylor depth 10")
+  else match resolveBackend req.backend .integration with
   | .error err => evalFailureJson err
+  | .ok backend =>
+    match integrateIntervalChecked req.expr I n with
+    | .ok result => Json.mkObj [
+        ("status", "certified"),
+        ("backend", concreteBackendName backend),
+        ("lo", toJson (toRawRat result.lo)),
+        ("hi", toJson (toRawRat result.hi))]
+    | .error err => evalFailureJson err
 
 /-! ## Root Finding (Computable) -/
 
@@ -895,24 +1016,32 @@ def bisectRootChecked (e : LExpr) (I : IntervalRat) (maxIter : Nat) (tol : ℚ) 
 /-- Handle root finding request -/
 def handleFindRoots (req : FindRootsRequest) : Json :=
   let I := req.interval.toInterval
-  match bisectRootChecked req.expr I req.maxIter req.tolerance.toRat with
+  if req.taylorDepth != 10 then
+    evalFailureJson (.invalidConfiguration
+      "checked Rational bisection has fixed Taylor depth 10")
+  else match resolveBackend req.backend .rootFinding with
   | .error err => evalFailureJson err
-  | .ok result =>
-    let roots := result.intervals.map fun (J, status) =>
+  | .ok backend =>
+    match bisectRootChecked req.expr I req.maxIter req.tolerance.toRat with
+    | .error err => evalFailureJson err
+    | .ok result =>
+      let roots := result.intervals.map fun (J, status) =>
+        Json.mkObj [
+          ("lo", toJson (toRawRat J.lo)),
+          ("hi", toJson (toRawRat J.hi)),
+          ("status", toJson status)]
       Json.mkObj [
-        ("lo", toJson (toRawRat J.lo)),
-        ("hi", toJson (toRawRat J.hi)),
-        ("status", toJson status)]
-    Json.mkObj [
-      ("status", "certified"),
-      ("roots", Json.arr roots.toArray),
-      ("iterations", toJson result.iterations)]
+        ("status", "certified"),
+        ("backend", concreteBackendName backend),
+        ("roots", Json.arr roots.toArray),
+        ("iterations", toJson result.iterations)]
 
 /-- Handle unique root finding request via Newton contraction.
 
     Checks if Newton contraction holds, indicating a unique root exists.
     This is a stronger result than bisection (which only proves existence). -/
-private def handleFindUniqueRootSupported (req : FindUniqueRootRequest) : Json :=
+private def handleFindUniqueRootSupported (req : FindUniqueRootRequest)
+    (backend : ConcreteBackend) : Json :=
   let I := req.interval.toInterval
   let cfg : EvalConfig := { taylorDepth := req.taylorDepth }
 
@@ -926,6 +1055,8 @@ private def handleFindUniqueRootSupported (req : FindUniqueRootRequest) : Json :
   | none =>
     -- Newton step failed (derivative contains 0 or other issue)
     Json.mkObj [
+      ("status", "inconclusive"),
+      ("backend", concreteBackendName backend),
       ("unique", toJson false),
       ("reason", "newton_step_failed"),
       ("interval", Json.mkObj [
@@ -937,6 +1068,8 @@ private def handleFindUniqueRootSupported (req : FindUniqueRootRequest) : Json :
     if contracts then
       -- Contraction! Unique root exists in N (and hence in I)
       Json.mkObj [
+        ("status", "certified"),
+        ("backend", concreteBackendName backend),
         ("unique", toJson true),
         ("reason", "newton_contraction"),
         ("interval", Json.mkObj [
@@ -948,6 +1081,8 @@ private def handleFindUniqueRootSupported (req : FindUniqueRootRequest) : Json :
       -- Newton step succeeded but didn't contract
       -- Still may have a root, but uniqueness not proven
       Json.mkObj [
+        ("status", "inconclusive"),
+        ("backend", concreteBackendName backend),
         ("unique", toJson false),
         ("reason", "no_contraction"),
         ("interval", Json.mkObj [
@@ -960,25 +1095,30 @@ private def handleFindUniqueRootSupported (req : FindUniqueRootRequest) : Json :
 Newton/AD correctness theorem, and reject any partial-domain failure first. -/
 def handleFindUniqueRoot (req : FindUniqueRootRequest) : Json :=
   let I := req.interval.toInterval
-  if !req.expr.usesOnlyVar0 then
-    evalFailureJson (.unsupportedBackend
+  match resolveBackend req.backend .rootFinding with
+  | .error err => evalFailureJson err
+  | .ok backend => if !req.expr.usesOnlyVar0 then
+    evalFailureJson (.unsupportedFeature
       "unique-root Newton backend requires an expression using only variable 0")
   else if !req.expr.checkSupported then
-    evalFailureJson (.unsupportedBackend
+    evalFailureJson (.unsupportedFeature
       "unique-root Newton backend supports only const/var/add/mul/neg/exp/sin/cos")
   else
     match evalIntervalChecked req.expr (fun _ => I) with
     | .error err => evalFailureJson err
-    | .ok _ => handleFindUniqueRootSupported req
+    | .ok _ => handleFindUniqueRootSupported req backend
 
 /-- Handle adaptive verification request using optimization -/
 def handleVerifyAdaptive (req : VerifyAdaptiveRequest) : Json :=
   let box : Box := req.box.toList.map RawInterval.toInterval
-  let cfg : GlobalOptConfig := {
-    maxIterations := req.maxIters,
-    tolerance := req.tolerance.toRat,
-    useMonotonicity := true,
+  let cfg : BackendGlobalOptConfig := {
+    backend := req.backend
     taylorDepth := req.taylorDepth
+    dyadicPrecision := req.precision
+    maxNoiseSymbols := req.maxNoiseSymbols
+    maxIterations := req.maxIters
+    tolerance := req.tolerance.toRat
+    useMonotonicity := false
   }
   let bound := req.bound.toRat
 
@@ -989,15 +1129,17 @@ def handleVerifyAdaptive (req : VerifyAdaptiveRequest) : Json :=
   else
     Expr.add req.expr (Expr.neg (Expr.const bound))  -- f - c
 
-  match globalMinimizeRationalChecked testExpr box cfg with
+  match globalMinimizeWith cfg testExpr box with
   | .error err => Json.mkObj [
-      ("status", "domain_error"),
+      ("status", evalFailureStatus err),
       ("verified", false),
       ("error", evalErrorToJson err)]
-  | .ok result =>
+  | .ok outcome =>
+    let result := outcome.result
     let verified := decide (result.bound.lo ≥ 0)
     Json.mkObj [
       ("status", "certified"),
+      ("backend", concreteBackendName outcome.backend),
       ("verified", toJson verified),
       ("minValue", toJson (toRawRat result.bound.lo)),
       ("remainingBoxes", toJson result.remainingBoxes.length)]

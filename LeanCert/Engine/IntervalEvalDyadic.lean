@@ -54,15 +54,12 @@ open LeanCert.Core
 * `precision` - Minimum exponent for outward rounding. A value of -53 gives
   IEEE double-like precision (~15 decimal digits). Use -100 for higher precision.
 * `taylorDepth` - Number of Taylor terms for transcendental functions.
-* `roundAfterOps` - Round after this many operations (0 = after every op).
 -/
 structure DyadicConfig where
   /-- Minimum exponent (higher = coarser). -53 ≈ IEEE double precision. -/
   precision : Int := -53
   /-- Number of Taylor series terms for transcendental functions -/
   taylorDepth : Nat := 10
-  /-- Round after this many arithmetic operations (0 = always) -/
-  roundAfterOps : Nat := 0
   deriving Repr, DecidableEq
 
 /-- Default configuration with IEEE double-like precision -/
@@ -386,6 +383,85 @@ theorem checkDomainValidDyadic_correct (e : Expr) (ρ : IntervalDyadicEnv) (cfg 
   | sqrt e ih => simp only [checkDomainValidDyadic, evalDomainValidDyadic]; exact ih
   | namedConst _ => intro; trivial
 
+/-- Evaluate an expression and its domain-validity bit in one traversal.
+The value component is exactly `evalIntervalDyadic`; the validity component is
+exactly `checkDomainValidDyadic`. -/
+def evalIntervalDyadicCached (e : Expr) (ρ : IntervalDyadicEnv)
+    (cfg : DyadicConfig := {}) : IntervalDyadic × Bool :=
+  match e with
+  | .const q =>
+      (IntervalDyadic.ofIntervalRat (IntervalRat.singleton q) cfg.precision, true)
+  | .var idx => (ρ idx, true)
+  | .add e₁ e₂ =>
+      let r₁ := evalIntervalDyadicCached e₁ ρ cfg
+      let r₂ := evalIntervalDyadicCached e₂ ρ cfg
+      ((IntervalDyadic.add r₁.1 r₂.1).roundOut cfg.precision, r₁.2 && r₂.2)
+  | .mul e₁ e₂ =>
+      let r₁ := evalIntervalDyadicCached e₁ ρ cfg
+      let r₂ := evalIntervalDyadicCached e₂ ρ cfg
+      ((IntervalDyadic.mul r₁.1 r₂.1).roundOut cfg.precision, r₁.2 && r₂.2)
+  | .neg e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (IntervalDyadic.neg r.1, r.2)
+  | .inv e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      let I := r.1.toIntervalRat
+      (invIntervalDyadic r.1 cfg, r.2 && (decide (I.lo > 0) || decide (I.hi < 0)))
+  | .exp e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (expIntervalDyadic r.1 cfg, r.2)
+  | .sin e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (sinIntervalDyadic r.1 cfg, r.2)
+  | .cos e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (cosIntervalDyadic r.1 cfg, r.2)
+  | .log e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (logIntervalDyadic r.1 cfg, r.2 && decide (r.1.toIntervalRat.lo > 0))
+  | .atan e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (atanIntervalDyadic r.1 cfg, r.2)
+  | .arsinh e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (arsinhIntervalDyadic r.1 cfg, r.2)
+  | .atanh e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      let I := r.1.toIntervalRat
+      (atanhIntervalDyadic r.1 cfg,
+        r.2 && decide (I.lo > -1) && decide (I.hi < 1))
+  | .sinc e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (sincIntervalDyadic r.1 cfg, r.2)
+  | .erf e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (erfIntervalDyadic r.1 cfg, r.2)
+  | .sinh e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (sinhIntervalDyadic r.1 cfg, r.2)
+  | .cosh e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (coshIntervalDyadic r.1 cfg, r.2)
+  | .tanh e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (tanhIntervalDyadic r.1 cfg, r.2)
+  | .sqrt e =>
+      let r := evalIntervalDyadicCached e ρ cfg
+      (sqrtIntervalDyadic r.1 cfg, r.2)
+  | .namedConst c => (IntervalDyadic.ofIntervalRat c.interval cfg.precision, true)
+
+theorem evalIntervalDyadicCached_fst (e : Expr) (ρ : IntervalDyadicEnv)
+    (cfg : DyadicConfig := {}) :
+    (evalIntervalDyadicCached e ρ cfg).1 = evalIntervalDyadic e ρ cfg := by
+  induction e <;> simp [evalIntervalDyadicCached, evalIntervalDyadic, *]
+
+theorem evalIntervalDyadicCached_snd (e : Expr) (ρ : IntervalDyadicEnv)
+    (cfg : DyadicConfig := {}) :
+    (evalIntervalDyadicCached e ρ cfg).2 = checkDomainValidDyadic e ρ cfg := by
+  induction e <;>
+    simp [evalIntervalDyadicCached, checkDomainValidDyadic,
+      evalIntervalDyadicCached_fst, *]
+
 /-- Diagnose the first failed Dyadic domain check. -/
 def diagnoseEvalIntervalDyadicFailure (e : Expr) (ρ : IntervalDyadicEnv)
     (cfg : DyadicConfig := {}) : EvalError :=
@@ -421,8 +497,9 @@ termination_by e
 evaluator are never exposed after a failed domain check. -/
 def evalIntervalDyadicChecked (e : Expr) (ρ : IntervalDyadicEnv)
     (cfg : DyadicConfig := {}) : EvalResult IntervalDyadic :=
-  if checkDomainValidDyadic e ρ cfg then
-    .ok (evalIntervalDyadic e ρ cfg)
+  let cached := evalIntervalDyadicCached e ρ cfg
+  if cached.2 then
+    .ok cached.1
   else
     .error (diagnoseEvalIntervalDyadicFailure e ρ cfg)
 
@@ -706,13 +783,30 @@ theorem evalIntervalDyadicChecked_correct (e : Expr)
     (hsuccess : evalIntervalDyadicChecked e ρ_dyad cfg = .ok result) :
     Expr.eval ρ_real e ∈ result := by
   unfold evalIntervalDyadicChecked at hsuccess
-  split at hsuccess
-  · rename_i hcheck
-    injection hsuccess with hresult
+  let cached := evalIntervalDyadicCached e ρ_dyad cfg
+  cases hvalid : cached.2 with
+  | false =>
+    have : Except.error (diagnoseEvalIntervalDyadicFailure e ρ_dyad cfg) =
+        Except.ok result := by
+      simpa [cached, hvalid] using hsuccess
+    contradiction
+  | true =>
+    have hsuccess' : (Except.ok cached.1 : EvalResult IntervalDyadic) = Except.ok result := by
+      simpa [cached, hvalid] using hsuccess
+    injection hsuccess' with hresult
     subst result
-    exact evalIntervalDyadic_correct_withInv e (Expr.supportedWithInv e)
+    have hcheck : checkDomainValidDyadic e ρ_dyad cfg = true := by
+      calc
+        checkDomainValidDyadic e ρ_dyad cfg =
+            (evalIntervalDyadicCached e ρ_dyad cfg).2 :=
+          (evalIntervalDyadicCached_snd e ρ_dyad cfg).symm
+        _ = cached.2 := rfl
+        _ = true := hvalid
+    have hsound := evalIntervalDyadic_correct_withInv e (Expr.supportedWithInv e)
       ρ_real ρ_dyad hρ cfg hprec (checkDomainValidDyadic_correct e ρ_dyad cfg hcheck)
-  · contradiction
+    change Expr.eval ρ_real e ∈ (evalIntervalDyadicCached e ρ_dyad cfg).1
+    rw [evalIntervalDyadicCached_fst e ρ_dyad cfg]
+    exact hsound
 
 /-! ### Convenience Functions -/
 

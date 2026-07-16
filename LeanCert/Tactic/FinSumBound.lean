@@ -302,7 +302,7 @@ private def finSumBoundIccCore (fsGoal : FinSumGoal) (prec : Int) (taylorDepth :
     -- Build configuration
     let precExpr := toExpr prec
     let depthExpr := toExpr taylorDepth
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     -- Precision proof: prec ≤ 0
     let precLeZeroTy ← mkAppM ``LE.le #[precExpr, toExpr (0 : Int)]
@@ -365,7 +365,7 @@ private def finSumBoundListCore (fsGoal : FinSumGoalList) (prec : Int) (taylorDe
     -- Build configuration
     let precExpr := toExpr prec
     let depthExpr := toExpr taylorDepth
-    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr, toExpr (0 : Nat)]
+    let cfgExpr ← mkAppM ``DyadicConfig.mk #[precExpr, depthExpr]
 
     -- Precision proof
     let precLeZeroTy ← mkAppM ``LE.le #[precExpr, toExpr (0 : Int)]

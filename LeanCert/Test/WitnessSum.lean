@@ -60,12 +60,12 @@ theorem cachedConstEval_correct (k : Nat) (cfg : DyadicConfig) :
 
 example :
     checkWitnessSumUpperBoundCached constCache cachedConstEval 1 10 11
-      { precision := -53, taylorDepth := 10, roundAfterOps := 0 } = true := by
+      { precision := -53, taylorDepth := 10 } = true := by
   native_decide
 
 example : ∑ _k ∈ Finset.Icc 1 10, (1 : ℝ) ≤ 11 :=
   verify_witness_sum_upper_cached (fun _ => 1) constCache cachedConstEval 1 10 11
-    { precision := -53, taylorDepth := 10, roundAfterOps := 0 }
+    { precision := -53, taylorDepth := 10 }
     (fun k _ _ => cachedConstEval_correct k _)
     (by native_decide)
 
@@ -130,14 +130,14 @@ example : ∑ k ∈ Finset.Icc (1 : ℕ) 100, (↑k : ℝ) ≤ 5051 := by
 -- Direct use of verify_witness_sum_upper (no tactic)
 example : ∑ _k ∈ Finset.Icc 1 10, (1 : ℝ) ≤ 11 :=
   verify_witness_sum_upper (fun _ => 1) constEval 1 10 11
-    { precision := -53, taylorDepth := 10, roundAfterOps := 0 }
+    { precision := -53, taylorDepth := 10 }
     (fun _ _ _ => constEval_correct _ _)
     (by native_decide)
 
 -- Direct use of verify_witness_sum_lower (no tactic)
 example : (1 : ℝ) ≤ ∑ _k ∈ Finset.Icc 1 10, (1 : ℝ) := by
   have h := verify_witness_sum_lower (fun _ => (1 : ℝ)) constEval 1 10 1
-    { precision := -53, taylorDepth := 10, roundAfterOps := 0 }
+    { precision := -53, taylorDepth := 10 }
     (fun _ _ _ => constEval_correct _ _)
     (by native_decide)
   exact_mod_cast h

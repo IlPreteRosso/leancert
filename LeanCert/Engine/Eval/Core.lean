@@ -741,61 +741,6 @@ def evalIntervalCore (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : In
   | Expr.sqrt e => IntervalRat.sqrtIntervalTightPrec (evalIntervalCore e ρ cfg)
   | Expr.namedConst c => c.interval
 
-/-- Computable interval evaluator with division support.
-
-    This extends evalIntervalCore to handle inv/div by computing interval inverse
-    when the denominator is bounded away from zero. Returns wide bounds when
-    the denominator interval contains zero.
-
-    WARNING: This evaluator has NO correctness theorem and the wide fallback
-    bounds for zero-straddling denominators are NOT sound enclosures (1/x is
-    unbounded near 0). It exists only for unverified search/bridge heuristics;
-    never use it on a proof path — use `evalInterval?` (which fails on
-    zero-straddling denominators) or `evalIntervalCore` instead. -/
-def evalIntervalCoreWithDiv (e : Expr) (ρ : IntervalEnv) (cfg : EvalConfig := {}) : IntervalRat :=
-  match e with
-  | Expr.const q => IntervalRat.singleton q
-  | Expr.var idx => ρ idx
-  | Expr.add e₁ e₂ => IntervalRat.add (evalIntervalCoreWithDiv e₁ ρ cfg) (evalIntervalCoreWithDiv e₂ ρ cfg)
-  | Expr.mul e₁ e₂ => IntervalRat.mul (evalIntervalCoreWithDiv e₁ ρ cfg) (evalIntervalCoreWithDiv e₂ ρ cfg)
-  | Expr.neg e => IntervalRat.neg (evalIntervalCoreWithDiv e ρ cfg)
-  | Expr.inv e₁ =>
-      let J := evalIntervalCoreWithDiv e₁ ρ cfg
-      -- Check if interval is bounded away from zero
-      if J.lo > 0 then
-        -- Positive interval: [a,b]⁻¹ = [1/b, 1/a]
-        let invHi := 1 / J.lo
-        let invLo := 1 / J.hi
-        if h : invLo ≤ invHi then { lo := invLo, hi := invHi, le := h }
-        else { lo := invHi, hi := invLo, le := by linarith }
-      else if J.hi < 0 then
-        -- Negative interval: [a,b]⁻¹ = [1/b, 1/a] (note: a < b < 0 so 1/b > 1/a)
-        let invHi := 1 / J.lo
-        let invLo := 1 / J.hi
-        if h : invLo ≤ invHi then { lo := invLo, hi := invHi, le := h }
-        else { lo := invHi, hi := invLo, le := by linarith }
-      else
-        -- Legacy heuristic sentinel. This is not an enclosure of an unbounded
-        -- reciprocal image and must never be exposed as a certified result.
-        ⟨-1000000000000000000000000000000, 1000000000000000000000000000000, by norm_num⟩
-  | Expr.exp e => IntervalRat.expComputable (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.sin e => IntervalRat.sinComputableReduced (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.cos e => IntervalRat.cosComputableReduced (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.log e =>
-      -- Computable log using Taylor series via atanh reduction
-      let arg := evalIntervalCoreWithDiv e ρ cfg
-      IntervalRat.logComputable arg cfg.taylorDepth
-  | Expr.atan e => atanInterval (evalIntervalCoreWithDiv e ρ cfg)
-  | Expr.arsinh e => arsinhInterval (evalIntervalCoreWithDiv e ρ cfg)
-  | Expr.atanh _ => ⟨-100, 100, by norm_num⟩  -- Legacy heuristic sentinel; not certified
-  | Expr.sinc _ => ⟨-1, 1, by norm_num⟩  -- sinc is bounded by [-1, 1]
-  | Expr.erf e => erfInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.sinh e => sinhInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.cosh e => coshInterval (evalIntervalCoreWithDiv e ρ cfg) cfg.taylorDepth
-  | Expr.tanh e => tanhInterval (evalIntervalCoreWithDiv e ρ cfg)  -- Tight bounds: [-1, 1]
-  | Expr.sqrt e => IntervalRat.sqrtIntervalTightPrec (evalIntervalCoreWithDiv e ρ cfg)
-  | Expr.namedConst c => c.interval
-
 /-- A real environment is contained in an interval environment -/
 def envMem (ρ_real : Nat → ℝ) (ρ_int : IntervalEnv) : Prop :=
   ∀ i, ρ_real i ∈ ρ_int i

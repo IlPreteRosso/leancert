@@ -20,6 +20,7 @@ import LeanCert.Core.IntervalDyadic
 
 -- Numerics modules
 import LeanCert.Engine.IntervalEval
+import LeanCert.Engine.Eval.Backend
 import LeanCert.Engine.IntervalEvalReal
 import LeanCert.Engine.AD
 import LeanCert.Engine.Integrate
@@ -52,6 +53,7 @@ import LeanCert.Engine.ChebyshevTheta
 import LeanCert.Engine.Optimization.Box
 import LeanCert.Engine.Optimization.Gradient
 import LeanCert.Engine.Optimization.Global
+import LeanCert.Engine.Optimization.Backend
 import LeanCert.Engine.Optimization.Guided
 
 -- Affine Arithmetic
@@ -108,6 +110,7 @@ import LeanCert.ML.Distillation
 import LeanCert.ML.Symbolic.ReLU
 import LeanCert.ML.Symbolic.Sigmoid
 import LeanCert.ML.Transformer
+import LeanCert.ML.ErfGELU
 import LeanCert.ML.Softmax
 import LeanCert.ML.Attention
 import LeanCert.ML.LayerNormAffine

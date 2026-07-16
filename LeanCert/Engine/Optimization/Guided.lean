@@ -23,13 +23,14 @@ The key insight: finding a good upper bound early allows aggressive pruning.
    rigorously evaluate f(x_guess) using interval arithmetic to get a certified
    upper bound U.
 
-3. **Pruning Phase**: Initialize branch-and-bound with upper bound U. Any box B
-   with lower bound L > U is immediately pruned.
+3. **Certified initialization**: Initialize checked branch-and-bound with the
+   candidate's rigorous upper bound while retaining every box needed by the
+   partition-based lower-bound certificate.
 
 ## Performance Impact
 
-For typical optimization problems, this approach can prune 90%+ of the search
-space on the first iteration, dramatically reducing total computation.
+The heuristic can sharply improve the returned feasible upper bound. The
+checked loop's lower-bound proof remains independent of Float guidance.
 
 ## Main definitions
 
@@ -130,10 +131,15 @@ def certifyCandidate (e : Expr) (B : Box) (pt : Nat → Float) (cfg : GlobalOptC
   let env := floatEnvToRatEnvClamped pt B
   evalIntervalCore e env { taylorDepth := cfg.taylorDepth }
 
-/-- Certify with division support. -/
-def certifyCandidateDiv (e : Expr) (B : Box) (pt : Nat → Float) (cfg : GlobalOptConfig) : IntervalRat :=
-  let env := floatEnvToRatEnvClamped pt B
-  evalIntervalCoreWithDiv e env { taylorDepth := cfg.taylorDepth }
+/-- Certify with division support. Partial domains are reported explicitly. -/
+def certifyCandidateDiv (e : Expr) (B : Box) (pt : Nat → Float) (cfg : GlobalOptConfig) :
+    EvalResult IntervalRat :=
+  if cfg.taylorDepth != 10 then
+    .error (.invalidConfiguration
+      "checked Rational candidate certification has fixed Taylor depth 10")
+  else
+    let env := floatEnvToRatEnvClamped pt B
+    evalIntervalChecked e env
 
 /-! ### Guided optimization -/
 
@@ -180,26 +186,25 @@ def globalMinimizeGuided (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) : Gl
 /--
 Global minimization with Float guidance and division support.
 -/
-def globalMinimizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) : GlobalResult :=
-  let I_root := evalOnBoxCoreDiv e B cfg.toGlobalOptConfig
-
-  let (mcBest, mcVal) := findBestCandidate e B (samples := cfg.heuristicSamples) (seed := cfg.seed)
-
-  let (heuristicBest, _) :=
-    if cfg.useGridSearch && B.length ≤ 2 then
-      let (gridBest, gridVal) := gridSearch e B (pointsPerDim := cfg.gridPointsPerDim)
-      if gridVal < mcVal then (gridBest, gridVal) else (mcBest, mcVal)
-    else
-      (mcBest, mcVal)
-
-  let certifiedInterval := certifyCandidateDiv e B heuristicBest cfg.toGlobalOptConfig
-
-  let initialBestLB := I_root.lo
-  let initialBestUB := min I_root.hi certifiedInterval.hi
-  let initialBestBox := B
-  let initialQueue : List (ℚ × Box) := [(I_root.lo, B)]
-
-  minimizeLoopCoreDiv e cfg.toGlobalOptConfig initialQueue initialBestLB initialBestUB initialBestBox cfg.maxIterations
+def globalMinimizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) :
+    EvalResult GlobalResult :=
+  if cfg.taylorDepth != 10 then
+    .error (.invalidConfiguration
+      "checked Rational guided optimization has fixed Taylor depth 10")
+  else do
+    let root ← evalOnBoxRationalChecked e B
+    let (mcBest, mcVal) := findBestCandidate e B
+      (samples := cfg.heuristicSamples) (seed := cfg.seed)
+    let heuristicBest :=
+      if cfg.useGridSearch && B.length ≤ 2 then
+        let (gridBest, gridVal) := gridSearch e B
+          (pointsPerDim := cfg.gridPointsPerDim)
+        if gridVal < mcVal then gridBest else mcBest
+      else mcBest
+    let candidate ← certifyCandidateDiv e B heuristicBest cfg.toGlobalOptConfig
+    minimizeLoopCheckedWith (evalOnBoxRationalChecked e) cfg.maxIterations
+      cfg.tolerance root.lo [(root.lo, B)] []
+      (min root.hi candidate.hi) B cfg.maxIterations
 
 /--
 Global maximization with Float guidance.
@@ -215,9 +220,12 @@ def globalMaximizeGuided (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) : Gl
 /--
 Global maximization with Float guidance and division support.
 -/
-def globalMaximizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) : GlobalResult :=
-  let result := globalMinimizeGuidedDiv (Expr.neg e) B cfg
-  { bound := { lo := -result.bound.hi
+def globalMaximizeGuidedDiv (e : Expr) (B : Box) (cfg : GuidedOptConfig := {}) :
+    EvalResult GlobalResult :=
+  do
+    let result ← globalMinimizeGuidedDiv (Expr.neg e) B cfg
+    return {
+    bound := { lo := -result.bound.hi
                hi := -result.bound.lo
                bestBox := result.bound.bestBox
                iterations := result.bound.iterations }

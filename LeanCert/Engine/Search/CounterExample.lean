@@ -137,15 +137,15 @@ def findViolation (e : Expr) (domain : Box) (limit : ℚ)
 Variant of `findViolation` with division support.
 -/
 def findViolationDiv (e : Expr) (domain : Box) (limit : ℚ)
-    (cfg : GlobalOptConfig := {}) : Option CounterExample :=
-  let result := globalMaximizeCoreDiv e domain cfg
+    (cfg : GlobalOptConfig := {}) : EvalResult (Option CounterExample) := do
+  let result ← globalMaximizeRationalChecked e domain cfg
 
   let max_lo := result.bound.lo
   let max_hi := result.bound.hi
   let best_box := result.bound.bestBox
 
   if max_lo > limit then
-    some {
+    return some {
       point := CounterExample.boxMidpoint best_box
       valueLo := max_lo
       valueHi := max_hi
@@ -154,7 +154,7 @@ def findViolationDiv (e : Expr) (domain : Box) (limit : ℚ)
       iterations := result.bound.iterations
     }
   else if max_hi > limit then
-    some {
+    return some {
       point := CounterExample.boxMidpoint best_box
       valueLo := max_lo
       valueHi := max_hi
@@ -163,7 +163,7 @@ def findViolationDiv (e : Expr) (domain : Box) (limit : ℚ)
       iterations := result.bound.iterations
     }
   else
-    none
+    return none
 
 /-! ### Lower bound violation (limit ≤ f(x)) -/
 
@@ -217,15 +217,15 @@ def findViolationLower (e : Expr) (domain : Box) (limit : ℚ)
 Variant with division support.
 -/
 def findViolationLowerDiv (e : Expr) (domain : Box) (limit : ℚ)
-    (cfg : GlobalOptConfig := {}) : Option CounterExample :=
-  let result := globalMinimizeCoreDiv e domain cfg
+    (cfg : GlobalOptConfig := {}) : EvalResult (Option CounterExample) := do
+  let result ← globalMinimizeRationalChecked e domain cfg
 
   let min_lo := result.bound.lo
   let min_hi := result.bound.hi
   let best_box := result.bound.bestBox
 
   if min_hi < limit then
-    some {
+    return some {
       point := CounterExample.boxMidpoint best_box
       valueLo := min_lo
       valueHi := min_hi
@@ -234,7 +234,7 @@ def findViolationLowerDiv (e : Expr) (domain : Box) (limit : ℚ)
       iterations := result.bound.iterations
     }
   else if min_lo < limit then
-    some {
+    return some {
       point := CounterExample.boxMidpoint best_box
       valueLo := min_lo
       valueHi := min_hi
@@ -243,7 +243,7 @@ def findViolationLowerDiv (e : Expr) (domain : Box) (limit : ℚ)
       iterations := result.bound.iterations
     }
   else
-    none
+    return none
 
 /-! ### Strict bound violations -/
 

@@ -24,18 +24,15 @@ open LeanCert.Engine.Optimization
 
 /-! ## 1. The "Division by Zero" Singularity
 
-The interval evaluator `evalIntervalCoreWithDiv` has a fallback for intervals containing 0.
-It should return a massive safe interval rather than crashing or proving False.
+The checked interval evaluator rejects reciprocal domains containing zero.
 -/
 
 def I_cross_zero : IntervalRat := ⟨-1, 1, by norm_num⟩
 
--- 1/x on [-1, 1] is undefined at 0. The system should return safe wide bounds.
--- Test that evalIntervalCoreWithDiv gives very wide bounds for inv at zero.
-theorem inv_zero_safe :
-    let result := evalIntervalCoreWithDiv (Expr.inv (Expr.var 0)) (fun _ => I_cross_zero) {}
-    -- The implementation should return very wide bounds for zero division
-    result.lo ≤ -1000000 ∧ 1000000 ≤ result.hi := by
+theorem inv_zero_rejected :
+    (match evalIntervalChecked (Expr.inv (Expr.var 0)) (fun _ => I_cross_zero) with
+      | .error _ => true
+      | .ok _ => false) = true := by
   native_decide
 
 /-! ## 2. The "Square Root of Negative" Edge Case
@@ -107,19 +104,20 @@ theorem x_cube_spans_zero :
 /-! ## 4. The "Sinc" Singularity at 0
 
 sin(x)/x has a removable singularity at 0.
-`Expr.div (sin x) x` will give wide bounds at 0, but `Expr.sinc x` is safe.
+Checked evaluation rejects `Expr.div (sin x) x` on a box containing 0;
+`Expr.sinc x` represents the removable extension and is safe there.
 
 NOTE: sinc is not in ExprSupportedCore, so we test using ExprSupportedWithInv
 or direct evaluation.
 -/
 
--- Method 1: Explicit division (unsafe at 0) - gives wide bounds
+-- Method 1: Explicit division is rejected at zero.
 def exprSinDivX : Expr := Expr.mul (Expr.sin (Expr.var 0)) (Expr.inv (Expr.var 0))
 
-theorem sin_div_x_wide_at_zero :
-    let result := evalIntervalCoreWithDiv exprSinDivX (fun _ => I_cross_zero) {}
-    -- Should give wide fallback bounds due to 1/x at 0
-    result.hi > 1000 ∨ result.lo < -1000 := by
+theorem sin_div_x_rejected_at_zero :
+    (match evalIntervalChecked exprSinDivX (fun _ => I_cross_zero) with
+      | .error _ => true
+      | .ok _ => false) = true := by
   native_decide
 
 -- Method 2: Sinc intrinsic (safe at 0) - tested via direct evaluation
@@ -129,10 +127,11 @@ def exprSinc : Expr := Expr.sinc (Expr.var 0)
 theorem sinc_at_zero : Expr.eval (fun _ => 0) exprSinc = 1 := by
   simp only [exprSinc, Expr.eval_sinc, Expr.eval_var, Real.sinc_zero]
 
--- Verify sinc is bounded using evalIntervalCoreWithDiv (which supports sinc)
+-- Verify sinc is bounded using the checked evaluator.
 theorem sinc_bounded_check :
-    let result := evalIntervalCoreWithDiv exprSinc (fun _ => I_cross_zero) {}
-    result.lo ≥ -2 ∧ result.hi ≤ 2 := by
+    (match evalIntervalChecked exprSinc (fun _ => I_cross_zero) with
+    | .ok result => decide (result.lo ≥ -2 ∧ result.hi ≤ 2)
+    | .error _ => false) = true := by
   native_decide
 
 /-! ## 5. Precision Stress Test (Deep Polynomial)

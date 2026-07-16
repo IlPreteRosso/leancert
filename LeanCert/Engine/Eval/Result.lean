@@ -24,6 +24,8 @@ inductive EvalError where
   | logNonpositive (interval : IntervalRat)
   | atanhOutsideUnitBall (interval : IntervalRat)
   | unsupportedBackend (operation : String)
+  | unsupportedFeature (feature : String)
+  | invalidConfiguration (message : String)
   | nestedFailure (operation : String) (cause : EvalError)
   deriving Repr
 
